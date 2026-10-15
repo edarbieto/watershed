@@ -277,7 +277,7 @@ impl CallbackState {
                 && (playing || self.fade > 0.0)
             {
                 voice.mix_into(self.position, mix);
-                for frame in mix.chunks_exact_mut(2) {
+                for frame in mix.as_chunks_mut::<2>().0 {
                     self.fade = if playing {
                         (self.fade + self.fade_step).min(1.0)
                     } else {
@@ -297,7 +297,7 @@ impl CallbackState {
                 }
             }
 
-            for (dst, src) in out.chunks_exact_mut(channels).zip(mix.chunks_exact(2)) {
+            for (dst, src) in out.chunks_exact_mut(channels).zip(mix.as_chunks::<2>().0) {
                 // Hard clip as a last line of defense; stems can sum above full scale.
                 let left = src[0].clamp(-1.0, 1.0);
                 let right = src[1].clamp(-1.0, 1.0);
