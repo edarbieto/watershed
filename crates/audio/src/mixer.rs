@@ -50,7 +50,13 @@ impl Voice {
                 (target[1] - start[1]) / frames as f32,
             ];
             let src = &track.samples[position * 2..(position + available) * 2];
-            for (i, (o, s)) in out.chunks_exact_mut(2).zip(src.chunks_exact(2)).enumerate() {
+            for (i, (o, s)) in out
+                .as_chunks_mut::<2>()
+                .0
+                .iter_mut()
+                .zip(src.as_chunks::<2>().0)
+                .enumerate()
+            {
                 // Ends exactly on the target so the next block continues seamlessly.
                 let t = (i + 1) as f32;
                 o[0] += s[0] * (start[0] + step[0] * t);
