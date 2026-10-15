@@ -10,8 +10,8 @@ models and plays them in a multitrack player for practice. Read these first:
 
 ## Working with the user
 
-- Chat with the user in **Spanish**. Everything in the repo is **English**: code,
-  comments, docs, commit messages, UI text.
+- Reply in the language the user writes in. Everything in the repo is **English**:
+  code, comments, docs, commit messages, UI text.
 - The user's Rust/egui experience is medium-low and ML is new to them (checkpoints,
   GGUF, ONNX, PyTorch). Claude writes most of the code; explain ML and audio concepts
   plainly when they come up.

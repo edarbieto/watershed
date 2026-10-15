@@ -26,16 +26,21 @@ Last updated: 2026-10-15.
   Yamaha AG03. Does it sound right? Any clicks or dropouts while playing, seeking,
   pausing or changing faders? How does seeking feel? What is missing or annoying in
   the UI?
-- **What exactly is the "overload" when loading stems?** CPU at 100%, high RAM, the UI
-  freezing, an audio glitch, or a warning from Windows or the device? See the
-  measurement below.
 - Is it OK that the pan slider has no label (it shows its value on hover)?
 
 ## Observations to investigate
 
 ### Load spike when opening stems
 
-Reported by the user. Measured on Windows (16 logical CPUs) with 7 MVSEP stems of
+Reported by the user: it only happened with `cargo run`, not with the release build.
+
+**Cause, fixed:** `cargo run` builds in debug, and only dependencies were optimized
+in the dev profile. Our own decoding and mixing code ran unoptimized: decoding the
+7 stems took 6.4 s instead of 1.7 s, with 7 threads saturating the CPU meanwhile.
+`Cargo.toml` now builds `watershed-dsp` and `watershed-audio` at `opt-level = 3`
+in dev too; the debug app now loads in ~1 s like the release build.
+
+The rest of this section still applies to the release build. Measured on Windows (16 logical CPUs) with 7 MVSEP stems of
 3:35, resampled 44.1 → 48 kHz:
 
 | | |
@@ -45,7 +50,7 @@ Reported by the user. Measured on Windows (16 logical CPUs) with 7 MVSEP stems o
 | RAM | peaks at 1.07 GB, settles at 720 MB |
 | Idle after load | 0% CPU |
 
-Causes, from the code:
+Remaining costs, from the code (worth improving, not urgent):
 - `loader.rs` spawns **one thread per file**, all decoding and resampling at the same
   time. With many stems this saturates the CPU and can starve the audio thread or the
   UI. Fix: a bounded pool (e.g. `available_parallelism() / 2`) or decode sequentially.

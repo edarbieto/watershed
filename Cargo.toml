@@ -43,3 +43,11 @@ strip = true
 # Keep DSP and model code usable in debug builds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Our own hot paths too: unoptimized decoding and mixing overload the CPU and can
+# make the audio callback miss its deadline. Debug assertions stay on.
+[profile.dev.package.watershed-dsp]
+opt-level = 3
+
+[profile.dev.package.watershed-audio]
+opt-level = 3
