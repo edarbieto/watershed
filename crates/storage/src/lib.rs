@@ -1,1 +1,92 @@
 //! Sessions, model cache and app configuration on disk.
+
+use std::path::{Path, PathBuf};
+
+use directories::ProjectDirs;
+use serde::{Deserialize, Serialize};
+
+fn project_dirs() -> Option<ProjectDirs> {
+    ProjectDirs::from("", "", "Watershed")
+}
+
+/// User settings, stored as `config.toml` in the OS config folder.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Config {
+    /// Id of the last selected output device.
+    pub output_device: Option<String>,
+    /// Folder the last song was opened from, to start file dialogs there.
+    pub last_folder: Option<PathBuf>,
+}
+
+impl Config {
+    pub fn path() -> Option<PathBuf> {
+        project_dirs().map(|d| d.config_dir().join("config.toml"))
+    }
+
+    /// Loads the config, falling back to defaults if it is missing or invalid.
+    pub fn load() -> Self {
+        Self::path()
+            .map(|p| Self::load_from(&p))
+            .unwrap_or_default()
+    }
+
+    pub fn load_from(path: &Path) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(text) => toml::from_str(&text).unwrap_or_else(|e| {
+                log::warn!("ignoring invalid config {}: {e}", path.display());
+                Self::default()
+            }),
+            Err(_) => Self::default(),
+        }
+    }
+
+    /// Saves the config. Failures are logged, not fatal.
+    pub fn save(&self) {
+        if let Some(path) = Self::path()
+            && let Err(e) = self.save_to(&path)
+        {
+            log::warn!("cannot save config to {}: {e}", path.display());
+        }
+    }
+
+    pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
+        std::fs::write(path, text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round_trip() {
+        let dir = std::env::temp_dir().join(format!("watershed-test-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let config = Config {
+            output_device: Some("wasapi:{0.0.0.00000000}.{abc}".into()),
+            last_folder: Some(PathBuf::from("songs")),
+        };
+        config.save_to(&path).unwrap();
+        assert_eq!(Config::load_from(&path), config);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn missing_or_invalid_is_default() {
+        assert_eq!(
+            Config::load_from(Path::new("does/not/exist.toml")),
+            Config::default()
+        );
+        let dir = std::env::temp_dir().join(format!("watershed-test-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "output_device = [").unwrap();
+        assert_eq!(Config::load_from(&path), Config::default());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
