@@ -1,5 +1,3 @@
-use crate::StereoBuffer;
-
 /// Min/max summary of a waveform, used to draw it at any zoom level without
 /// touching the full sample data.
 #[derive(Clone, Debug, Default)]
@@ -15,11 +13,10 @@ pub struct Peaks {
 impl Peaks {
     pub const DEFAULT_FRAMES_PER_BUCKET: usize = 256;
 
-    /// Summarizes both channels together (their min and max) into buckets.
-    pub fn compute(audio: &StereoBuffer, frames_per_bucket: usize) -> Self {
+    /// Summarizes interleaved stereo `samples` into buckets, both channels together.
+    pub fn compute(samples: &[f32], frames_per_bucket: usize) -> Self {
         let frames_per_bucket = frames_per_bucket.max(1);
-        let (min, max) = audio
-            .samples
+        let (min, max) = samples
             .chunks(frames_per_bucket * 2)
             .map(|chunk| {
                 chunk
@@ -29,7 +26,7 @@ impl Peaks {
             .unzip();
         Self {
             frames_per_bucket,
-            total_frames: audio.frames(),
+            total_frames: samples.len() / 2,
             min,
             max,
         }
@@ -60,7 +57,7 @@ mod tests {
         let mut samples = vec![0.0; 16];
         samples[2] = 0.9;
         samples[13] = -0.5;
-        let peaks = Peaks::compute(&StereoBuffer::new(48_000, samples), 4);
+        let peaks = Peaks::compute(&samples, 4);
 
         assert_eq!(peaks.min.len(), 2);
         assert_eq!((peaks.min[0], peaks.max[0]), (0.0, 0.9));
@@ -71,7 +68,7 @@ mod tests {
 
     #[test]
     fn empty_audio_is_flat() {
-        let peaks = Peaks::compute(&StereoBuffer::default(), 256);
+        let peaks = Peaks::compute(&[], 256);
         assert_eq!(peaks.range(0, 100), (0.0, 0.0));
     }
 }
