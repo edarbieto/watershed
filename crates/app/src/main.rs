@@ -1,6 +1,11 @@
 // Hide the console window on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app;
+mod loader;
+mod stems;
+mod waveform;
+
 use eframe::egui;
 
 fn main() -> eframe::Result {
@@ -17,18 +22,14 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Watershed",
         options,
-        Box::new(|_cc| Ok(Box::new(WatershedApp))),
+        Box::new(|cc| {
+            let mut app = app::WatershedApp::new();
+            // A folder or files passed on the command line are opened right away.
+            let paths: Vec<_> = std::env::args_os().skip(1).map(Into::into).collect();
+            if !paths.is_empty() {
+                app.open(&paths, &cc.egui_ctx);
+            }
+            Ok(Box::new(app))
+        }),
     )
-}
-
-struct WatershedApp;
-
-impl eframe::App for WatershedApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::Frame::central_panel(ui.style()).show(ui, |ui| {
-            ui.centered_and_justified(|ui| {
-                ui.label(egui::RichText::new("Drop a song here").weak().size(20.0));
-            });
-        });
-    }
 }
