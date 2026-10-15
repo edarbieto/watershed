@@ -36,5 +36,7 @@ per stem, which Watershed can open directly.
 ## Notes
 
 - BS-RoFormer SW outputs `bass, drums, other, vocals, guitar, piano`, 44.1 kHz stereo.
+- Stems can peak above full scale, which FLAC cannot store. When that happens all
+  stems of the song are scaled down by the same factor, so their balance is kept.
 - The model has no declared license. It is downloaded from a public mirror and is
   not part of this repository.

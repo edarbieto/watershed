@@ -7,10 +7,11 @@
 | Language | Code, docs, commits and UI in English. i18n in v0.2. |
 | License | `MIT OR Apache-2.0`. No GPL dependencies, so time-stretching uses Signalsmith Stretch (MIT). |
 | Tempo / pitch | Applied to the **stereo mix**, after the mixer, so the cost does not grow with the number of stems. Real-time first; offline pre-render as an option if CPU is not enough. |
-| Session stem format | FLAC (`flacenc` to write, `symphonia` to read). No lossy formats: separation artifacts plus lossy compression plus time-stretching add up. |
+| Session stem format | FLAC (`flacenc` to write, `symphonia` to read). No lossy formats: separation artifacts plus lossy compression plus time-stretching add up. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
 | Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, to be validated by a spike. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
 | Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
+| Reference speed | PyTorch + CUDA on the RTX 3050 separates a ~5 min song in 73–100 s. The native `wgpu` backend is measured against this. |
 | Reference dev machine | RTX 3050 6 GB, Ryzen 7 5000, 64 GB RAM, Yamaha AG03 (ASIO for Reaper and shared WASAPI for Watershed at the same time). |
 
 ## 1. Vision
