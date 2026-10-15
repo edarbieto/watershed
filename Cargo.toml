@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+watershed-audio = { path = "crates/audio" }
+watershed-dsp = { path = "crates/dsp" }
+watershed-separation = { path = "crates/separation" }
+watershed-storage = { path = "crates/storage" }
+
+eframe = "0.36"
+env_logger = "0.11"
+log = "0.4"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# Keep DSP and model code usable in debug builds.
+[profile.dev.package."*"]
+opt-level = 2

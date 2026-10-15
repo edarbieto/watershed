@@ -1,0 +1,13 @@
+[package]
+name = "watershed-audio"
+description = "Real-time playback engine: mixes stems in a single cpal callback."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
