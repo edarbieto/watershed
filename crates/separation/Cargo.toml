@@ -1,0 +1,13 @@
+[package]
+name = "watershed-separation"
+description = "Source separation backends behind a common Separator trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

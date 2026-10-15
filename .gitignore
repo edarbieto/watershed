@@ -1,0 +1,11 @@
+/target
+*.pdb
+
+# Local audio and model files used during development
+*.wav
+*.flac
+*.mp3
+*.ckpt
+*.safetensors
+*.gguf
+*.onnx
