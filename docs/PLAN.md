@@ -10,6 +10,7 @@
 | Session stem format | FLAC (`flacenc` to write, `symphonia` to read). No lossy formats: separation artifacts plus lossy compression plus time-stretching add up. |
 | Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, to be validated by a spike. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
+| Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
 | Reference dev machine | RTX 3050 6 GB, Ryzen 7 5000, 64 GB RAM, Yamaha AG03 (ASIO for Reaper and shared WASAPI for Watershed at the same time). |
 
 ## 1. Vision
@@ -166,14 +167,14 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 - [x] Cargo workspace with separate crates: `app` (UI), `audio`, `dsp`, `separation`, `storage`.
 - [x] Empty egui window.
 - [ ] CI building on the 3 platforms (workflow written; pending a first run on GitHub).
-- [ ] In parallel: Python reference environment (Python 3.12 venv + ZFTurbo/MSST). Separate 2–3 songs with BS-RoFormer SW to get test stems for Phase 1 and golden outputs for Phase 4.
+- [x] Python reference environment (`tools/reference`, uv + ZFTurbo/MSST). 3 songs separated with BS-RoFormer SW as test stems and future golden outputs.
 
 ### Phase 1: Player with pre-separated stems
-- [ ] Open a folder of WAV/FLAC files (e.g. stems downloaded from MVSEP).
-- [ ] Audio engine: mixing, volume, pan, mute, solo, master, seek.
-- [ ] Output device picker + resampling.
-- [ ] Waveforms.
-- ✅ Milestone: replaces Reaper for stem playback.
+- [x] Open a folder of stems in any supported format (e.g. MVSEP mp3s, reference FLACs).
+- [x] Audio engine: mixing, volume, pan, mute, solo, master, seek.
+- [x] Output device picker + resampling.
+- [x] Waveforms.
+- [ ] ✅ Milestone: replaces Reaper for stem playback (to confirm in real practice sessions).
 
 ### Spikes (before Phase 2)
 - [ ] Signalsmith Stretch on the stereo mix in real time: measure CPU and latency.
