@@ -1,0 +1,32 @@
+[project]
+name = "watershed-reference"
+version = "0.1.0"
+description = "PyTorch reference separation for Watershed development. Never shipped."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch>=2.7",
+    "numpy",
+    "soundfile",
+    "soxr",
+    "pyyaml",
+    "omegaconf",
+    "ml_collections",
+    "tqdm",
+    "librosa",
+    "packaging",
+    "einops==0.8.1",
+    "beartype==0.14.1",
+    "rotary_embedding_torch==0.3.5",
+]
+
+[tool.uv]
+package = false
+
+# CUDA build of PyTorch on Windows and Linux; macOS uses the default (MPS) wheels.
+[tool.uv.sources]
+torch = { index = "pytorch-cu128", marker = "sys_platform != 'darwin'" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
