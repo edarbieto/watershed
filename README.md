@@ -11,7 +11,9 @@ mute and solo, tempo change without pitch change, transposition and A-B loops.
 It is meant to run next to your DAW. Your live instrument stays in Reaper (or
 whatever you use); Watershed only plays the backing stems.
 
-> **Status:** early development. Nothing usable yet. See [the plan](docs/PLAN.md).
+> **Status:** early development. The player works with stems you already have
+> (for example from [MVSEP](https://mvsep.com)); built-in separation is not there yet.
+> See [the plan](docs/PLAN.md).
 
 The name is a tribute to "Watershed" by Opeth.
 
@@ -37,6 +39,20 @@ sudo apt install libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev \
   libxcb-xfixes0-dev libwayland-dev libasound2-dev
 ```
 
+## Usage
+
+Open a folder of stems with **Open folder…**, by dropping it on the window, or by
+passing it on the command line (`watershed path/to/stems`). Stems are recognized by
+name (`vocals`, `drums`, `bass`, `guitar`, `piano`, `other`, `instrumental`).
+
+| Key | Action |
+|---|---|
+| Space | Play / pause |
+| Home | Back to start |
+| ← / → | Seek 5 s |
+
+Click or drag on any waveform to seek.
+
 ## Workspace layout
 
 | Crate | Purpose |
@@ -46,6 +62,7 @@ sudo apt install libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev \
 | `crates/dsp` | Decoding, resampling, STFT/iSTFT, chunking |
 | `crates/separation` | Source separation backends behind a `Separator` trait |
 | `crates/storage` | Sessions, model cache and configuration |
+| `tools/reference` | Development-only PyTorch reference separation ([README](tools/reference/README.md)) |
 
 ## License
 
