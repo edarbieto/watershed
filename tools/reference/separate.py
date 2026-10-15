@@ -128,11 +128,17 @@ def main() -> None:
         stems = demix(config, model, mix.T, device, spec["model_type"], pbar=True)
         elapsed = time.perf_counter() - start
 
+        # FLAC stores integers, so anything above full scale would clip. Stems often
+        # exceed it; scale all of them by the same factor to keep their balance.
+        peak = max(float(np.abs(audio).max()) for audio in stems.values())
+        scale = 1.0 if peak <= 1.0 else 0.999 / peak
+
         out_dir = args.out / song.stem
         out_dir.mkdir(parents=True, exist_ok=True)
         for name, audio in stems.items():
-            sf.write(out_dir / f"{name}.flac", audio.T, sample_rate, subtype="PCM_24")
-        print(f"  done in {elapsed:.1f} s -> {out_dir}")
+            sf.write(out_dir / f"{name}.flac", audio.T * scale, sample_rate, subtype="PCM_24")
+        gain_note = "" if scale == 1.0 else f", scaled by {20 * np.log10(scale):.1f} dB to avoid clipping"
+        print(f"  done in {elapsed:.1f} s{gain_note} -> {out_dir}")
 
 
 if __name__ == "__main__":
