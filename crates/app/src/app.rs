@@ -1,7 +1,8 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use eframe::egui::{self, Align, Key, Layout, RichText};
-use watershed_audio::{Engine, OutputDevice, output_devices};
+use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
 use watershed_storage::Config;
 
 use crate::loader::{self, LoadedSong, Loading};
@@ -18,6 +19,7 @@ const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 /// device with a different sample rate.
 struct Restore {
     position_secs: f64,
+    playing: bool,
     params: Vec<(f32, f32, bool, bool)>,
 }
 
@@ -29,12 +31,18 @@ pub struct WatershedApp {
     loading: Option<Loading>,
     restore: Option<Restore>,
     error: Option<String>,
+    /// Engine underrun count already logged.
+    xruns_logged: u64,
+    /// Wakes the UI when the engine needs a restart, even if nothing else repaints.
+    notify: Notify,
 }
 
 impl WatershedApp {
-    pub fn new() -> Self {
+    pub fn new(ctx: &egui::Context) -> Self {
         let config = Config::load();
-        let (engine, error) = match Engine::start(config.output_device.as_deref()) {
+        let ctx = ctx.clone();
+        let notify: Notify = Arc::new(move || ctx.request_repaint());
+        let (engine, error) = match Engine::start(config.output_device.as_deref(), notify.clone()) {
             Ok(engine) => (Some(engine), None),
             Err(e) => (None, Some(e.to_string())),
         };
@@ -46,6 +54,8 @@ impl WatershedApp {
             loading: None,
             restore: None,
             error,
+            xruns_logged: 0,
+            notify,
         }
     }
 
@@ -100,6 +110,9 @@ impl WatershedApp {
                         engine.load(loaded.song.clone());
                         let frame = restore.position_secs * f64::from(engine.sample_rate());
                         engine.seek(frame as usize);
+                        if restore.playing {
+                            engine.play();
+                        }
                     }
                 } else if let Some(engine) = &mut self.engine {
                     engine.load(loaded.song.clone());
@@ -110,18 +123,21 @@ impl WatershedApp {
         }
     }
 
+    /// Opens the device with the given id and moves the current song to it, keeping
+    /// the position, the mixer settings and whether it was playing.
     fn switch_device(&mut self, id: &str, ctx: &egui::Context) {
         let position_secs = self
             .engine
             .as_ref()
             .map_or(0.0, |e| e.position() as f64 / f64::from(e.sample_rate()));
+        let playing = self.engine.as_ref().is_some_and(Engine::is_playing);
         // Close the old stream first; some drivers allow only one at a time.
         self.engine = None;
-        let engine = match Engine::start(Some(id)) {
+        let engine = match Engine::start(Some(id), self.notify.clone()) {
             Ok(engine) => engine,
             Err(e) => {
                 self.error = Some(e.to_string());
-                self.engine = Engine::start(None).ok();
+                self.engine = Engine::start(None, self.notify.clone()).ok();
                 return;
             }
         };
@@ -134,10 +150,14 @@ impl WatershedApp {
         if loaded.song.sample_rate == engine.sample_rate() {
             engine.load(loaded.song.clone());
             engine.seek((position_secs * f64::from(engine.sample_rate())) as usize);
+            if playing {
+                engine.play();
+            }
         } else {
             // The stems must be resampled to the new device rate.
             self.restore = Some(Restore {
                 position_secs,
+                playing,
                 params: loaded
                     .song
                     .tracks
@@ -401,6 +421,18 @@ impl eframe::App for WatershedApp {
                 self.error =
                     Some("The audio device stopped working. Choose an output device.".into());
             }
+            let xruns = engine.xruns();
+            if xruns > self.xruns_logged {
+                log::warn!("audio dropouts: {xruns} so far");
+            }
+            self.xruns_logged = xruns;
+        }
+        if let Some(engine) = &self.engine
+            && engine.needs_restart()
+        {
+            let id = engine.device().id.clone();
+            log::info!("restarting audio on {}", engine.device().name);
+            self.switch_device(&id, ui.ctx());
         }
 
         egui::Panel::top("top_bar").show(ui, |ui| {

@@ -20,7 +20,8 @@ fn main() {
         }
     }
 
-    let mut engine = Engine::start(None).expect("cannot open output device");
+    let mut engine =
+        Engine::start(None, std::sync::Arc::new(|| {})).expect("cannot open output device");
     let rate = engine.sample_rate();
     println!("device: {} at {rate} Hz", engine.device().name);
 

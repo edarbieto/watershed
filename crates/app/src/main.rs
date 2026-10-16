@@ -23,7 +23,7 @@ fn main() -> eframe::Result {
         "Watershed",
         options,
         Box::new(|cc| {
-            let mut app = app::WatershedApp::new();
+            let mut app = app::WatershedApp::new(&cc.egui_ctx);
             // A folder or files passed on the command line are opened right away.
             let paths: Vec<_> = std::env::args_os().skip(1).map(Into::into).collect();
             if !paths.is_empty() {
