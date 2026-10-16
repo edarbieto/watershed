@@ -31,6 +31,27 @@ Last updated: 2026-10-15.
 
 ## Observations to investigate
 
+### Output lost when another app opens a Bluetooth headset's mic
+
+Reported by the user: arming a track in Reaper on the MacBook, with Bluetooth
+headphones as output, made Watershed show "The audio device stopped working".
+
+**Cause:** opening the headset's mic switches it from the music profile (A2DP,
+44.1 kHz stereo) to the headset profile (HFP, 16 kHz mono). CoreAudio reports the rate
+change and cpal turns it into `ErrorKind::StreamInvalidated`; the engine treated every
+stream error, even an underrun, as fatal.
+
+**Fixed:** the engine now sorts errors. `StreamInvalidated` makes the app restart the
+engine on the same device and resample the stems if the rate changed, keeping position,
+mixer settings and play state. Underruns are counted and logged, not fatal. Tested by
+changing the device rate from a script (44.1 → 16 → 44.1 kHz).
+
+**Limitation:** eframe does not run the UI while its window is covered by another
+window on macOS, so the restart waits until Watershed is visible again. Fixing that
+means restarting inside the engine (its own thread, real-time resampling when the rate
+differs from the song). For practice, choosing the laptop mic (or the interface) as the
+recording input avoids the profile switch entirely.
+
 ### Load spike when opening stems
 
 Reported by the user: it only happened with `cargo run`, not with the release build.
