@@ -15,7 +15,8 @@ Last updated: 2026-10-16.
 
 ## Next steps
 
-1. Spike: Signalsmith Stretch on the stereo mix in real time; measure CPU and latency.
+1. Spike: Signalsmith Stretch, **CPU and latency measured** (see below). Pending: the
+   user listens to the renders and the live mode, and the same benchmark on Windows.
 2. Spike: build BSRoformer.cpp with the GGUF model; measure on the MacBook (Metal) and
    on the RTX 3050 (Vulkan), compare with the PyTorch numbers above.
 3. Phase 2: tempo/pitch, saved A-B loops, sessions.
@@ -24,6 +25,43 @@ Last updated: 2026-10-16.
 
 - **Windows practice session** (nice to have, not blocking): Reaper on ASIO and
   Watershed on shared WASAPI, both on the Yamaha AG03. Any clicks or dropouts?
+
+## Spike: Signalsmith Stretch
+
+`crates/audio/examples/stretch.rs` sums the stems into one stereo mix and runs it
+through Signalsmith Stretch 1.3.1 (`signalsmith-stretch` crate, MIT) the way an audio
+callback would: fixed output blocks, `block × tempo` input frames per call.
+
+```sh
+cargo run --release -p watershed-audio --example stretch -- [--block N] [--wav DIR] STEMS...
+cargo run --release -p watershed-audio --example stretch -- --play STEMS...   # t 0.75, p -1, s, q
+```
+
+Measured on the MacBook (M5 Pro), a 4:39 song at 48 kHz, blocks of 512 frames
+(10.7 ms budget per call):
+
+| Preset | Latency in + out | CPU (one core) | p99 per call | Max per call |
+|---|---|---|---|---|
+| default | 60 + 60 ms | 0.43–0.58 % | 0.14–0.19 ms | 0.2–2.3 ms |
+| cheaper | 50 + 90 ms | 0.31–0.40 % | 0.05–0.06 ms | 0.07–0.16 ms |
+
+- Tempo 0.5–1.25 and ±2 semitones cost about the same; tempo 1.0 with no pitch change
+  is the cheapest. With blocks of 64 frames (1.3 ms budget) `default` peaks at ~0.2 ms:
+  it does a whole FFT step every 30 ms, while `cheaper` spreads it across calls.
+  The rare ~2 ms maxima are probably OS preemption, not the algorithm.
+- Live on the built-in output (44.1 kHz), changing tempo and pitch while playing:
+  2 % of one core, slowest callback 0.76 ms, no glitches reported by cpal.
+- **Conclusion so far:** CPU is a non-issue, real-time works; no offline pre-render
+  needed. Use `default` unless a slower machine says otherwise.
+- **Latency** (~120 ms) only delays how fast a tempo/pitch change is heard and must be
+  subtracted from the displayed position. On seek: `reset()` then `seek()` with one
+  block + one interval of pre-roll so the output starts right away.
+- `process` does not allocate after `configure` (its scratch `Vec`s are sized there),
+  so it can run in the callback. Creating the instance allocates: do it on the UI
+  thread and send it through the command queue.
+- The crate generates its bindings with `bindgen`, which needs **libclang** at build
+  time (Xcode tools on macOS; CI runners have it). If that becomes a problem, replace
+  it with a small hand-written C wrapper built with `cc` only.
 
 ## Observations to investigate
 
