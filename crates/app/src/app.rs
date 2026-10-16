@@ -200,7 +200,10 @@ impl WatershedApp {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if let Some(engine) = &self.engine {
                     let mut db = gain_to_db(engine.master_gain());
-                    if ui.add(volume_slider(&mut db)).changed() {
+                    let response = ui.add(volume_slider(&mut db)).on_hover_text(VOLUME_HINT);
+                    if double_clicked(&response) {
+                        engine.set_master_gain(1.0);
+                    } else if response.changed() {
                         engine.set_master_gain(db_to_gain(db));
                     }
                     ui.label("Master");
@@ -340,7 +343,11 @@ impl WatershedApp {
                             });
                             ui.horizontal(|ui| {
                                 let mut db = gain_to_db(params.gain());
-                                if ui.add(volume_slider(&mut db)).changed() {
+                                let response =
+                                    ui.add(volume_slider(&mut db)).on_hover_text(VOLUME_HINT);
+                                if double_clicked(&response) {
+                                    params.set_gain(1.0);
+                                } else if response.changed() {
                                     params.set_gain(db_to_gain(db));
                                 }
                                 let mut pan = params.pan();
@@ -353,7 +360,7 @@ impl WatershedApp {
                                         "Pan {} (double-click to center)",
                                         format_pan(pan)
                                     ));
-                                if response.double_clicked() {
+                                if double_clicked(&response) {
                                     params.set_pan(0.0);
                                 } else if response.changed() {
                                     params.set_pan(pan);
@@ -427,6 +434,14 @@ impl eframe::App for WatershedApp {
             ui.ctx().request_repaint();
         }
     }
+}
+
+const VOLUME_HINT: &str = "Double-click to reset to 0 dB";
+
+/// Sliders only sense drags, so `Response::double_clicked` is always false on them.
+/// This adds click sensing to the same widget to detect a double-click for reset.
+fn double_clicked(response: &egui::Response) -> bool {
+    response.interact(egui::Sense::click()).double_clicked()
 }
 
 fn volume_slider(db: &mut f32) -> egui::Slider<'_> {
