@@ -15,6 +15,7 @@ thiserror.workspace = true
 
 
 [dev-dependencies]
+signalsmith-stretch.workspace = true
 watershed-dsp.workspace = true
 
 [lints]
