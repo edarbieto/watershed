@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
+use cpal::{ErrorKind, FromSample, SampleFormat, SizedSample, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::mixer::{MAX_BLOCK, Voice};
@@ -20,6 +20,10 @@ pub enum EngineError {
     #[error("unsupported sample format {0}")]
     UnsupportedFormat(SampleFormat),
 }
+
+/// Called when the engine needs attention: it must be restarted or it failed. Runs on
+/// an audio system thread, so it should only wake the UI (e.g. request a repaint).
+pub type Notify = Arc<dyn Fn() + Send + Sync>;
 
 /// An output device as shown to the user.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,8 +63,14 @@ struct Shared {
     /// Playback position in frames, published by the audio thread.
     position: AtomicU64,
     master_gain: AtomicF32,
-    /// Set when the stream reports an error, e.g. the device was unplugged.
+    /// Set when the device is gone or the stream hit an unrecoverable error.
     failed: AtomicBool,
+    /// Set when the stream must be rebuilt, e.g. the device sample rate changed because
+    /// Bluetooth headphones switched to their headset profile when a mic was opened.
+    invalidated: AtomicBool,
+    /// Buffer underruns reported by the device. Counted here because the report can
+    /// arrive on the audio thread, where logging is not allowed.
+    xruns: AtomicU64,
 }
 
 /// Audio output. Owns the cpal stream; dropping the engine stops playback.
@@ -76,7 +86,8 @@ pub struct Engine {
 
 impl Engine {
     /// Opens the device with the given id, or the default device when `None` or not found.
-    pub fn start(device_id: Option<&str>) -> Result<Self, EngineError> {
+    /// `notify` is called when [`Engine::needs_restart`] or [`Engine::failed`] becomes true.
+    pub fn start(device_id: Option<&str>, notify: Notify) -> Result<Self, EngineError> {
         let host = cpal::default_host();
         let device = device_id
             .and_then(|id| id.parse().ok())
@@ -114,10 +125,10 @@ impl Engine {
         };
 
         let stream = match format {
-            SampleFormat::F32 => build::<f32>(&device, &config, state, &shared)?,
-            SampleFormat::I16 => build::<i16>(&device, &config, state, &shared)?,
-            SampleFormat::I32 => build::<i32>(&device, &config, state, &shared)?,
-            SampleFormat::U16 => build::<u16>(&device, &config, state, &shared)?,
+            SampleFormat::F32 => build::<f32>(&device, &config, state, &shared, notify)?,
+            SampleFormat::I16 => build::<i16>(&device, &config, state, &shared, notify)?,
+            SampleFormat::I32 => build::<i32>(&device, &config, state, &shared, notify)?,
+            SampleFormat::U16 => build::<u16>(&device, &config, state, &shared, notify)?,
             other => return Err(EngineError::UnsupportedFormat(other)),
         };
         stream.play()?;
@@ -145,6 +156,17 @@ impl Engine {
     /// True if the stream failed, e.g. because the device was disconnected.
     pub fn failed(&self) -> bool {
         self.shared.failed.load(Ordering::Relaxed)
+    }
+
+    /// True if the stream stopped but the device is still there: start a new engine
+    /// on the same device, which may now have a different sample rate.
+    pub fn needs_restart(&self) -> bool {
+        self.shared.invalidated.load(Ordering::Relaxed)
+    }
+
+    /// Number of buffer underruns (audible dropouts) reported so far.
+    pub fn xruns(&self) -> u64 {
+        self.shared.xruns.load(Ordering::Relaxed)
     }
 
     pub fn song(&self) -> Option<&Arc<Song>> {
@@ -228,6 +250,7 @@ fn build<T>(
     config: &StreamConfig,
     mut state: CallbackState,
     shared: &Arc<Shared>,
+    notify: Notify,
 ) -> Result<cpal::Stream, EngineError>
 where
     T: SizedSample + FromSample<f32>,
@@ -236,9 +259,25 @@ where
     let stream = device.build_output_stream(
         *config,
         move |data: &mut [T], _| state.process(data),
-        move |err| {
-            log::error!("audio stream error: {err}");
-            shared.failed.store(true, Ordering::Relaxed);
+        move |err| match err.kind() {
+            // May be called on the audio thread: count it, the UI thread logs it.
+            ErrorKind::Xrun => {
+                shared.xruns.fetch_add(1, Ordering::Relaxed);
+            }
+            // The stream keeps working.
+            ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
+                log::warn!("audio stream: {err}");
+            }
+            ErrorKind::StreamInvalidated => {
+                log::warn!("audio stream must be rebuilt: {err}");
+                shared.invalidated.store(true, Ordering::Relaxed);
+                notify();
+            }
+            _ => {
+                log::error!("audio stream error: {err}");
+                shared.failed.store(true, Ordering::Relaxed);
+                notify();
+            }
         },
         None,
     )?;

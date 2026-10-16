@@ -10,5 +10,5 @@ mod mixer;
 mod song;
 
 pub use atomic::AtomicF32;
-pub use engine::{Engine, EngineError, OutputDevice, output_devices};
+pub use engine::{Engine, EngineError, Notify, OutputDevice, output_devices};
 pub use song::{Song, Track, TrackParams};
