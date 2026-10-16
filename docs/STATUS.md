@@ -10,7 +10,7 @@ Last updated: 2026-10-15.
   noticeable latency. Double-click to reset volume/pan did not work (egui sliders only
   sense drags); fixed, pending the user's confirmation.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
-  Apple Silicon through MPS (M5 Pro: ~0.65× real time, 2.6× faster than its CPU,
+  Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps

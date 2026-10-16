@@ -33,13 +33,13 @@ per stem, which Watershed can open directly.
 | `--model bs-roformer-sw` | Model to use (only one for now). |
 | `--cpu` | Force CPU inference. |
 
-Measured speed for 30 s of audio (BS-RoFormer SW):
+Measured speed (BS-RoFormer SW):
 
 | Machine | Device | Time |
 |---|---|---|
-| RTX 3050 6 GB | CUDA | ~0.3× real time (a ~5 min song in 73–100 s) |
-| Apple M5 Pro | MPS | 19 s, ~0.65× real time |
-| Apple M5 Pro | CPU | 50 s, ~1.7× real time |
+| RTX 3050 6 GB | CUDA | a ~5 min song in 73–100 s (~0.3× real time) |
+| Apple M5 Pro | MPS | a 4:39 song in 120 s (~0.43× real time) |
+| Apple M5 Pro | CPU | 30 s of audio in 50 s (~1.7× real time; MPS took 19 s) |
 
 ## Notes
 
