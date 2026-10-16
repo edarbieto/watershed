@@ -14,8 +14,8 @@ It serves two purposes:
 
 - [uv](https://docs.astral.sh/uv/). It installs Python 3.12 and the dependencies by itself.
 - `git`.
-- An NVIDIA GPU is used if present (PyTorch with CUDA 12.8). Otherwise it runs on CPU,
-  much slower. On macOS the default PyTorch wheels are used.
+- The device is picked automatically: an NVIDIA GPU (PyTorch with CUDA 12.8), then
+  Apple Silicon's GPU (MPS, default PyTorch wheels on macOS), then the CPU.
 
 ## Usage
 
@@ -33,8 +33,19 @@ per stem, which Watershed can open directly.
 | `--model bs-roformer-sw` | Model to use (only one for now). |
 | `--cpu` | Force CPU inference. |
 
+Measured speed for 30 s of audio (BS-RoFormer SW):
+
+| Machine | Device | Time |
+|---|---|---|
+| RTX 3050 6 GB | CUDA | ~0.3× real time (a ~5 min song in 73–100 s) |
+| Apple M5 Pro | MPS | 19 s, ~0.65× real time |
+| Apple M5 Pro | CPU | 50 s, ~1.7× real time |
+
 ## Notes
 
+- Mixed precision (AMP) is only used on CUDA. MPS runs in float32 and matches the CPU
+  output to within 1e-5. Operators that MPS lacks fall back to the CPU
+  (`PYTORCH_ENABLE_MPS_FALLBACK`).
 - BS-RoFormer SW outputs `bass, drums, other, vocals, guitar, piano`, 44.1 kHz stereo.
 - Stems can peak above full scale, which FLAC cannot store. When that happens all
   stems of the song are scaled down by the same factor, so their balance is kept.
