@@ -167,7 +167,7 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 ### Phase 0: Skeleton
 - [x] Cargo workspace with separate crates: `app` (UI), `audio`, `dsp`, `separation`, `storage`.
 - [x] Empty egui window.
-- [ ] CI building on the 3 platforms (workflow written; pending a first run on GitHub).
+- [x] CI building on the 3 platforms.
 - [x] Python reference environment (`tools/reference`, uv + ZFTurbo/MSST). 3 songs separated with BS-RoFormer SW as test stems and future golden outputs.
 
 ### Phase 1: Player with pre-separated stems
