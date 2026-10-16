@@ -4,17 +4,19 @@ Last updated: 2026-10-15.
 
 ## Where we are
 
-- **Phase 0** done: workspace, CI on three platforms, reference tool.
-- **Phase 1** implemented: open a folder of stems, mixer (volume, pan, mute, solo,
-  master), seek on waveforms, output device picker with resampling, config persistence.
-  The milestone ("replaces Reaper for stem playback") still needs a real practice
-  session to confirm.
-- Reference separation works: PyTorch + CUDA on an RTX 3050 6 GB separates a ~5 min
-  song in 73–100 s.
+- **Phase 0** done: workspace, CI green on three platforms, reference tool.
+- **Phase 1** implemented and tested by the user on the MacBook (`cargo run`): loads
+  in ~1 s; mute, solo, faders, pan, space to play and click-to-seek all work, with no
+  noticeable latency. Double-click to reset volume/pan did not work (egui sliders only
+  sense drags); fixed, pending the user's confirmation.
+- Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
+  Apple Silicon through MPS (M5 Pro: ~0.65× real time, 2.6× faster than its CPU,
+  same output as the CPU to within 1e-5).
 
 ## Next steps
 
-1. User test of Phase 1 in a real practice session (see questions below).
+1. User confirms the double-click reset, and ideally a practice session on Windows
+   with the Yamaha AG03 (see questions below). Then close Phase 1.
 2. Spike: Signalsmith Stretch on the stereo mix in real time; measure CPU and latency.
 3. Spike: build BSRoformer.cpp with the GGUF model; measure on the RTX 3050 (Vulkan)
    and on the MacBook (Metal), compare with the PyTorch numbers above.
@@ -22,10 +24,9 @@ Last updated: 2026-10-15.
 
 ## Open questions for the user
 
-- **Practice session test:** Reaper on ASIO and Watershed on shared WASAPI, both on the
-  Yamaha AG03. Does it sound right? Any clicks or dropouts while playing, seeking,
-  pausing or changing faders? How does seeking feel? What is missing or annoying in
-  the UI?
+- **Windows practice session:** Reaper on ASIO and Watershed on shared WASAPI, both on
+  the Yamaha AG03. Does it sound right? Any clicks or dropouts? (The MacBook test went
+  well.)
 - Is it OK that the pan slider has no label (it shows its value on hover)?
 
 ## Observations to investigate
@@ -80,7 +81,5 @@ per track (saved in the session).
 
 ### Other pending items
 
-- `tools/reference/separate.py`: support Apple MPS (`torch.backends.mps`) so the
-  reference tool is usable on the MacBook; disable AMP when not on CUDA.
 - Sessions (Phase 2) must store the common gain factor used to avoid clipping when
   writing FLAC.
