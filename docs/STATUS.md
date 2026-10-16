@@ -1,33 +1,29 @@
 # Status
 
-Last updated: 2026-10-15.
+Last updated: 2026-10-16.
 
 ## Where we are
 
 - **Phase 0** done: workspace, CI green on three platforms, reference tool.
-- **Phase 1** implemented and tested by the user on the MacBook (`cargo run`): loads
-  in ~1 s; mute, solo, faders, pan, space to play and click-to-seek all work, with no
-  noticeable latency. Double-click to reset volume/pan did not work (egui sliders only
-  sense drags); fixed, pending the user's confirmation.
+- **Phase 1** done. Tested by the user on the MacBook: loads in ~1 s; mute, solo,
+  faders, pan (value shown), double-click reset, space to play and click-to-seek all
+  work with no noticeable latency, alongside Reaper. Output survives a Bluetooth
+  headset switching profiles when Reaper arms a track (see below).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps
 
-1. User confirms the double-click reset, and ideally a practice session on Windows
-   with the Yamaha AG03 (see questions below). Then close Phase 1.
-2. Spike: Signalsmith Stretch on the stereo mix in real time; measure CPU and latency.
-3. Spike: build BSRoformer.cpp with the GGUF model; measure on the RTX 3050 (Vulkan)
-   and on the MacBook (Metal), compare with the PyTorch numbers above.
-4. Phase 2: tempo/pitch, saved A-B loops, sessions.
+1. Spike: Signalsmith Stretch on the stereo mix in real time; measure CPU and latency.
+2. Spike: build BSRoformer.cpp with the GGUF model; measure on the MacBook (Metal) and
+   on the RTX 3050 (Vulkan), compare with the PyTorch numbers above.
+3. Phase 2: tempo/pitch, saved A-B loops, sessions.
 
 ## Open questions for the user
 
-- **Windows practice session:** Reaper on ASIO and Watershed on shared WASAPI, both on
-  the Yamaha AG03. Does it sound right? Any clicks or dropouts? (The MacBook test went
-  well.)
-- Is it OK that the pan slider has no label (it shows its value on hover)?
+- **Windows practice session** (nice to have, not blocking): Reaper on ASIO and
+  Watershed on shared WASAPI, both on the Yamaha AG03. Any clicks or dropouts?
 
 ## Observations to investigate
 
