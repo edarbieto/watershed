@@ -43,8 +43,8 @@ cargo run --release -- path/to/stems-folder
 - The config file lives in `~/Library/Application Support/Watershed/config.toml`
   (Windows: `%APPDATA%\Watershed\config\config.toml`). It stores the output device
   id, which differs per machine; an unknown id falls back to the default device.
-- `tools/reference/separate.py` only picks CUDA or CPU. On a Mac it will run on CPU
-  (slow). Adding Apple's MPS device is a pending task (see STATUS.md).
+- `tools/reference/separate.py` uses the GPU through MPS on Apple Silicon (about 2.6×
+  faster than the CPU).
 
 ### Local files that are not in git
 
