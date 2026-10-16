@@ -175,7 +175,7 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 - [x] Audio engine: mixing, volume, pan, mute, solo, master, seek.
 - [x] Output device picker + resampling.
 - [x] Waveforms.
-- [ ] ✅ Milestone: replaces Reaper for stem playback (to confirm in real practice sessions).
+- [x] ✅ Milestone: replaces Reaper for stem playback (confirmed in a practice session on macOS).
 
 ### Spikes (before Phase 2)
 - [ ] Signalsmith Stretch on the stereo mix in real time: measure CPU and latency.
