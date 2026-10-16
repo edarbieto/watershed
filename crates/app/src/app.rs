@@ -9,6 +9,7 @@ use crate::waveform::waveform;
 
 const ROW_HEIGHT: f32 = 64.0;
 const CONTROLS_WIDTH: f32 = 240.0;
+const PAN_SLIDER_WIDTH: f32 = 40.0;
 const MIN_DB: f32 = -60.0;
 const MAX_DB: f32 = 6.0;
 const FALLBACK_SAMPLE_RATE: u32 = 48_000;
@@ -352,14 +353,16 @@ impl WatershedApp {
                                 }
                                 let mut pan = params.pan();
                                 let pan_slider = egui::Slider::new(&mut pan, -1.0..=1.0)
-                                    .show_value(false)
-                                    .custom_formatter(|v, _| format_pan(v as f32));
+                                    .show_value(true)
+                                    .custom_formatter(|v, _| format_pan(v as f32))
+                                    .custom_parser(parse_pan);
                                 let response = ui
-                                    .add_sized([56.0, 18.0], pan_slider)
-                                    .on_hover_text(format!(
-                                        "Pan {} (double-click to center)",
-                                        format_pan(pan)
-                                    ));
+                                    .scope(|ui| {
+                                        ui.spacing_mut().slider_width = PAN_SLIDER_WIDTH;
+                                        ui.add(pan_slider)
+                                    })
+                                    .inner
+                                    .on_hover_text("Pan (double-click to center)");
                                 if double_clicked(&response) {
                                     params.set_pan(0.0);
                                 } else if response.changed() {
@@ -481,6 +484,21 @@ fn format_pan(pan: f32) -> String {
     }
 }
 
+/// Parses a pan value typed by the user: `C`, `30L`, `30R`, or a signed percentage.
+fn parse_pan(text: &str) -> Option<f64> {
+    let text = text.trim().to_ascii_uppercase();
+    let percent = |n: &str| n.trim().parse::<f64>().ok().map(|v| v / 100.0);
+    if text == "C" {
+        Some(0.0)
+    } else if let Some(n) = text.strip_suffix('L') {
+        percent(n).map(|v| -v)
+    } else if let Some(n) = text.strip_suffix('R') {
+        percent(n)
+    } else {
+        percent(&text)
+    }
+}
+
 fn format_time(secs: f64) -> String {
     let secs = secs.max(0.0);
     format!("{}:{:04.1}", (secs / 60.0) as u64, secs % 60.0)
@@ -504,5 +522,14 @@ mod tests {
         assert_eq!(format_pan(0.0), "C");
         assert_eq!(format_pan(-0.5), "50L");
         assert_eq!(format_pan(1.0), "100R");
+    }
+
+    #[test]
+    fn parses_pan() {
+        assert_eq!(parse_pan("C"), Some(0.0));
+        assert_eq!(parse_pan(" 30l "), Some(-0.3));
+        assert_eq!(parse_pan("30R"), Some(0.3));
+        assert_eq!(parse_pan("-50"), Some(-0.5));
+        assert_eq!(parse_pan("left"), None);
     }
 }
