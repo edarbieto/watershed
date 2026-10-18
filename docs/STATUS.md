@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-16.
+Last updated: 2026-10-17.
 
 ## Where we are
 
@@ -15,8 +15,8 @@ Last updated: 2026-10-16.
 
 ## Next steps
 
-1. Spike: Signalsmith Stretch, **CPU and latency measured** (see below). Pending: the
-   user listens to the renders and the live mode, and the same benchmark on Windows.
+1. Spike: Signalsmith Stretch, **done on macOS** (see below). Pending: the same
+   benchmark on Windows.
 2. Spike: build BSRoformer.cpp with the GGUF model; measure on the MacBook (Metal) and
    on the RTX 3050 (Vulkan), compare with the PyTorch numbers above.
 3. Phase 2: tempo/pitch, saved A-B loops, sessions.
@@ -51,6 +51,7 @@ Measured on the MacBook (M5 Pro), a 4:39 song at 48 kHz, blocks of 512 frames
   The rare ~2 ms maxima are probably OS preemption, not the algorithm.
 - Live on the built-in output (44.1 kHz), changing tempo and pitch while playing:
   2 % of one core, slowest callback 0.76 ms, no glitches reported by cpal.
+- The user listened to the renders and the live mode: sounds good.
 - **Conclusion so far:** CPU is a non-issue, real-time works; no offline pre-render
   needed. Use `default` unless a slower machine says otherwise.
 - **Latency** (~120 ms) only delays how fast a tempo/pitch change is heard and must be
