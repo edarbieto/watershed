@@ -9,6 +9,8 @@ Last updated: 2026-10-19.
   faders, pan (value shown), double-click reset, space to play and click-to-seek all
   work with no noticeable latency, alongside Reaper. Output survives a Bluetooth
   headset switching profiles when Reaper arms a track (see below).
+- **Phase 2.1, tempo and pitch: implemented, waiting for a listening test.** See
+  "Tempo, pitch and limiter" below.
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -18,8 +20,8 @@ Last updated: 2026-10-19.
 ## Next steps
 
 1. **Phase 2**, in this order:
-   1. Tempo and pitch: Signalsmith on the master in the engine (see the spike notes on
-      latency, seek and allocation), plus a master limiter.
+   1. Tempo and pitch: user listening test in the app (see the checklist below), then
+      close it.
    2. Saved A-B loops.
    3. Sessions and library.
 2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
@@ -29,6 +31,44 @@ Last updated: 2026-10-19.
 
 - **Windows practice session** (nice to have, not blocking): Reaper on ASIO and
   Watershed on shared WASAPI, both on the Yamaha AG03. Any clicks or dropouts?
+
+## Tempo, pitch and limiter
+
+Signal path: stems → mixer → Signalsmith Stretch → master gain and pause fade →
+limiter → hard clip → device.
+
+- `crates/audio/src/stretch.rs`: `Stretcher` wraps Signalsmith, configured like its
+  default preset (block 120 ms, interval 30 ms). It reads the song at `tempo` song
+  frames per output frame and keeps the song position as an `f64` so slow tempos do
+  not drift. Created in `Engine::start` (UI thread); the engine is rebuilt per device
+  anyway.
+- **Displayed position** = song frame being heard = input fed − input latency −
+  (output latency + limiter lookahead) × tempo. A test puts an onset in the song and
+  checks the position reported when it becomes audible: off by 0–1.3 ms at tempos
+  0.5, 1.0 and 1.25.
+- **Seek and load:** `reset()`, then `seek()` with one block + one interval of
+  pre-roll ending at `target + input latency`, so the first output is centered on the
+  target. Sound starts within the output latency (~60 ms).
+- **Pause** keeps the stretcher state, so resuming continues seamlessly. **End of
+  song:** stops when the heard position reaches the end, so the latency tail plays.
+- **Limiter** (`limiter.rs`): peak limiter at −1 dBFS with 3 ms lookahead and 100 ms
+  release. Quiet material passes through unchanged (only delayed); tests check a
+  +6 dB sine and isolated spikes stay under full scale. The hard clip stays as a last
+  line of defense.
+- UI: Tempo 50–125 % and Pitch ±12 semitones in the transport bar, double-click
+  resets. Tempo, pitch and master gain now survive a device switch or restart (the
+  master used to reset to 0 dB).
+- The stretcher always runs, even at 100 % and 0 st. If the sound at 100 % is not
+  transparent enough, a bypass with a crossfade is possible but costs complexity
+  (the latency changes by ~120 ms when switching).
+
+**Listening checklist** (on the interface or wired output; Bluetooth in headset mode
+runs at 16 kHz mono):
+1. At 100 % / 0 st: does it sound like before?
+2. Slow down to 50–75 % and transpose ±1–2 st while playing: smooth, no clicks?
+3. Click to seek, arrow keys, stop and play: starts quickly, cursor in sync?
+4. Solo a hot stem (drums) and raise it +6 dB: no harsh clipping?
+5. Play to the end: the last notes are not cut off?
 
 ## Spike: Signalsmith Stretch
 

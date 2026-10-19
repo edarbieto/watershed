@@ -195,7 +195,7 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 In this order:
 - [ ] Tempo without pitch change, transposition: Signalsmith on the master, latency
   compensation in the displayed position, `reset` + `seek` pre-roll on seek, instance
-  created off the audio thread. Master limiter.
+  created off the audio thread. Master limiter. *(Implemented; pending listening test.)*
 - [ ] Saved A-B loops.
 - [ ] Persistent sessions + library.
 
