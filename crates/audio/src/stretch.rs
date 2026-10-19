@@ -87,6 +87,8 @@ impl Stretcher {
         let pad = self.preroll - (end - start);
         let input = &mut self.input[..self.preroll * 2];
         input.fill(0.0);
+        // Otherwise a mute or solo changed while paused would ramp in across the pre-roll.
+        voice.snap_gains();
         voice.mix_into(start, &mut input[pad * 2..]);
         self.stretch.seek(&*input, f64::from(tempo));
         self.fed = end as f64;

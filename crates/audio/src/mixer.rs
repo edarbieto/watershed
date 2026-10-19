@@ -25,6 +25,15 @@ impl Voice {
         Self { song, gains }
     }
 
+    /// Jumps to the current gains without a ramp. For a seek, where the output starts
+    /// over anyway.
+    pub fn snap_gains(&mut self) {
+        let any_solo = self.song.tracks.iter().any(|t| t.params.solo());
+        for (track, current) in self.song.tracks.iter().zip(self.gains.iter_mut()) {
+            *current = track.params.channel_gains(any_solo);
+        }
+    }
+
     /// Adds `out.len() / 2` stereo frames starting at `position` into `out`.
     ///
     /// Gain changes are ramped linearly across the block to avoid clicks. Frames past

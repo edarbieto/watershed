@@ -367,6 +367,13 @@ impl CallbackState {
         };
         let channels = self.channels;
 
+        // Resuming from silence: the stretcher still holds about 120 ms of the mix from
+        // before the pause, with the mute, solo and faders of then. Start over from the
+        // position heard at the pause, so the first thing heard is the current mix.
+        if playing && self.fade == 0.0 {
+            self.seek(self.shared.position.load(Ordering::Relaxed) as usize);
+        }
+
         for out in data.chunks_mut(MAX_BLOCK * channels) {
             let frames = out.len() / channels;
             let mix = &mut self.mix[..frames * 2];
@@ -442,5 +449,71 @@ impl CallbackState {
             self.stretcher.seek(voice, frame, tempo);
             self.shared.position.store(frame as u64, Ordering::Relaxed);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RATE: u32 = 48_000;
+
+    /// A callback with a two-track song loaded: a loud sine and silence.
+    fn callback() -> (CallbackState, Arc<Song>) {
+        let sine = (0..RATE as usize * 4)
+            .flat_map(|i| [0.5 * (i as f32 * 440.0 * std::f32::consts::TAU / RATE as f32).sin(); 2])
+            .collect();
+        let silence = vec![0.0; RATE as usize * 4 * 2];
+        let song = Arc::new(Song::new(
+            RATE,
+            vec![("sine".into(), sine), ("silence".into(), silence)],
+        ));
+        let shared = Arc::new(Shared {
+            master_gain: AtomicF32::new(1.0),
+            tempo: AtomicF32::new(1.0),
+            ..Default::default()
+        });
+        let (_, commands) = RingBuffer::new(1);
+        let (garbage, _) = RingBuffer::new(1);
+        let mut state = CallbackState {
+            commands,
+            garbage,
+            shared,
+            voice: Some(Box::new(Voice::new(song.clone()))),
+            stretcher: Stretcher::new(RATE),
+            limiter: Limiter::new(RATE),
+            fade: 0.0,
+            fade_step: 1.0 / (FADE_SECS * RATE as f32),
+            mix: vec![0.0; MAX_BLOCK * 2],
+            channels: 2,
+        };
+        state.seek(0);
+        (state, song)
+    }
+
+    /// Runs `blocks` callbacks of 512 frames and returns the loudest sample.
+    fn peak(state: &mut CallbackState, blocks: usize) -> f32 {
+        let mut out = vec![0.0f32; 512 * 2];
+        let mut peak = 0.0f32;
+        for _ in 0..blocks {
+            state.process(&mut out);
+            peak = out.iter().fold(peak, |p, s| p.max(s.abs()));
+        }
+        peak
+    }
+
+    #[test]
+    fn mix_changes_while_paused_are_heard_at_once() {
+        let (mut state, song) = callback();
+        state.shared.playing.store(true, Ordering::Relaxed);
+        assert!(peak(&mut state, 50) > 0.3);
+
+        state.shared.playing.store(false, Ordering::Relaxed);
+        peak(&mut state, 10);
+        // Solo the silent track while paused: resuming must not let the sine through.
+        song.tracks[1].params.set_solo(true);
+        state.shared.playing.store(true, Ordering::Relaxed);
+        let leak = peak(&mut state, 30);
+        assert!(leak < 1e-3, "the old mix leaked through: peak {leak}");
     }
 }
