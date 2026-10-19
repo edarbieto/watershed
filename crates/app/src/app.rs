@@ -32,6 +32,7 @@ enum Action {
     SetA,
     SetB,
     ToggleLoop,
+    ClearLoop,
 }
 
 /// Mixer settings carried over when a song is reloaded, e.g. after switching to a
@@ -266,6 +267,7 @@ impl WatershedApp {
             Action::SetA => self.loops.set_a(position),
             Action::SetB => self.loops.set_b(position),
             Action::ToggleLoop => self.loops.toggle(),
+            Action::ClearLoop => self.loops.clear(),
         }
     }
 
@@ -391,7 +393,7 @@ impl WatershedApp {
             ui.separator();
             if ui
                 .add_enabled(enabled, egui::Button::new("A"))
-                .on_hover_text("Set the loop start here (A)")
+                .on_hover_text("Start a new loop here (A)")
                 .clicked()
             {
                 action = Some(Action::SetA);
@@ -414,7 +416,15 @@ impl WatershedApp {
             {
                 action = Some(Action::ToggleLoop);
             }
-            if self.loops.a.is_some() || self.loops.b.is_some() {
+            let has_ends = self.loops.a.is_some() || self.loops.b.is_some();
+            if ui
+                .add_enabled(has_ends, egui::Button::new("Clear"))
+                .on_hover_text("Forget A and B (saved loops stay)")
+                .clicked()
+            {
+                action = Some(Action::ClearLoop);
+            }
+            if has_ends {
                 let end = |t: Option<f64>| t.map_or("?".to_owned(), format_time);
                 ui.label(
                     RichText::new(format!("{} → {}", end(self.loops.a), end(self.loops.b)))

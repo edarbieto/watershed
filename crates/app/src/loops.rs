@@ -35,13 +35,18 @@ impl Loops {
         self.region().filter(|_| self.enabled)
     }
 
-    /// Sets the loop start. Clears B if it is no longer after A.
+    /// Starts a new loop here: sets A and clears B, even if a loop was set.
     pub fn set_a(&mut self, secs: f64) {
         self.a = Some(secs);
-        if self.region().is_none() {
-            self.b = None;
-            self.enabled = false;
-        }
+        self.b = None;
+        self.enabled = false;
+    }
+
+    /// Forgets the current A and B. Saved loops stay.
+    pub fn clear(&mut self) {
+        self.a = None;
+        self.b = None;
+        self.enabled = false;
     }
 
     /// Sets the loop end and starts looping. Clears A if it is no longer before B.
@@ -109,12 +114,26 @@ mod tests {
     }
 
     #[test]
-    fn moving_one_end_past_the_other_clears_it() {
+    fn a_always_starts_a_new_loop() {
         let mut loops = Loops::default();
         loops.select(10.0, 20.0);
-        loops.set_a(25.0);
-        assert_eq!((loops.a, loops.b, loops.enabled), (Some(25.0), None, false));
+        loops.set_a(15.0);
+        assert_eq!((loops.a, loops.b, loops.enabled), (Some(15.0), None, false));
+    }
 
+    #[test]
+    fn clear_keeps_saved_loops() {
+        let mut loops = Loops::default();
+        loops.select(10.0, 20.0);
+        loops.save();
+        loops.clear();
+        assert_eq!((loops.a, loops.b, loops.active()), (None, None, None));
+        assert_eq!(loops.saved.len(), 1);
+    }
+
+    #[test]
+    fn b_before_a_clears_a() {
+        let mut loops = Loops::default();
         loops.select(10.0, 20.0);
         loops.set_b(5.0);
         assert_eq!((loops.a, loops.b, loops.enabled), (None, Some(5.0), false));
