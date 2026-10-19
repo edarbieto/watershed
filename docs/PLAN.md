@@ -65,6 +65,8 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
   and Reaper's shortcut, `M`). A section runs from one marker to the next, or to the
   end of the song. Each marker has ▶ (play from here) and loop (loop its section).
 - [x] **Waveform zoom** and horizontal scroll, to place markers and loop ends precisely.
+- [ ] **Approximate BPM**, estimated when a song is opened (see section 3.1), plus tap
+  tempo to correct it. Shown next to the tempo slider as the BPM at the current tempo.
 
 ### Sessions
 - [x] Each song folder keeps its **session** in a file next to the stems
@@ -73,6 +75,23 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
   a separated song is such a folder, so it never separates again.
 - [ ] Simple session library: recently opened folders, kept in the app config.
 - [ ] Export individual stems or the current mix to WAV.
+
+### 3.1 BPM estimation (idea, not scheduled)
+
+Cost: **moderate, about one or two work sessions**, no new heavy dependencies.
+1. Onset strength: STFT of the drums stem (or the sum of all stems when there is none)
+   with `realfft`, and the spectral flux (how much energy rises from one frame to the
+   next), which peaks on hits.
+2. Tempo: autocorrelation of that curve over lags of 60–200 BPM; the strongest
+   periodic lag is the beat period. A prior centered around 120 BPM picks between
+   candidates.
+3. Runs in the loader thread after decoding: well under a second for a song.
+
+Known limits: half/double errors (70 vs 140 BPM), songs with tempo changes or rubato,
+no beat grid (only a number). Mitigations: a ×2 / ÷2 button, tap tempo, store the
+corrected value in the session. Having separated drums makes this much more reliable
+than on a full mix. A beat grid (and snapping loops to beats) would be a larger,
+separate step.
 
 ## 4. Architecture
 
@@ -99,6 +118,21 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 ```
 
 ### Design principles
+
+- **Lean on memory and disk.** Measure before optimizing, but keep it in mind in
+  every phase. Current and planned measures:
+  - RAM: stems are f32 stereo at the device rate (~82 MB per 3:35 stem, ~580 MB for
+    seven). Options: store as `i16` (half), drop decoded copies as soon as they are
+    resampled, reserve exact capacity, decode with a bounded thread pool.
+  - Disk: models are the heaviest files. Download only on demand into the cache
+    folder, prefer quantized weights (q8_0 GGUF is 188 MB vs ~700 MB for the fp32
+    checkpoint, with inaudible difference), keep one default model, and show in
+    settings what is installed and how much it takes, with a delete button.
+  - Stems: FLAC (~170–200 MB per 6-stem song, section 0); silent stems (e.g. `other`
+    in many songs) could be skipped instead of written.
+  - Binary: 14 MB release build today; check `opt-level`, LTO, `strip` and
+    `codegen-units = 1` for distribution.
+
 - **Separation is a swappable component** (`trait Separator`). We can start with a temporary backend and switch to the final one without touching the UI or the audio engine.
 - **Sync:** all stems come from the same audio and have the same length. They are mixed in **one callback** that advances **a single sample index**, so drift is impossible.
 - **Real-time audio thread:** no allocation, no blocking locks and no I/O inside the callback. UI → audio communication goes through lock-free queues or atomics.
@@ -164,7 +198,24 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 
 ## 9. Distribution
 
-- One binary per platform, statically linking as much as possible.
+- One binary per platform, statically linking as much as possible. Per platform:
+  - **Windows:** a single `.exe` is realistic. Rust links statically by default;
+    add `+crt-static` so it does not need the Visual C++ runtime. GPU through
+    DX12/Vulkan, whose libraries ship with the driver. Avoid anything that needs
+    extra DLLs (e.g. CUDA).
+  - **macOS:** a `.app` bundle (a folder that Finder shows as one file) with the
+    binary, `Info.plist` and the icon. Possibly a universal binary (arm64 + x86_64).
+    Without signing and notarization (Apple developer account, 99 USD/year),
+    Gatekeeper blocks it on first open and the user must allow it in System
+    Settings. Also needed during development (see "Cmd+Tab" in STATUS).
+  - **Linux:** the hardest. A plain ELF depends on the glibc version it was built
+    against (build on an old distro, in CI, so it runs on newer ones), and the
+    window system (X11/Wayland), ALSA/PipeWire and Vulkan libraries are loaded from
+    the system. A fully static (musl) binary does not work well with GPU drivers.
+    The usual "one portable file" is an **AppImage**; Flatpak is the other option.
+- **Portable mode** (all platforms): if a marker file sits next to the binary, keep
+  the config, sessions library and models next to it instead of the OS folders, so
+  the whole app can live on a USB stick.
 - No CUDA, Python or Electron in the distribution.
 - First run: download the default model with visible progress.
 - Public repo with CI (GitHub Actions) building for Windows, Linux and macOS.

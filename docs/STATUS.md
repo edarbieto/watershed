@@ -34,6 +34,10 @@ Last updated: 2026-10-19.
    2. ~~Markers and sections~~: done.
    3. ~~Waveform zoom~~: done.
    4. Library of recent folders.
+   5. Then, before Phase 3: the Cmd+Tab issue (an `.app` wrapper for development) and
+      the slow maximized window (see "Observations to investigate").
+   6. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
+      optimization (design principles), portable builds (section 9).
 2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
    BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA.
 
@@ -380,6 +384,29 @@ Remaining costs, from the code (worth improving, not urgent):
   the exact capacity from the codec's frame count; drop the decoded copy as soon as
   it is resampled; consider storing stems as `i16` (half the RAM) or streaming from disk.
 - Loading a new song while another plays also pauses playback (`Engine::load`).
+
+### Cmd+Tab loses the window (macOS, `cargo run`)
+
+Reported by the user, with BetterCmdTab (open source) as the app switcher:
+after Cmd+Tab the Watershed window goes to the end of the list, and choosing it there
+opens Terminal and starts a second Watershed.
+
+**Likely cause** (not verified): `cargo run` starts a bare Mach-O executable, not an
+`.app` bundle. macOS gives it a window and a Dock icon, but it has no bundle
+identifier, so app switchers that track apps by bundle cannot match the window to an
+app; "activating" it then opens the executable file, which macOS does by launching it
+in Terminal. **Fix to try:** a small script (or `cargo-bundle`) that wraps the release
+binary in `target/release/Watershed.app` and starts it with `open`. The `.app` is
+needed for distribution anyway (PLAN section 9). Check with the system Cmd+Tab too.
+
+### Slow UI when the window is maximized
+
+Reported by the user: maximizing the window is slow, playing or paused. Not
+investigated yet. Candidates: the cost of a frame grows with the width (each waveform
+draws one line per column per channel: ~2,500 columns × 2 × 7 tracks ≈ 35,000 line
+segments, retessellated every frame while playing); or the resize itself (wgpu
+surface reconfiguration). Next step: measure the frame time at both sizes, then
+consider drawing each waveform as one mesh or caching it while the view is unchanged.
 
 ### Track colors
 
