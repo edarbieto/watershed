@@ -11,6 +11,8 @@ Last updated: 2026-10-19.
   headset switching profiles when Reaper arms a track (see below).
 - **Phase 2.1, tempo and pitch: done.** The user listened in the app on the MacBook:
   sounds good. See "Tempo, pitch and limiter" below.
+- **Phase 2.2, A-B loops: implemented, waiting for a test in the app.** See "A-B
+  loops" below.
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -20,8 +22,8 @@ Last updated: 2026-10-19.
 ## Next steps
 
 1. **Phase 2**, in this order:
-   1. Saved A-B loops, plus transport buttons for seeking (start, ±5 s).
-   2. Sessions and library.
+   1. A-B loops: user test in the app (checklist below), then close it.
+   2. Sessions and library. Saved loops only live in memory until then.
 2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
    BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA.
 
@@ -67,6 +69,32 @@ runs at 16 kHz mono):
 3. Click to seek, arrow keys, stop and play: starts quickly, cursor in sync?
 4. Solo a hot stem (drums) and raise it +6 dB: no harsh clipping?
 5. Play to the end: the last notes are not cut off?
+
+## A-B loops
+
+- **Engine** (`stretch.rs`): when the input reaches B it jumps back to A without
+  resetting Signalsmith, so the loop sounds continuous. The first 10 ms after the
+  jump crossfade (equal power) with what follows B, so it does not click. The
+  displayed position maps fed frames back to song frames for the current and the
+  previous pass, so it follows the jump ~120 ms later, when it is heard. Only a pass
+  that reaches B from before it jumps: playing after B goes on.
+- The loop goes to the audio thread as one `AtomicU64` (`start << 32 | end`).
+  Minimum length `MIN_LOOP_SECS` = 0.5 s, above the worst-case latency.
+- **UI** (`loops.rs`, times in seconds so they survive resampling): A and B buttons
+  (keys A, B; B starts looping), Loop toggle (L), drag on a waveform to select a loop
+  (a click still seeks; **drag used to scrub**). Turning a loop on while outside it
+  jumps to A once the mouse is released. A side panel saves, names, recalls and
+  deletes loops. Opening another song clears them.
+- Transport buttons: ⏮ back to the start, or to A when a loop is on (Home);
+  ⏪ / ⏩ 5 s (arrow keys).
+
+**Test checklist:**
+1. Drag over a phrase: it loops right away; the jump at B is smooth, no click.
+2. Same at 50–75 % tempo and with pitch changed.
+3. A and B while playing (keys and buttons); B starts the loop; L turns it off and
+   playback goes on past B.
+4. Save two loops, rename them, switch between them, delete one.
+5. ⏮ goes to A with a loop on and to 0:00 without; ⏪ / ⏩ move 5 s.
 
 ## Spike: Signalsmith Stretch
 

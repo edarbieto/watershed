@@ -196,7 +196,7 @@ In this order:
 - [x] Tempo without pitch change, transposition: Signalsmith on the master, latency
   compensation in the displayed position, `reset` + `seek` pre-roll on seek, instance
   created off the audio thread. Master limiter.
-- [ ] Saved A-B loops.
+- [ ] Saved A-B loops. *(Implemented, pending a test in the app; persisted with sessions.)*
 - [ ] Persistent sessions + library.
 
 ### Phase 3: Separation with a temporary backend
