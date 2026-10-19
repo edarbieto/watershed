@@ -12,6 +12,7 @@ use crate::loops::Loops;
 use crate::markers::Markers;
 use crate::playhead::Playhead;
 use crate::stems::song_title;
+use crate::usage::{self, Usage};
 use crate::view::View;
 use crate::waveform::{Overlay, RulerAction, WaveformAction, ruler, scrollbar, waveform};
 
@@ -100,6 +101,8 @@ pub struct WatershedApp {
     playhead: Playhead,
     /// When the previous frame was drawn, to advance the playhead.
     last_frame: Option<Instant>,
+    /// CPU and memory of the process, shown in the transport bar.
+    usage: Usage,
     /// Active loop last seen by [`WatershedApp::sync_loop`].
     last_loop: Option<(f64, f64)>,
     /// Session of the loaded song as last written (or read), to detect changes.
@@ -133,6 +136,7 @@ impl WatershedApp {
             last_position: 0.0,
             playhead: Playhead::default(),
             last_frame: None,
+            usage: Usage::new(),
             last_loop: None,
             saved_session: None,
             changed_at: None,
@@ -567,8 +571,33 @@ impl WatershedApp {
                     ui.separator();
                 }
                 self.device_picker(ui);
+                self.usage_label(ui);
             });
         });
+    }
+
+    /// CPU and RAM used by the process, refreshed every [`usage::INTERVAL`].
+    fn usage_label(&mut self, ui: &mut egui::Ui) {
+        let Some(sample) = self.usage.sample() else {
+            return;
+        };
+        ui.separator();
+        ui.label(
+            RichText::new(format!(
+                "CPU {:4.1} %   RAM {:.0} MiB ({:.1} %)",
+                sample.cpu_percent,
+                sample.memory as f64 / (1024.0 * 1024.0),
+                sample.memory_percent
+            ))
+            .weak()
+            .monospace()
+            .size(10.0),
+        )
+        .on_hover_text(
+            "Used by Watershed as a whole (all its windows and threads). CPU is a share \
+             of all cores, averaged over the last second; RAM is the memory it holds, and \
+             its share of the installed RAM.",
+        );
     }
 
     fn recent_menu(&mut self, ui: &mut egui::Ui) {
@@ -1284,6 +1313,9 @@ impl eframe::App for WatershedApp {
 
         if self.engine.as_ref().is_some_and(Engine::is_playing) {
             ui.ctx().request_repaint();
+        } else {
+            // Keeps the CPU and RAM numbers current while nothing else redraws.
+            ui.ctx().request_repaint_after(usage::INTERVAL);
         }
     }
 

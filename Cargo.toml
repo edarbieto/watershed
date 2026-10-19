@@ -26,6 +26,7 @@ rtrb = "0.4"
 rubato = "5"
 signalsmith-stretch = "0.1"
 serde = { version = "1", features = ["derive"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 symphonia = { version = "0.6", features = ["mp3", "aac", "isomp4", "alac"] }
 thiserror = "2"
 toml = "1"

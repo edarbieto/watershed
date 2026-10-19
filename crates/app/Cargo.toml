@@ -16,6 +16,7 @@ eframe.workspace = true
 env_logger.workspace = true
 log.workspace = true
 rfd.workspace = true
+sysinfo.workspace = true
 
 [lints]
 workspace = true

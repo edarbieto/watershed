@@ -7,6 +7,7 @@ mod loops;
 mod markers;
 mod playhead;
 mod stems;
+mod usage;
 mod view;
 mod waveform;
 
