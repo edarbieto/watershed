@@ -9,17 +9,21 @@ Last updated: 2026-10-19.
   faders, pan (value shown), double-click reset, space to play and click-to-seek all
   work with no noticeable latency, alongside Reaper. Output survives a Bluetooth
   headset switching profiles when Reaper arms a track (see below).
+- **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
+  Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps
 
-1. Spike: Signalsmith Stretch, **done on macOS** (see below). Pending: the same
-   benchmark on Windows.
-2. Spike: BSRoformer.cpp + GGUF, **measured on the MacBook** (see below). Pending: the
-   same test on the RTX 3050 (Vulkan and CUDA).
-3. Phase 2: tempo/pitch, saved A-B loops, sessions.
+1. **Phase 2**, in this order:
+   1. Tempo and pitch: Signalsmith on the master in the engine (see the spike notes on
+      latency, seek and allocation), plus a master limiter.
+   2. Saved A-B loops.
+   3. Sessions and library.
+2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
+   BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA.
 
 ## Open questions for the user
 
@@ -185,3 +189,15 @@ per track (saved in the session).
 
 - Sessions (Phase 2) must store the common gain factor used to avoid clipping when
   writing FLAC.
+- **Clipping, explained** (asked by the user): stems exceed 0 dBFS because the model
+  works in float and stems partly cancel each other; together they add back up to about
+  the original mix. MVSEP mp3s do it too (mp3 decodes to float) and nothing warns about
+  it because it is not an error. It only clips in integer formats (fix: common factor,
+  undone on load) and at the device output when a hot stem plays alone at full volume
+  (fix: master limiter, planned with tempo/pitch).
+- **Why PyTorch beats ggml on CPU** (likely, not verified): PyTorch runs the matrix
+  maths through Accelerate, which uses Apple's matrix hardware; ggml's q8_0 CPU kernels
+  target LLM inference and do not. Irrelevant for the decision: the GPU path is the
+  real one, and Phase 4 replaces this backend.
+- **Separation progress bar:** BSRoformer.cpp's `Process` takes progress (0–1) and
+  cancel callbacks; the Phase 3 UI shows a bar with a Cancel button.

@@ -12,6 +12,8 @@
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
 | Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
 | Reference speed | PyTorch + CUDA on the RTX 3050 separates a ~5 min song in 73–100 s. The native `wgpu` backend is measured against this. |
+| Clipping | Stems can exceed full scale because the model works in float; they add back up to about the original mix. Not an error (MVSEP mp3s do it too). Only integer formats and the device output clip: FLAC uses the common factor above, and the master gets a light **limiter** (or default headroom) so a hot stem soloed at full volume never clips at the output. 32-bit float WAV was considered and rejected (~2× the size). |
+| Temporary separation backend | BSRoformer.cpp (MIT, ggml) + q8_0 GGUF, validated by the spike: faster than PyTorch on the GPU, inaudible quantization. Same C++ source on all platforms, compiled by `build.rs`; GPU backend per platform: **Metal** on macOS, **Vulkan** on Windows/Linux. No CUDA in the distribution. Our wrapper sets the CPU thread count (ggml defaults to 4). Its progress and cancel callbacks drive the progress bar. |
 | Reference dev machine | RTX 3050 6 GB, Ryzen 7 5000, 64 GB RAM, Yamaha AG03 (ASIO for Reaper and shared WASAPI for Watershed at the same time). |
 
 ## 1. Vision
@@ -45,7 +47,7 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 ### Separation
 - [ ] Import files (mp3, flac, wav, ogg, m4a) by drag & drop or a file dialog.
 - [ ] Model catalog with automatic download and sha256 verification. Default model: **BS-RoFormer SW** (6 stems).
-- [ ] Progress bar and cancel.
+- [ ] Progress bar and cancel (backend progress and cancel callbacks).
 - [ ] Chunked separation (overlapping chunks) to fit GPUs with ~4–6 GB of VRAM.
 - [ ] CPU fallback when no compatible GPU is found.
 - [ ] (Later) Ensembles: run N models and average the results.
@@ -178,11 +180,22 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 - [x] ✅ Milestone: replaces Reaper for stem playback (confirmed in a practice session on macOS).
 
 ### Spikes (before Phase 2)
-- [ ] Signalsmith Stretch on the stereo mix in real time: measure CPU and latency.
-- [ ] Build BSRoformer.cpp/GGUF and separate a song on the reference GPU.
+- [x] Signalsmith Stretch on the stereo mix in real time: under 1% of one core, ~120 ms
+  latency, sounds good. Real-time is enough; no offline pre-render needed.
+- [x] Build BSRoformer.cpp/GGUF and separate a song: 79 s on Metal (M5 Pro) vs 120 s for
+  PyTorch MPS, SDR 36–43 dB against the PyTorch output. Details in `STATUS.md`.
+
+### Before Phase 3 (Windows, not blocking Phase 2)
+- [ ] Signalsmith benchmark on the Windows machine.
+- [ ] BSRoformer.cpp on the RTX 3050: Vulkan vs CUDA vs PyTorch CUDA. Decides whether
+  Vulkan is good enough as the Windows backend.
+- [ ] Vulkan SDK + `glslc` in CI (Windows, Linux); pin a ggml commit.
 
 ### Phase 2: Practice tools
-- [ ] Tempo without pitch change, transposition.
+In this order:
+- [ ] Tempo without pitch change, transposition: Signalsmith on the master, latency
+  compensation in the displayed position, `reset` + `seek` pre-roll on seek, instance
+  created off the audio thread. Master limiter.
 - [ ] Saved A-B loops.
 - [ ] Persistent sessions + library.
 
