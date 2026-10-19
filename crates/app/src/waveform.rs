@@ -1,5 +1,9 @@
+use std::ops::Range;
+
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rangef, Rect, Sense, Stroke, vec2};
 use watershed_dsp::Peaks;
+
+use crate::view::View;
 
 /// What the user did on a waveform.
 pub enum WaveformAction {
@@ -19,6 +23,8 @@ pub enum RulerAction {
 
 /// What is drawn over the waveforms and the ruler. Positions are in frames.
 pub struct Overlay<'a> {
+    /// The frames shown across the width (zoom and scroll).
+    pub visible: Range<usize>,
     pub position: usize,
     /// `(start, end, enabled)` of the A-B loop.
     pub loop_region: Option<(usize, usize, bool)>,
@@ -34,28 +40,32 @@ const TICK_STEPS: &[f64] = &[1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0
 /// Minimum distance between labeled ticks, in points.
 const MIN_TICK_SPACING: f32 = 60.0;
 
-/// Maps frames to x coordinates across `x_range` and back.
+/// Maps the visible frames to x coordinates across `x_range` and back. Frames
+/// outside the view map outside the range, where painting is clipped.
 #[derive(Clone, Copy)]
 struct Timeline {
     x_range: Rangef,
-    total: usize,
+    start: usize,
+    len: usize,
 }
 
 impl Timeline {
-    fn new(x_range: Rangef, total: usize) -> Self {
+    fn new(x_range: Rangef, visible: &Range<usize>) -> Self {
         Self {
             x_range,
-            total: total.max(1),
+            start: visible.start,
+            len: visible.len().max(1),
         }
     }
 
     fn x_of(self, frame: usize) -> f32 {
-        self.x_range.min + frame as f32 / self.total as f32 * self.x_range.span().max(1.0)
+        let fraction = (frame as f64 - self.start as f64) / self.len as f64;
+        self.x_range.min + (fraction * f64::from(self.x_range.span().max(1.0))) as f32
     }
 
     fn frame_at(self, x: f32) -> usize {
         let fraction = ((x - self.x_range.min) / self.x_range.span().max(1.0)).clamp(0.0, 1.0);
-        (fraction as f64 * self.total as f64) as usize
+        self.start + (f64::from(fraction) * self.len as f64) as usize
     }
 }
 
@@ -102,18 +112,18 @@ pub fn waveform(
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
 
-    let timeline = Timeline::new(rect.x_range(), peaks[0].total_frames);
+    let timeline = Timeline::new(rect.x_range(), &overlay.visible);
     paint_loop(ui, &painter, rect, timeline, overlay.loop_region);
 
     // Each channel gets half the height, centered on its own axis.
     let half = rect.height() * 0.25 - 1.0;
     let columns = rect.width().ceil() as usize;
-    let total = timeline.total;
+    let (first, len) = (timeline.start, timeline.len);
     for (channel, peaks) in peaks.iter().enumerate() {
         let mid = rect.top() + rect.height() * (0.25 + 0.5 * channel as f32);
         for x in 0..columns {
-            let start = x * total / columns;
-            let end = (x + 1) * total / columns;
+            let start = first + x * len / columns;
+            let end = first + (x + 1) * len / columns;
             let (lo, hi) = peaks.range(start, end);
             let px = rect.left() + x as f32 + 0.5;
             let top = mid - hi.min(1.0) * half;
@@ -158,21 +168,23 @@ pub fn ruler(
     ui: &egui::Ui,
     response: &egui::Response,
     x_range: Rangef,
-    total_frames: usize,
     sample_rate: u32,
     overlay: &Overlay,
 ) -> Option<RulerAction> {
-    let rect = response.rect;
+    // Painted over the timeline only, in case the response is a bit wider.
+    let rect = Rect::from_x_y_ranges(x_range, response.rect.y_range());
     let time_bottom = rect.top() + RULER_TIME_HEIGHT;
     let painter = ui.painter_at(rect);
-    let timeline = Timeline::new(x_range, total_frames);
-    let bar = Rect::from_x_y_ranges(x_range, rect.y_range());
-    painter.rect_filled(bar, 2.0, ui.visuals().faint_bg_color);
-    paint_loop(ui, &painter, bar, timeline, overlay.loop_region);
+    let timeline = Timeline::new(x_range, &overlay.visible);
+    painter.rect_filled(rect, 2.0, ui.visuals().faint_bg_color);
+    paint_loop(ui, &painter, rect, timeline, overlay.loop_region);
 
     let rate = f64::from(sample_rate.max(1));
-    let duration = timeline.total as f64 / rate;
-    let points_per_sec = x_range.span() as f64 / duration.max(1e-9);
+    let (start, end) = (
+        overlay.visible.start as f64 / rate,
+        overlay.visible.end as f64 / rate,
+    );
+    let points_per_sec = f64::from(x_range.span()) / (end - start).max(1e-9);
     let step = TICK_STEPS
         .iter()
         .copied()
@@ -182,14 +194,15 @@ pub fn ruler(
     let tick = Stroke::new(1.0, text_color);
     let font = FontId::proportional(10.0);
     // A short unlabeled tick halfway between labeled ones.
-    let mut i = 0;
+    let half_step = step / 2.0;
+    let mut i = (start / half_step).floor() as u64;
     loop {
-        let secs = i as f64 * step / 2.0;
-        if secs > duration {
+        let secs = i as f64 * half_step;
+        if secs > end {
             break;
         }
         let x = timeline.x_of((secs * rate) as usize);
-        if i % 2 == 0 {
+        if i.is_multiple_of(2) {
             painter.vline(x, time_bottom - 6.0..=time_bottom, tick);
             painter.text(
                 Pos2::new(x + 3.0, rect.top() + 1.0),
@@ -253,6 +266,38 @@ pub fn ruler(
     }
 }
 
+/// Draws a horizontal scrollbar for the view in the rect of `response`, under the
+/// timeline spanning `x_range`. Dragging the thumb scrolls; clicking beside it
+/// centers the view there. Draws nothing when the whole song is visible.
+pub fn scrollbar(ui: &egui::Ui, response: &egui::Response, x_range: Rangef, view: &mut View) {
+    if view.is_full() || view.duration() <= 0.0 {
+        return;
+    }
+    let rect = Rect::from_x_y_ranges(x_range, response.rect.y_range());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 3.0, ui.visuals().faint_bg_color);
+    let width = f64::from(x_range.span().max(1.0));
+    let secs_per_point = view.duration() / width;
+    let x_of = |secs: f64| x_range.min + (secs / secs_per_point) as f32;
+    let thumb = Rect::from_x_y_ranges(x_of(view.start)..=x_of(view.end()), rect.y_range());
+    let visuals = ui.visuals();
+    let color = if response.hovered() || response.dragged() {
+        visuals.widgets.hovered.bg_fill
+    } else {
+        visuals.widgets.inactive.bg_fill
+    };
+    painter.rect_filled(thumb, 3.0, color);
+
+    if response.dragged() {
+        view.pan(f64::from(response.drag_delta().x) * secs_per_point);
+    } else if response.clicked()
+        && let Some(pointer) = response.interact_pointer_pos()
+        && !thumb.contains(pointer)
+    {
+        view.center_on(f64::from(pointer.x - x_range.min) * secs_per_point);
+    }
+}
+
 /// Ruler label: `m:ss`.
 fn format_tick(secs: f64) -> String {
     let secs = secs.round() as u64;
@@ -265,13 +310,20 @@ mod tests {
 
     #[test]
     fn timeline_maps_both_ways() {
-        let timeline = Timeline::new(Rangef::new(100.0, 300.0), 1000);
+        let timeline = Timeline::new(Rangef::new(100.0, 300.0), &(0..1000));
         assert_eq!(timeline.x_of(0), 100.0);
         assert_eq!(timeline.x_of(500), 200.0);
         assert_eq!(timeline.frame_at(200.0), 500);
         // Outside the range clamps to the ends.
         assert_eq!(timeline.frame_at(50.0), 0);
         assert_eq!(timeline.frame_at(400.0), 1000);
+
+        // Zoomed in on frames 1000..2000.
+        let timeline = Timeline::new(Rangef::new(100.0, 300.0), &(1000..2000));
+        assert_eq!(timeline.x_of(1500), 200.0);
+        assert_eq!(timeline.x_of(0), -100.0);
+        assert_eq!(timeline.frame_at(150.0), 1250);
+        assert_eq!(timeline.frame_at(0.0), 1000);
     }
 
     #[test]

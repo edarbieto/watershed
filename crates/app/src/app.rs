@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Align, Key, Layout, RichText};
+use eframe::egui::{self, Align, Key, Layout, Rect, RichText};
 use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
 use watershed_dsp::Peaks;
 use watershed_storage::{Config, Session, TrackState};
@@ -10,10 +10,15 @@ use watershed_storage::{Config, Session, TrackState};
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
 use crate::markers::Markers;
-use crate::waveform::{Overlay, RulerAction, WaveformAction, ruler, waveform};
+use crate::playhead::Playhead;
+use crate::view::View;
+use crate::waveform::{Overlay, RulerAction, WaveformAction, ruler, scrollbar, waveform};
 
 const ROW_HEIGHT: f32 = 64.0;
 const RULER_HEIGHT: f32 = 32.0;
+const SCROLLBAR_HEIGHT: f32 = 8.0;
+/// Zoom factor of the zoom buttons and keys.
+const ZOOM_STEP: f64 = 1.5;
 const CONTROLS_WIDTH: f32 = 240.0;
 const PAN_SLIDER_WIDTH: f32 = 40.0;
 const MIN_DB: f32 = -60.0;
@@ -58,6 +63,10 @@ enum Action {
     AddMarker,
     /// Moves the playhead to the marker with this index.
     GoToMarker(usize),
+    /// Zooms by this factor (above 1 zooms in) around the playhead.
+    Zoom(f64),
+    /// Shows the whole song.
+    ZoomToFit,
 }
 
 /// Mixer settings carried over when a song is reloaded, e.g. after switching to a
@@ -82,6 +91,14 @@ pub struct WatershedApp {
     notify: Notify,
     loops: Loops,
     markers: Markers,
+    /// Visible part of the song.
+    view: View,
+    /// Playhead position in the previous frame, in seconds, to follow it.
+    last_position: f64,
+    /// Smoothed playhead, for drawing.
+    playhead: Playhead,
+    /// When the previous frame was drawn, to advance the playhead.
+    last_frame: Option<Instant>,
     /// Active loop last seen by [`WatershedApp::sync_loop`].
     last_loop: Option<(f64, f64)>,
     /// Session of the loaded song as last written (or read), to detect changes.
@@ -111,6 +128,10 @@ impl WatershedApp {
             notify,
             loops: Loops::default(),
             markers: Markers::default(),
+            view: View::new(0.0),
+            last_position: 0.0,
+            playhead: Playhead::default(),
+            last_frame: None,
             last_loop: None,
             saved_session: None,
             changed_at: None,
@@ -201,6 +222,7 @@ impl WatershedApp {
         }
         self.loops = Loops::from_session(&session);
         self.markers = Markers::from_session(&session.markers);
+        self.view = View::new(loaded.song.duration_secs());
         self.last_loop = None;
         let Some(engine) = &mut self.engine else {
             return;
@@ -387,6 +409,9 @@ impl WatershedApp {
             (Key::B, Action::SetB),
             (Key::L, Action::ToggleLoop),
             (Key::M, Action::AddMarker),
+            (Key::Plus, Action::Zoom(ZOOM_STEP)),
+            (Key::Equals, Action::Zoom(ZOOM_STEP)),
+            (Key::Minus, Action::Zoom(1.0 / ZOOM_STEP)),
         ];
         for (key, action) in keys {
             if ui.input(|i| i.key_pressed(key)) {
@@ -428,7 +453,34 @@ impl WatershedApp {
                     self.seek_secs(marker.time);
                 }
             }
+            Action::Zoom(factor) => {
+                let anchor = if self.view.contains(position) {
+                    position
+                } else {
+                    self.view.start + self.view.span / 2.0
+                };
+                self.view.zoom(factor, anchor);
+            }
+            Action::ZoomToFit => self.view = View::new(self.view.duration()),
         }
+    }
+
+    /// Advances the smoothed playhead to this frame and keeps it in view.
+    fn update_playhead(&mut self) {
+        let now = Instant::now();
+        let dt = self
+            .last_frame
+            .map_or(0.0, |last| now.duration_since(last).as_secs_f64());
+        self.last_frame = Some(now);
+        let (playing, tempo) = self
+            .engine
+            .as_ref()
+            .map_or((false, 1.0), |e| (e.is_playing(), f64::from(e.tempo())));
+        let position = self
+            .playhead
+            .update(self.position_secs(), dt, playing, tempo);
+        self.view.follow(self.last_position, position, playing);
+        self.last_position = position;
     }
 
     /// Jumps to the start of the active loop and plays it.
@@ -848,8 +900,8 @@ impl WatershedApp {
             return;
         };
 
-        let position = self.engine.as_ref().map_or(0, Engine::position);
         let rate = f64::from(loaded.song.sample_rate);
+        let position = (self.playhead.secs() * rate) as usize;
         let loop_region = self.loops.region().map(|(a, b)| {
             let frame = |secs: f64| (secs * rate) as usize;
             (frame(a), frame(b), self.loops.enabled)
@@ -861,15 +913,51 @@ impl WatershedApp {
             .enumerate()
             .map(|(i, m)| ((m.time * rate) as usize, format!("{} {}", i + 1, m.name)))
             .collect();
+        let visible = (self.view.start * rate) as usize..(self.view.end() * rate) as usize;
         let overlay = Overlay {
+            visible,
             position,
             loop_region,
             markers: &markers,
         };
         let mut wave_action = None;
-        // The ruler is drawn once the rows have shown where the waveforms start.
-        let (_, ruler_response) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), RULER_HEIGHT),
+        let mut zoom_action = None;
+        // The ruler and the scrollbar are drawn once the rows have shown where the
+        // waveforms start; the space beside the ruler holds the zoom buttons.
+        let ruler_response = ui
+            .horizontal(|ui| {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(CONTROLS_WIDTH, RULER_HEIGHT),
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        ui.label(RichText::new("Zoom").weak().small());
+                        if ui.small_button("−").on_hover_text("Zoom out (-)").clicked() {
+                            zoom_action = Some(Action::Zoom(1.0 / ZOOM_STEP));
+                        }
+                        if ui.small_button("+").on_hover_text("Zoom in (+)").clicked() {
+                            zoom_action = Some(Action::Zoom(ZOOM_STEP));
+                        }
+                        if ui
+                            .add_enabled(!self.view.is_full(), egui::Button::new("Fit").small())
+                            .on_hover_text(
+                                "Show the whole song. Zoom with Cmd + scroll or a pinch, \
+                                 scroll sideways with Shift + scroll or two fingers.",
+                            )
+                            .clicked()
+                        {
+                            zoom_action = Some(Action::ZoomToFit);
+                        }
+                    },
+                );
+                ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), RULER_HEIGHT),
+                    egui::Sense::click_and_drag(),
+                )
+                .1
+            })
+            .inner;
+        let (_, scrollbar_response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), SCROLLBAR_HEIGHT),
             egui::Sense::click_and_drag(),
         );
         let mut wave_x = None;
@@ -964,11 +1052,38 @@ impl WatershedApp {
                 ui,
                 &ruler_response,
                 x_range,
-                loaded.song.frames(),
                 loaded.song.sample_rate,
                 &overlay,
             )
         });
+        if let Some(x_range) = wave_x {
+            scrollbar(ui, &scrollbar_response, x_range, &mut self.view);
+            // Cmd + scroll or a pinch zooms around the pointer; sideways scrolling
+            // (Shift + wheel, two fingers) scrolls, over the ruler or the waveforms.
+            let area =
+                Rect::from_x_y_ranges(x_range, ruler_response.rect.top()..=ui.min_rect().bottom());
+            let (pointer, zoom, scroll_x) = ui.input(|i| {
+                (
+                    i.pointer.hover_pos(),
+                    i.zoom_delta(),
+                    i.smooth_scroll_delta.x,
+                )
+            });
+            if let Some(pointer) = pointer.filter(|p| area.contains(*p)) {
+                let secs_per_point = self.view.span / f64::from(x_range.span().max(1.0));
+                if zoom != 1.0 {
+                    let anchor =
+                        self.view.start + f64::from(pointer.x - x_range.min) * secs_per_point;
+                    self.view.zoom(f64::from(zoom), anchor);
+                }
+                if scroll_x != 0.0 {
+                    self.view.pan(-f64::from(scroll_x) * secs_per_point);
+                }
+            }
+        }
+        if let Some(action) = zoom_action {
+            self.apply(action);
+        }
         match ruler_action {
             Some(RulerAction::Seek(frame)) => wave_action = Some(WaveformAction::Seek(frame)),
             Some(RulerAction::AddMarker(frame)) => {
@@ -1014,6 +1129,8 @@ impl eframe::App for WatershedApp {
             log::info!("restarting audio on {}", engine.device().name);
             self.switch_device(&id, ui.ctx());
         }
+
+        self.update_playhead();
 
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.add_space(4.0);

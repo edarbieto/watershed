@@ -5,7 +5,9 @@ mod app;
 mod loader;
 mod loops;
 mod markers;
+mod playhead;
 mod stems;
+mod view;
 mod waveform;
 
 use eframe::egui;
