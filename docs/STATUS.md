@@ -31,17 +31,30 @@ Last updated: 2026-10-19.
 
 ## Next steps
 
-1. **Phase 2**, in this order:
-   1. ~~Session file~~: done.
-   2. ~~Markers and sections~~: done.
-   3. ~~Waveform zoom~~: done.
-   4. ~~Library of recent folders~~: done.
-   5. Then, before Phase 3: the Cmd+Tab issue (an `.app` wrapper for development) and
-      the slow maximized window (see "Observations to investigate").
-   6. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
-      optimization (design principles), portable builds (section 9).
-2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
-   BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA.
+**Phase 2 is feature-complete on macOS.** To close it, everything must be checked on
+Windows (it was all built and tested on the MacBook only). Then Phase 3.
+
+1. **On the Windows machine** (next session):
+   1. Setup: `git pull`, `rustup update`, `cargo build --release`. Signalsmith's
+      bindings need **libclang** at build time: if the build fails on `bindgen`,
+      install LLVM (`winget install LLVM.LLVM`) and set `LIBCLANG_PATH` to its `bin`.
+   2. Run the Phase 2 checklists below on Windows. Windows-specific points:
+      - Zoom with **Ctrl** + scroll (Cmd on macOS); Shift + scroll; touchpad pinch.
+      - Smooth playhead at full zoom on WASAPI (different callback sizes than macOS).
+      - `.watershed.toml` is not hidden on Windows (no dot-file convention); OK?
+      - Recent list: home shown as `~` (from `USERPROFILE`); paths with backslashes.
+      - CPU/RAM numbers against Task Manager (both show CPU as a share of all cores).
+   3. Is the maximized window slow there too? (see "Observations to investigate").
+   4. Practice session: Reaper on ASIO and Watershed on shared WASAPI, both on the
+      AG03. Clicks or dropouts? (open question below).
+   5. Before Phase 3: Signalsmith benchmark
+      (`cargo run --release -p watershed-audio --example stretch -- STEMS...`), and
+      BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA (needs CMake, the Visual
+      Studio C++ tools and the Vulkan SDK).
+2. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+   release `.app` comes with distribution).
+3. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
+   optimization (design principles), portable builds (section 9).
 
 ## Open questions for the user
 

@@ -54,9 +54,9 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 - [ ] (Later) Optional "cloud" engine through the **MVSEP API** (https://mvsep.com/full_api) with the user's account, for premium models.
 
 ### Player
-- [ ] One row per stem: waveform, **volume**, **pan L/R**, **mute**, **solo**.
-- [ ] Play / pause / stop. Click the waveform to seek.
-- [ ] **Master volume.**
+- [x] One row per stem: waveform, **volume**, **pan L/R**, **mute**, **solo**.
+- [x] Play / pause / stop. Click the waveform to seek.
+- [x] **Master volume.**
 - [x] **Choose the audio output device.**
 - [x] **Tempo change without pitch change** (e.g. 50%–125%).
 - [x] **Transposition** in semitones (for songs tuned a half step down, etc.).
