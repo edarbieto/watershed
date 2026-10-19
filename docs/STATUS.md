@@ -17,6 +17,8 @@ Last updated: 2026-10-19.
   "Session file" below).
 - **Stereo waveforms, time ruler, ▶ on saved loops: done.** Tested by the user (see
   "Waveforms and ruler" below).
+- **Phase 2.4, markers and sections: done.** Tested by the user (see "Markers and
+  sections" below).
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -27,7 +29,7 @@ Last updated: 2026-10-19.
 
 1. **Phase 2**, in this order:
    1. ~~Session file~~: done.
-   2. Markers and sections (see the design notes below).
+   2. ~~Markers and sections~~: done.
    3. Waveform zoom.
    4. Library of recent folders.
 2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
@@ -164,19 +166,40 @@ linear `gain`, `pan`, `mute`, `solo`) and the saved `[[loops]]`.
 3. ▶ on a saved loop, paused or playing, anywhere in the song: plays from its start
    and loops.
 
-## Design notes: markers and sections (planned)
+## Markers and sections
 
-Agreed with the user:
-- Markers are named points the user places: a button, the waveform, and Reaper's
-  shortcut (`M` inserts a marker at the playhead; check Reaper's defaults for the
-  rest, e.g. number keys to jump to markers 1–9).
-- A section runs from a marker to the next one, or to the end of the song.
-- Each marker has ▶ (play from it) and loop (sets A = marker, B = next marker or the
-  song end, and loops), like playing a section in Ableton.
-- No stored automatic `[Start]` marker: the stretch before the first marker is
-  shown as an implicit `[Start]` row at 0:00 when the first marker is after 0:00.
-  Same behavior, nothing to save, nothing the user can delete or rename by mistake.
-- Stored in the session file, so they come after it.
+Design agreed with the user beforehand: named points placed with a button, the ruler
+and Reaper's shortcuts; a section runs from a marker to the next one or to the song
+end; each has ▶ and loop, like playing a section in Ableton.
+
+- `markers.rs`: `Markers` keeps them in time order. A marker within 0.1 s of another
+  is not added (pressing M twice does not stack them). Default names "Marker N"
+  continue after the highest N, like loops.
+- **Adding:** `M` (Reaper's default) or the Add button at the playhead, or a
+  double-click on the ruler.
+- **Jumping:** keys 1–9 go to markers 1–9, numbered by time order (in Reaper they
+  keep the number they were created with; by position is easier to read here).
+- **Drawn** in a second row of the ruler (number and name, clipped at the next
+  marker) and as faint lines across the waveforms.
+- **Side panel**, above the loops, one row per section: number, ▶ (play from here;
+  turns an active loop off when the marker is outside it, or playback would be caught
+  by it), 🔁 (loop up to the next marker or the end, and play), name, time, delete. The
+  section under the playhead is highlighted.
+- No stored `[Start]` marker: when the first marker is after 0:00 the panel shows an
+  implicit `[Start]` row, with ▶ and 🔁 but no name or delete.
+- Stored in the session as `[[markers]]` (`name`, `time`).
+- Not yet: moving a marker by dragging it (comes with waveform zoom, to place it
+  precisely) and previous/next marker keys.
+
+**Test checklist** (passed):
+1. Press M while playing at a few points, rename them in the panel: they show in the
+   ruler and the panel in time order, and survive closing and reopening.
+2. Double-click the ruler: a marker appears there.
+3. Keys 1–9 jump to the markers.
+4. ▶ on a section plays from its start; 🔁 loops it up to the next marker (and the
+   last one up to the end). `[Start]` works the same.
+5. With a loop on, ▶ on a section outside it plays on without being pulled back.
+6. Delete a marker: the sections before and after merge.
 
 ## Spike: Signalsmith Stretch
 

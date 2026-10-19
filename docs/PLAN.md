@@ -206,7 +206,7 @@ In this order:
 - [x] Saved A-B loops (stored in the session file), transport buttons
   (start or loop start, ±5 s).
 - [x] Session file per song folder (`.watershed.toml`): mixer, tempo/pitch, loops.
-- [ ] Markers and sections (stored in the session file).
+- [x] Markers and sections (stored in the session file).
 - [ ] Waveform zoom.
 - [ ] Library of recent folders.
 
