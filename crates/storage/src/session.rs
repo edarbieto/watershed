@@ -26,6 +26,8 @@ pub struct Session {
     pub looping: bool,
     pub tracks: Vec<TrackState>,
     pub loops: Vec<SavedLoop>,
+    /// In time order.
+    pub markers: Vec<Marker>,
 }
 
 impl Default for Session {
@@ -40,6 +42,7 @@ impl Default for Session {
             looping: false,
             tracks: Vec::new(),
             loops: Vec::new(),
+            markers: Vec::new(),
         }
     }
 }
@@ -76,6 +79,13 @@ pub struct SavedLoop {
     pub name: String,
     pub start: f64,
     pub end: f64,
+}
+
+/// A named point in the song. A section runs from it to the next marker.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Marker {
+    pub name: String,
+    pub time: f64,
 }
 
 impl Session {
@@ -145,6 +155,10 @@ mod tests {
                 name: "Chorus".into(),
                 start: 60.0,
                 end: 75.5,
+            }],
+            markers: vec![Marker {
+                name: "Verse".into(),
+                time: 12.5,
             }],
             ..Session::default()
         };

@@ -4,6 +4,7 @@
 mod app;
 mod loader;
 mod loops;
+mod markers;
 mod stems;
 mod waveform;
 

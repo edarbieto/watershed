@@ -9,10 +9,11 @@ use watershed_storage::{Config, Session, TrackState};
 
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
-use crate::waveform::{WaveformAction, ruler, waveform};
+use crate::markers::Markers;
+use crate::waveform::{Overlay, RulerAction, WaveformAction, ruler, waveform};
 
 const ROW_HEIGHT: f32 = 64.0;
-const RULER_HEIGHT: f32 = 18.0;
+const RULER_HEIGHT: f32 = 32.0;
 const CONTROLS_WIDTH: f32 = 240.0;
 const PAN_SLIDER_WIDTH: f32 = 40.0;
 const MIN_DB: f32 = -60.0;
@@ -25,7 +26,19 @@ const MAX_SEMITONES: f32 = 12.0;
 const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 /// How far the skip buttons and arrow keys move, in seconds.
 const SKIP_SECS: f64 = 5.0;
-const LOOPS_PANEL_WIDTH: f32 = 240.0;
+const SIDE_PANEL_WIDTH: f32 = 280.0;
+/// Number keys jump to markers 1 to 9, like Reaper.
+const MARKER_KEYS: [Key; 9] = [
+    Key::Num1,
+    Key::Num2,
+    Key::Num3,
+    Key::Num4,
+    Key::Num5,
+    Key::Num6,
+    Key::Num7,
+    Key::Num8,
+    Key::Num9,
+];
 /// How long the session must stay unchanged before it is written, so dragging a
 /// slider does not write the file on every frame.
 const SAVE_DELAY: Duration = Duration::from_secs(1);
@@ -41,6 +54,10 @@ enum Action {
     SetB,
     ToggleLoop,
     ClearLoop,
+    /// Adds a marker at the playhead.
+    AddMarker,
+    /// Moves the playhead to the marker with this index.
+    GoToMarker(usize),
 }
 
 /// Mixer settings carried over when a song is reloaded, e.g. after switching to a
@@ -64,6 +81,7 @@ pub struct WatershedApp {
     /// Wakes the UI when the engine needs a restart, even if nothing else repaints.
     notify: Notify,
     loops: Loops,
+    markers: Markers,
     /// Active loop last seen by [`WatershedApp::sync_loop`].
     last_loop: Option<(f64, f64)>,
     /// Session of the loaded song as last written (or read), to detect changes.
@@ -92,6 +110,7 @@ impl WatershedApp {
             xruns_logged: 0,
             notify,
             loops: Loops::default(),
+            markers: Markers::default(),
             last_loop: None,
             saved_session: None,
             changed_at: None,
@@ -181,6 +200,7 @@ impl WatershedApp {
             }
         }
         self.loops = Loops::from_session(&session);
+        self.markers = Markers::from_session(&session.markers);
         self.last_loop = None;
         let Some(engine) = &mut self.engine else {
             return;
@@ -227,6 +247,7 @@ impl WatershedApp {
             looping: self.loops.enabled,
             tracks,
             loops: self.loops.saved.clone(),
+            markers: self.markers.list.clone(),
             ..Session::default()
         };
         Some((session_path(loaded), session))
@@ -365,10 +386,16 @@ impl WatershedApp {
             (Key::A, Action::SetA),
             (Key::B, Action::SetB),
             (Key::L, Action::ToggleLoop),
+            (Key::M, Action::AddMarker),
         ];
         for (key, action) in keys {
             if ui.input(|i| i.key_pressed(key)) {
                 self.apply(action);
+            }
+        }
+        for (index, key) in MARKER_KEYS.into_iter().enumerate() {
+            if ui.input(|i| i.key_pressed(key)) {
+                self.apply(Action::GoToMarker(index));
             }
         }
     }
@@ -391,6 +418,45 @@ impl WatershedApp {
             Action::SetB => self.loops.set_b(position),
             Action::ToggleLoop => self.loops.toggle(),
             Action::ClearLoop => self.loops.clear(),
+            Action::AddMarker => {
+                if self.loaded.is_some() {
+                    self.markers.add(position);
+                }
+            }
+            Action::GoToMarker(index) => {
+                if let Some(marker) = self.markers.list.get(index) {
+                    self.seek_secs(marker.time);
+                }
+            }
+        }
+    }
+
+    /// Jumps to the start of the active loop and plays it.
+    fn play_loop(&mut self) {
+        let Some((start, _)) = self.loops.active() else {
+            return;
+        };
+        self.seek_secs(start);
+        // Already at the start: `sync_loop` need not jump there again.
+        self.last_loop = self.loops.active();
+        if let Some(engine) = &mut self.engine {
+            engine.play();
+        }
+    }
+
+    /// Plays from `secs`. Turns the loop off if it is outside it, or playback would
+    /// be caught by the loop once it reaches it.
+    fn play_from(&mut self, secs: f64) {
+        if self
+            .loops
+            .active()
+            .is_some_and(|(a, b)| !(a..b).contains(&secs))
+        {
+            self.loops.enabled = false;
+        }
+        self.seek_secs(secs);
+        if let Some(engine) = &mut self.engine {
+            engine.play();
         }
     }
 
@@ -602,7 +668,116 @@ impl WatershedApp {
         }
     }
 
-    fn loops_panel(&mut self, ui: &mut egui::Ui) {
+    fn side_panel(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            self.markers_section(ui);
+            ui.add_space(16.0);
+            self.loops_section(ui);
+        });
+    }
+
+    fn markers_section(&mut self, ui: &mut egui::Ui) {
+        let Some(loaded) = &self.loaded else {
+            return;
+        };
+        let duration = loaded.song.duration_secs();
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.heading("Markers");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui
+                    .button("Add")
+                    .on_hover_text("Add a marker at the playhead (M)")
+                    .clicked()
+                {
+                    self.apply(Action::AddMarker);
+                }
+            });
+        });
+        ui.separator();
+        let sections = self.markers.sections(duration);
+        if sections.is_empty() {
+            ui.label(
+                RichText::new(
+                    "Press M or click Add to mark the playhead, or double-click the ruler. \
+                     Each marker starts a section.",
+                )
+                .weak()
+                .small(),
+            );
+            return;
+        }
+
+        let position = self.position_secs();
+        let mut play = None;
+        let mut loop_section = None;
+        let mut remove = None;
+        for section in &sections {
+            let current = section.contains(position);
+            ui.horizontal(|ui| {
+                let number = section
+                    .marker
+                    .filter(|&i| i < MARKER_KEYS.len())
+                    .map_or(String::new(), |i| (i + 1).to_string());
+                let number = RichText::new(format!("{number:>2}")).monospace();
+                ui.label(if current {
+                    number.strong()
+                } else {
+                    number.weak()
+                })
+                .on_hover_text("Press this number to jump here");
+                if ui
+                    .selectable_label(current, "▶")
+                    .on_hover_text("Play from here")
+                    .clicked()
+                {
+                    play = Some(section.start);
+                }
+                let looping = self.loops.active() == Some((section.start, section.end));
+                if ui
+                    .selectable_label(looping, "🔁")
+                    .on_hover_text("Loop this section, up to the next marker")
+                    .clicked()
+                {
+                    loop_section = Some((section.start, section.end));
+                }
+                match section.marker {
+                    Some(index) => {
+                        let marker = &mut self.markers.list[index];
+                        ui.add(egui::TextEdit::singleline(&mut marker.name).desired_width(90.0));
+                    }
+                    None => {
+                        ui.add_sized(
+                            [90.0, ui.spacing().interact_size.y],
+                            egui::Label::new(RichText::new("[Start]").weak()),
+                        );
+                    }
+                }
+                ui.label(
+                    RichText::new(format_time(section.start))
+                        .monospace()
+                        .small(),
+                );
+                if let Some(index) = section.marker
+                    && ui.small_button("🗑").on_hover_text("Delete").clicked()
+                {
+                    remove = Some(index);
+                }
+            });
+        }
+        if let Some(secs) = play {
+            self.play_from(secs);
+        }
+        if let Some((start, end)) = loop_section {
+            self.loops.select(start, end);
+            self.play_loop();
+        }
+        if let Some(index) = remove {
+            self.markers.remove(index);
+        }
+    }
+
+    fn loops_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.heading("Loops");
@@ -627,43 +802,34 @@ impl WatershedApp {
 
         let mut recall = None;
         let mut remove = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for (index, saved) in self.loops.saved.iter_mut().enumerate() {
-                let current = self.loops.a == Some(saved.start) && self.loops.b == Some(saved.end);
-                ui.horizontal(|ui| {
-                    if ui
-                        .selectable_label(current, "▶")
-                        .on_hover_text("Play this loop from its start")
-                        .clicked()
-                    {
-                        recall = Some(index);
-                    }
-                    ui.add(egui::TextEdit::singleline(&mut saved.name).desired_width(90.0));
-                    ui.label(
-                        RichText::new(format!(
-                            "{}–{}",
-                            format_time(saved.start),
-                            format_time(saved.end)
-                        ))
-                        .monospace()
-                        .small(),
-                    );
-                    if ui.small_button("🗑").on_hover_text("Delete").clicked() {
-                        remove = Some(index);
-                    }
-                });
-            }
-        });
+        for (index, saved) in self.loops.saved.iter_mut().enumerate() {
+            let current = self.loops.a == Some(saved.start) && self.loops.b == Some(saved.end);
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(current, "▶")
+                    .on_hover_text("Play this loop from its start")
+                    .clicked()
+                {
+                    recall = Some(index);
+                }
+                ui.add(egui::TextEdit::singleline(&mut saved.name).desired_width(90.0));
+                ui.label(
+                    RichText::new(format!(
+                        "{}–{}",
+                        format_time(saved.start),
+                        format_time(saved.end)
+                    ))
+                    .monospace()
+                    .small(),
+                );
+                if ui.small_button("🗑").on_hover_text("Delete").clicked() {
+                    remove = Some(index);
+                }
+            });
+        }
         if let Some(index) = recall {
             self.loops.recall(index);
-            if let Some((start, _)) = self.loops.active() {
-                self.seek_secs(start);
-                // Already at the start: `sync_loop` need not jump there again.
-                self.last_loop = self.loops.active();
-                if let Some(engine) = &mut self.engine {
-                    engine.play();
-                }
-            }
+            self.play_loop();
         }
         if let Some(index) = remove {
             self.loops.saved.remove(index);
@@ -688,6 +854,18 @@ impl WatershedApp {
             let frame = |secs: f64| (secs * rate) as usize;
             (frame(a), frame(b), self.loops.enabled)
         });
+        let markers: Vec<(usize, String)> = self
+            .markers
+            .list
+            .iter()
+            .enumerate()
+            .map(|(i, m)| ((m.time * rate) as usize, format!("{} {}", i + 1, m.name)))
+            .collect();
+        let overlay = Overlay {
+            position,
+            loop_region,
+            markers: &markers,
+        };
         let mut wave_action = None;
         // The ruler is drawn once the rows have shown where the waveforms start.
         let (_, ruler_response) = ui.allocate_exact_size(
@@ -771,8 +949,7 @@ impl WatershedApp {
                     } else {
                         kind.color().gamma_multiply(0.3)
                     };
-                    let (rect, action) =
-                        waveform(ui, peaks, color, ROW_HEIGHT, position, loop_region);
+                    let (rect, action) = waveform(ui, peaks, color, ROW_HEIGHT, &overlay);
                     wave_x.get_or_insert(rect.x_range());
                     if action.is_some() {
                         wave_action = action;
@@ -782,18 +959,22 @@ impl WatershedApp {
             }
         });
 
-        if let Some(x_range) = wave_x
-            && let Some(frame) = ruler(
+        let ruler_action = wave_x.and_then(|x_range| {
+            ruler(
                 ui,
                 &ruler_response,
                 x_range,
                 loaded.song.frames(),
                 loaded.song.sample_rate,
-                position,
-                loop_region,
+                &overlay,
             )
-        {
-            wave_action = Some(WaveformAction::Seek(frame));
+        });
+        match ruler_action {
+            Some(RulerAction::Seek(frame)) => wave_action = Some(WaveformAction::Seek(frame)),
+            Some(RulerAction::AddMarker(frame)) => {
+                self.markers.add(frame as f64 / rate);
+            }
+            None => {}
         }
 
         match wave_action {
@@ -848,10 +1029,10 @@ impl eframe::App for WatershedApp {
             ui.add_space(2.0);
         });
         if self.loaded.is_some() {
-            egui::Panel::right("loops")
+            egui::Panel::right("side_panel")
                 .resizable(true)
-                .default_size(LOOPS_PANEL_WIDTH)
-                .show(ui, |ui| self.loops_panel(ui));
+                .default_size(SIDE_PANEL_WIDTH)
+                .show(ui, |ui| self.side_panel(ui));
         }
         egui::CentralPanel::default_margins().show(ui, |ui| {
             if let Some(loading) = &self.loading {

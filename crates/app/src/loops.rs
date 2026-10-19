@@ -20,12 +20,7 @@ impl Loops {
     /// The loops stored in a session. Default names continue after the highest
     /// "Loop N" already saved.
     pub fn from_session(session: &Session) -> Self {
-        let saved_count = session
-            .loops
-            .iter()
-            .filter_map(|l| l.name.strip_prefix("Loop ")?.parse().ok())
-            .max()
-            .unwrap_or(0);
+        let saved_count = highest_number(session.loops.iter().map(|l| l.name.as_str()), "Loop ");
         let mut loops = Self {
             a: session.loop_a,
             b: session.loop_b,
@@ -107,6 +102,15 @@ impl Loops {
             self.enabled = true;
         }
     }
+}
+
+/// The highest `N` among names of the form `"{prefix}N"`, or 0, so default names
+/// can continue after it.
+pub fn highest_number<'a>(names: impl Iterator<Item = &'a str>, prefix: &str) -> usize {
+    names
+        .filter_map(|name| name.strip_prefix(prefix)?.parse().ok())
+        .max()
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

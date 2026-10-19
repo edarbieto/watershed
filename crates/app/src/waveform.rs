@@ -9,6 +9,26 @@ pub enum WaveformAction {
     Select(usize, usize),
 }
 
+/// What the user did on the ruler.
+pub enum RulerAction {
+    /// Clicked or dragged: move the playhead to this frame.
+    Seek(usize),
+    /// Double-clicked: add a marker at this frame.
+    AddMarker(usize),
+}
+
+/// What is drawn over the waveforms and the ruler. Positions are in frames.
+pub struct Overlay<'a> {
+    pub position: usize,
+    /// `(start, end, enabled)` of the A-B loop.
+    pub loop_region: Option<(usize, usize, bool)>,
+    /// Marker positions and labels, in time order.
+    pub markers: &'a [(usize, String)],
+}
+
+/// Height of the time labels row of the ruler; markers go in the row below.
+const RULER_TIME_HEIGHT: f32 = 15.0;
+
 /// Seconds between labeled ticks on the ruler, from fine to coarse.
 const TICK_STEPS: &[f64] = &[1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0];
 /// Minimum distance between labeled ticks, in points.
@@ -63,16 +83,19 @@ fn paint_loop(
     }
 }
 
-/// Draws a stereo waveform (left channel on top, right below) with a playhead and the
-/// A-B loop region, `(start, end, enabled)` in frames. Returns the rect it used, so
-/// the ruler can line up with it, and what the user did on it.
+fn marker_color(ui: &egui::Ui) -> Color32 {
+    ui.visuals().warn_fg_color
+}
+
+/// Draws a stereo waveform (left channel on top, right below) with the overlay.
+/// Returns the rect it used, so the ruler can line up with it, and what the user did
+/// on it.
 pub fn waveform(
     ui: &mut egui::Ui,
     peaks: &[Peaks; 2],
     color: Color32,
     height: f32,
-    position: usize,
-    loop_region: Option<(usize, usize, bool)>,
+    overlay: &Overlay,
 ) -> (Rect, Option<WaveformAction>) {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
@@ -80,7 +103,7 @@ pub fn waveform(
     painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
 
     let timeline = Timeline::new(rect.x_range(), peaks[0].total_frames);
-    paint_loop(ui, &painter, rect, timeline, loop_region);
+    paint_loop(ui, &painter, rect, timeline, overlay.loop_region);
 
     // Each channel gets half the height, centered on its own axis.
     let half = rect.height() * 0.25 - 1.0;
@@ -104,8 +127,13 @@ pub fn waveform(
         Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
     );
 
+    let marker_stroke = Stroke::new(1.0, marker_color(ui).gamma_multiply(0.5));
+    for &(frame, _) in overlay.markers {
+        painter.vline(timeline.x_of(frame), rect.y_range(), marker_stroke);
+    }
+
     painter.vline(
-        timeline.x_of(position),
+        timeline.x_of(overlay.position),
         rect.y_range(),
         Stroke::new(1.5, ui.visuals().strong_text_color()),
     );
@@ -124,23 +152,23 @@ pub fn waveform(
     (rect, action)
 }
 
-/// Draws a time ruler in the rect of `response`, with the timeline spanning
-/// `x_range`, and returns the frame to seek to when it is clicked or dragged.
+/// Draws a time ruler with the markers in the rect of `response`, with the timeline
+/// spanning `x_range`.
 pub fn ruler(
     ui: &egui::Ui,
     response: &egui::Response,
     x_range: Rangef,
     total_frames: usize,
     sample_rate: u32,
-    position: usize,
-    loop_region: Option<(usize, usize, bool)>,
-) -> Option<usize> {
+    overlay: &Overlay,
+) -> Option<RulerAction> {
     let rect = response.rect;
+    let time_bottom = rect.top() + RULER_TIME_HEIGHT;
     let painter = ui.painter_at(rect);
     let timeline = Timeline::new(x_range, total_frames);
     let bar = Rect::from_x_y_ranges(x_range, rect.y_range());
     painter.rect_filled(bar, 2.0, ui.visuals().faint_bg_color);
-    paint_loop(ui, &painter, bar, timeline, loop_region);
+    paint_loop(ui, &painter, bar, timeline, overlay.loop_region);
 
     let rate = f64::from(sample_rate.max(1));
     let duration = timeline.total as f64 / rate;
@@ -162,7 +190,7 @@ pub fn ruler(
         }
         let x = timeline.x_of((secs * rate) as usize);
         if i % 2 == 0 {
-            painter.vline(x, rect.bottom() - 7.0..=rect.bottom(), tick);
+            painter.vline(x, time_bottom - 6.0..=time_bottom, tick);
             painter.text(
                 Pos2::new(x + 3.0, rect.top() + 1.0),
                 Align2::LEFT_TOP,
@@ -171,29 +199,58 @@ pub fn ruler(
                 text_color,
             );
         } else {
-            painter.vline(x, rect.bottom() - 3.0..=rect.bottom(), tick);
+            painter.vline(x, time_bottom - 3.0..=time_bottom, tick);
         }
         i += 1;
     }
 
+    // Markers: a line and a label clipped at the next marker, in the lower row.
+    let color = marker_color(ui);
+    let lane = Rangef::new(time_bottom, rect.bottom());
+    for (index, (frame, label)) in overlay.markers.iter().enumerate() {
+        let x = timeline.x_of(*frame);
+        let next = overlay
+            .markers
+            .get(index + 1)
+            .map_or(x_range.max, |(f, _)| timeline.x_of(*f));
+        painter.vline(x, lane, Stroke::new(1.5, color));
+        let clip = Rect::from_x_y_ranges(x..=next - 2.0, lane).intersect(rect);
+        painter.with_clip_rect(clip).text(
+            Pos2::new(x + 3.0, lane.center()),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(11.0),
+            color,
+        );
+    }
+
     // The playhead as a small triangle pointing down at the waveforms.
-    let x = timeline.x_of(position);
+    let x = timeline.x_of(overlay.position);
     let color = ui.visuals().strong_text_color();
     painter.add(egui::Shape::convex_polygon(
         vec![
-            Pos2::new(x - 5.0, rect.top() + 4.0),
-            Pos2::new(x + 5.0, rect.top() + 4.0),
-            Pos2::new(x, rect.bottom()),
+            Pos2::new(x - 5.0, rect.top() + 3.0),
+            Pos2::new(x + 5.0, rect.top() + 3.0),
+            Pos2::new(x, time_bottom),
         ],
         color,
         Stroke::NONE,
     ));
+    painter.vline(x, lane, Stroke::new(1.5, color));
 
     // Seeking resets the stretcher, so only seek when the pointer actually moves.
     let pointer = response.interact_pointer_pos()?;
-    let clicked = response.clicked() && x_range.contains(pointer.x);
-    let scrubbed = response.dragged() && response.drag_delta().x != 0.0;
-    (clicked || scrubbed).then(|| timeline.frame_at(pointer.x))
+    let inside = x_range.contains(pointer.x);
+    let frame = timeline.frame_at(pointer.x);
+    if response.double_clicked() && inside {
+        Some(RulerAction::AddMarker(frame))
+    } else if (response.clicked() && inside)
+        || (response.dragged() && response.drag_delta().x != 0.0)
+    {
+        Some(RulerAction::Seek(frame))
+    } else {
+        None
+    }
 }
 
 /// Ruler label: `m:ss`.
