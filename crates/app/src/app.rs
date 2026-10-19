@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align, Key, Layout, RichText};
 use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
-use watershed_storage::Config;
+use watershed_storage::{Config, Session, TrackState};
 
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
@@ -23,6 +24,11 @@ const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 /// How far the skip buttons and arrow keys move, in seconds.
 const SKIP_SECS: f64 = 5.0;
 const LOOPS_PANEL_WIDTH: f32 = 240.0;
+/// How long the session must stay unchanged before it is written, so dragging a
+/// slider does not write the file on every frame.
+const SAVE_DELAY: Duration = Duration::from_secs(1);
+/// A saved position this close to the end restarts the song from the beginning.
+const RESUME_END_MARGIN_SECS: f64 = 1.0;
 
 /// Transport commands shared by the buttons and the keyboard.
 enum Action {
@@ -58,6 +64,10 @@ pub struct WatershedApp {
     loops: Loops,
     /// Active loop last seen by [`WatershedApp::sync_loop`].
     last_loop: Option<(f64, f64)>,
+    /// Session of the loaded song as last written (or read), to detect changes.
+    saved_session: Option<Session>,
+    /// When the session first differed from `saved_session`.
+    changed_at: Option<Instant>,
 }
 
 impl WatershedApp {
@@ -81,6 +91,8 @@ impl WatershedApp {
             notify,
             loops: Loops::default(),
             last_loop: None,
+            saved_session: None,
+            changed_at: None,
         }
     }
 
@@ -102,7 +114,6 @@ impl WatershedApp {
         }
         self.error = None;
         self.restore = None;
-        self.loops = Loops::default();
         self.loading = Some(loader::start(files, self.sample_rate(), ctx.clone()));
     }
 
@@ -140,12 +151,122 @@ impl WatershedApp {
                             engine.play();
                         }
                     }
-                } else if let Some(engine) = &mut self.engine {
-                    engine.load(loaded.song.clone());
+                    self.loaded = Some(loaded);
+                } else {
+                    // Write the session of the song being replaced before switching.
+                    self.save_session();
+                    self.apply_session(&loaded);
+                    self.loaded = Some(loaded);
+                    self.saved_session = self.session().map(|(_, session)| session);
+                    self.changed_at = None;
                 }
-                self.loaded = Some(loaded);
             }
             Err(e) => self.error = Some(e),
+        }
+    }
+
+    /// Restores a newly loaded song's session (mixer, tempo, pitch, loops and
+    /// position) from its folder, and sends the song to the engine.
+    fn apply_session(&mut self, loaded: &LoadedSong) {
+        let session = Session::load_from(&session_path(loaded)).unwrap_or_default();
+        for (track, file) in loaded.song.tracks.iter().zip(&loaded.files) {
+            if let Some(state) = session.track(&file_name(file)) {
+                let params = &track.params;
+                params.set_gain(state.gain.clamp(0.0, db_to_gain(MAX_DB)));
+                params.set_pan(state.pan.clamp(-1.0, 1.0));
+                params.set_mute(state.mute);
+                params.set_solo(state.solo);
+            }
+        }
+        self.loops = Loops::from_session(&session);
+        self.last_loop = None;
+        let Some(engine) = &mut self.engine else {
+            return;
+        };
+        engine.set_tempo(
+            session
+                .tempo
+                .clamp(MIN_TEMPO_PCT / 100.0, MAX_TEMPO_PCT / 100.0),
+        );
+        engine.set_semitones(session.semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES));
+        engine.load(loaded.song.clone());
+        let duration = loaded.song.duration_secs();
+        if session.position > 0.0 && session.position < duration - RESUME_END_MARGIN_SECS {
+            engine.seek((session.position * f64::from(engine.sample_rate())) as usize);
+        }
+    }
+
+    /// The session of the loaded song as it is now, with the path to write it to.
+    fn session(&self) -> Option<(PathBuf, Session)> {
+        let loaded = self.loaded.as_ref()?;
+        let engine = self.engine.as_ref()?;
+        let tracks = loaded
+            .song
+            .tracks
+            .iter()
+            .zip(&loaded.files)
+            .map(|(track, file)| {
+                let p = &track.params;
+                TrackState {
+                    file: file_name(file),
+                    gain: p.gain(),
+                    pan: p.pan(),
+                    mute: p.mute(),
+                    solo: p.solo(),
+                }
+            })
+            .collect();
+        let session = Session {
+            position: engine.position() as f64 / f64::from(engine.sample_rate()),
+            tempo: engine.tempo(),
+            semitones: engine.semitones(),
+            loop_a: self.loops.a,
+            loop_b: self.loops.b,
+            looping: self.loops.enabled,
+            tracks,
+            loops: self.loops.saved.clone(),
+            ..Session::default()
+        };
+        Some((session_path(loaded), session))
+    }
+
+    /// Writes the session if anything, including the position, changed since the
+    /// last write. Failures are logged, not fatal (e.g. a read-only folder).
+    fn save_session(&mut self) {
+        // While the stems are reloaded for another device the engine has no song.
+        if self.restore.is_some() {
+            return;
+        }
+        let Some((path, session)) = self.session() else {
+            return;
+        };
+        if self.saved_session.as_ref() == Some(&session) {
+            return;
+        }
+        if let Err(e) = session.save_to(&path) {
+            log::warn!("cannot save session to {}: {e}", path.display());
+        }
+        self.saved_session = Some(session);
+        self.changed_at = None;
+    }
+
+    /// Saves the session once it has stayed changed for [`SAVE_DELAY`]. The position
+    /// alone does not count as a change: it moves all the time while playing, and
+    /// is written with the next change or when the song is closed.
+    fn autosave_session(&mut self, ctx: &egui::Context) {
+        let (Some((_, mut session)), Some(saved)) = (self.session(), &self.saved_session) else {
+            return;
+        };
+        session.position = saved.position;
+        if session == *saved {
+            self.changed_at = None;
+            return;
+        }
+        let changed_at = *self.changed_at.get_or_insert_with(Instant::now);
+        if changed_at.elapsed() >= SAVE_DELAY {
+            self.save_session();
+        } else {
+            ctx.request_repaint_after(SAVE_DELAY);
         }
     }
 
@@ -718,11 +839,32 @@ impl eframe::App for WatershedApp {
             self.tracks(ui);
         });
         self.sync_loop(ui);
+        self.autosave_session(ui.ctx());
 
         if self.engine.as_ref().is_some_and(Engine::is_playing) {
             ui.ctx().request_repaint();
         }
     }
+
+    fn on_exit(&mut self) {
+        self.save_session();
+    }
+}
+
+/// Where the session of a song lives: its folder, next to the first stem.
+fn session_path(loaded: &LoadedSong) -> PathBuf {
+    let folder = loaded.files[0]
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    Session::path_in(folder)
+}
+
+/// A stem's file name, which identifies its track in the session.
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
 }
 
 const VOLUME_HINT: &str = "Double-click to reset to 0 dB";

@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
+mod session;
+
+pub use session::{SESSION_FILE, SavedLoop, Session, TrackState};
+
 fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "Watershed")
 }

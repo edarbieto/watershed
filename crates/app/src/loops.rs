@@ -2,14 +2,7 @@
 //! they survive resampling to another device rate.
 
 use watershed_audio::MIN_LOOP_SECS;
-
-/// A loop the user saved, to come back to later.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SavedLoop {
-    pub name: String,
-    pub start: f64,
-    pub end: f64,
-}
+use watershed_storage::{SavedLoop, Session};
 
 #[derive(Debug, Default)]
 pub struct Loops {
@@ -24,6 +17,26 @@ pub struct Loops {
 }
 
 impl Loops {
+    /// The loops stored in a session. Default names continue after the highest
+    /// "Loop N" already saved.
+    pub fn from_session(session: &Session) -> Self {
+        let saved_count = session
+            .loops
+            .iter()
+            .filter_map(|l| l.name.strip_prefix("Loop ")?.parse().ok())
+            .max()
+            .unwrap_or(0);
+        let mut loops = Self {
+            a: session.loop_a,
+            b: session.loop_b,
+            enabled: false,
+            saved: session.loops.clone(),
+            saved_count,
+        };
+        loops.enabled = session.looping && loops.region().is_some();
+        loops
+    }
+
     /// A and B when both are set and far enough apart to loop.
     pub fn region(&self) -> Option<(f64, f64)> {
         let (a, b) = (self.a?, self.b?);
@@ -163,5 +176,34 @@ mod tests {
         loops.toggle();
         loops.recall(0);
         assert_eq!(loops.active(), Some((10.0, 20.0)));
+    }
+
+    #[test]
+    fn from_session_continues_numbering() {
+        let saved = |name: &str| SavedLoop {
+            name: name.into(),
+            start: 1.0,
+            end: 2.0,
+        };
+        let session = Session {
+            loop_a: Some(10.0),
+            loop_b: Some(20.0),
+            looping: true,
+            loops: vec![saved("Loop 3"), saved("Chorus")],
+            ..Session::default()
+        };
+        let mut loops = Loops::from_session(&session);
+        assert_eq!(loops.active(), Some((10.0, 20.0)));
+        loops.save();
+        assert_eq!(loops.saved[2].name, "Loop 4");
+
+        // A loop that is too short to play is not turned on.
+        let session = Session {
+            loop_a: Some(10.0),
+            loop_b: Some(10.1),
+            looping: true,
+            ..Session::default()
+        };
+        assert_eq!(Loops::from_session(&session).active(), None);
     }
 }
