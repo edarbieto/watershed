@@ -193,9 +193,9 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 
 ### Phase 2: Practice tools
 In this order:
-- [ ] Tempo without pitch change, transposition: Signalsmith on the master, latency
+- [x] Tempo without pitch change, transposition: Signalsmith on the master, latency
   compensation in the displayed position, `reset` + `seek` pre-roll on seek, instance
-  created off the audio thread. Master limiter. *(Implemented; pending listening test.)*
+  created off the audio thread. Master limiter.
 - [ ] Saved A-B loops.
 - [ ] Persistent sessions + library.
 

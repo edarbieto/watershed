@@ -9,8 +9,8 @@ Last updated: 2026-10-19.
   faders, pan (value shown), double-click reset, space to play and click-to-seek all
   work with no noticeable latency, alongside Reaper. Output survives a Bluetooth
   headset switching profiles when Reaper arms a track (see below).
-- **Phase 2.1, tempo and pitch: implemented, waiting for a listening test.** See
-  "Tempo, pitch and limiter" below.
+- **Phase 2.1, tempo and pitch: done.** The user listened in the app on the MacBook:
+  sounds good. See "Tempo, pitch and limiter" below.
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -20,10 +20,8 @@ Last updated: 2026-10-19.
 ## Next steps
 
 1. **Phase 2**, in this order:
-   1. Tempo and pitch: user listening test in the app (see the checklist below), then
-      close it.
-   2. Saved A-B loops.
-   3. Sessions and library.
+   1. Saved A-B loops, plus transport buttons for seeking (start, ±5 s).
+   2. Sessions and library.
 2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
    BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA.
 
@@ -62,7 +60,7 @@ limiter → hard clip → device.
   transparent enough, a bypass with a crossfade is possible but costs complexity
   (the latency changes by ~120 ms when switching).
 
-**Listening checklist** (on the interface or wired output; Bluetooth in headset mode
+**Listening checklist** (passed; kept for regressions. On the interface or wired output; Bluetooth in headset mode
 runs at 16 kHz mono):
 1. At 100 % / 0 st: does it sound like before?
 2. Slow down to 50–75 % and transpose ±1–2 st while playing: smooth, no clicks?
