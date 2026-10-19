@@ -11,8 +11,8 @@ Last updated: 2026-10-19.
   headset switching profiles when Reaper arms a track (see below).
 - **Phase 2.1, tempo and pitch: done.** The user listened in the app on the MacBook:
   sounds good. See "Tempo, pitch and limiter" below.
-- **Phase 2.2, A-B loops: implemented, waiting for a test in the app.** See "A-B
-  loops" below.
+- **Phase 2.2, A-B loops: done.** Tested by the user: works. Afterwards A was changed
+  to always start a new loop (clears B) and a Clear button was added.
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -22,8 +22,11 @@ Last updated: 2026-10-19.
 ## Next steps
 
 1. **Phase 2**, in this order:
-   1. A-B loops: user test in the app (checklist below), then close it.
-   2. Sessions and library. Saved loops only live in memory until then.
+   1. Session file `.watershed.toml` in each song folder: mixer, tempo/pitch, saved
+      loops (today they only live in memory).
+   2. Markers and sections (see the design notes below).
+   3. Waveform zoom.
+   4. Library of recent folders.
 2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
    BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA.
 
@@ -85,16 +88,32 @@ runs at 16 kHz mono):
   (a click still seeks; **drag used to scrub**). Turning a loop on while outside it
   jumps to A once the mouse is released. A side panel saves, names, recalls and
   deletes loops. Opening another song clears them.
+- A always starts a new loop: sets A at the playhead, clears B and stops looping
+  (saved loops stay). Clear forgets A and B.
 - Transport buttons: ⏮ back to the start, or to A when a loop is on (Home);
   ⏪ / ⏩ 5 s (arrow keys).
 
-**Test checklist:**
+**Test checklist** (passed):
 1. Drag over a phrase: it loops right away; the jump at B is smooth, no click.
 2. Same at 50–75 % tempo and with pitch changed.
 3. A and B while playing (keys and buttons); B starts the loop; L turns it off and
    playback goes on past B.
 4. Save two loops, rename them, switch between them, delete one.
 5. ⏮ goes to A with a loop on and to 0:00 without; ⏪ / ⏩ move 5 s.
+
+## Design notes: markers and sections (planned)
+
+Agreed with the user:
+- Markers are named points the user places: a button, the waveform, and Reaper's
+  shortcut (`M` inserts a marker at the playhead; check Reaper's defaults for the
+  rest, e.g. number keys to jump to markers 1–9).
+- A section runs from a marker to the next one, or to the end of the song.
+- Each marker has ▶ (play from it) and loop (sets A = marker, B = next marker or the
+  song end, and loops), like playing a section in Ableton.
+- No stored automatic `[Start]` marker: the stretch before the first marker is
+  shown as an implicit `[Start]` row at 0:00 when the first marker is after 0:00.
+  Same behavior, nothing to save, nothing the user can delete or rename by mistake.
+- Stored in the session file, so they come after it.
 
 ## Spike: Signalsmith Stretch
 

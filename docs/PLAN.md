@@ -60,11 +60,18 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 - [ ] **Choose the audio output device.**
 - [ ] **Tempo change without pitch change** (e.g. 50%–125%).
 - [ ] **Transposition** in semitones (for songs tuned a half step down, etc.).
-- [ ] **A-B loop**, ideally with several saved loops per song.
+- [x] **A-B loop**, with several saved loops per song.
+- [ ] **Markers and sections**: named markers placed on the waveform (button, a click,
+  and Reaper's shortcut, `M`). A section runs from one marker to the next, or to the
+  end of the song. Each marker has ▶ (play from here) and loop (loop its section).
+- [ ] **Waveform zoom** and horizontal scroll, to place markers and loop ends precisely.
 
 ### Sessions
-- [ ] Each separated song is saved as a **session**: stems + metadata + mixer state + loops. Reopening it does not separate again.
-- [ ] Simple session library.
+- [ ] Each song folder keeps its **session** in a file next to the stems
+  (`.watershed.toml`): mixer state, tempo and pitch, saved loops, markers, and the
+  common gain factor of separated stems. Reopening the folder restores everything;
+  a separated song is such a folder, so it never separates again.
+- [ ] Simple session library: recently opened folders, kept in the app config.
 - [ ] Export individual stems or the current mix to WAV.
 
 ## 4. Architecture
@@ -196,8 +203,12 @@ In this order:
 - [x] Tempo without pitch change, transposition: Signalsmith on the master, latency
   compensation in the displayed position, `reset` + `seek` pre-roll on seek, instance
   created off the audio thread. Master limiter.
-- [ ] Saved A-B loops. *(Implemented, pending a test in the app; persisted with sessions.)*
-- [ ] Persistent sessions + library.
+- [x] Saved A-B loops (in memory until the session file exists), transport buttons
+  (start or loop start, ±5 s).
+- [ ] Session file per song folder (`.watershed.toml`): mixer, tempo/pitch, loops.
+- [ ] Markers and sections (stored in the session file).
+- [ ] Waveform zoom.
+- [ ] Library of recent folders.
 
 ### Phase 3: Separation with a temporary backend
 - [ ] `trait Separator` + GGUF backend.
