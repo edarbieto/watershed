@@ -13,6 +13,8 @@ Last updated: 2026-10-19.
   sounds good. See "Tempo, pitch and limiter" below.
 - **Phase 2.2, A-B loops: done.** Tested by the user: works. Afterwards A was changed
   to always start a new loop (clears B) and a Clear button was added.
+- **Phase 2.3, session file: done.** Tested by the user: works (see
+  "Session file" below).
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -22,8 +24,7 @@ Last updated: 2026-10-19.
 ## Next steps
 
 1. **Phase 2**, in this order:
-   1. Session file `.watershed.toml` in each song folder: mixer, tempo/pitch, saved
-      loops (today they only live in memory).
+   1. ~~Session file~~: done.
    2. Markers and sections (see the design notes below).
    3. Waveform zoom.
    4. Library of recent folders.
@@ -100,6 +101,42 @@ runs at 16 kHz mono):
    playback goes on past B.
 4. Save two loops, rename them, switch between them, delete one.
 5. ⏮ goes to A with a loop on and to 0:00 without; ⏪ / ⏩ move 5 s.
+
+## Session file
+
+`.watershed.toml` in the song folder (next to the first stem), read and written by
+`watershed_storage::Session`. It stores `version`, `position`, `tempo`, `semitones`,
+the current loop (`loop_a`, `loop_b`, `looping`), one `[[tracks]]` per stem (`file`,
+linear `gain`, `pan`, `mute`, `solo`) and the saved `[[loops]]`.
+
+- Tracks are matched by **file name**, so adding or removing a stem keeps the others'
+  settings; a stem missing from the file keeps its defaults (instrumental muted).
+- **When it is written:** once the state has been unchanged for 1 s after a change
+  (so dragging a slider does not write every frame), when another song replaces it,
+  and on exit (`App::on_exit`). The position alone is not a change: it is written
+  with the next change or on close. Opening a song without changing anything still
+  writes the file on exit, because the position moved.
+- Written to a `.toml.tmp` file and renamed, so a crash never leaves half a file.
+  An invalid file is logged, ignored and later overwritten. Write errors (read-only
+  folder) are logged, not shown.
+- On load the position is restored unless it is within 1 s of the end; tempo,
+  pitch, gains and pan are clamped to the UI ranges. Default loop names continue
+  after the highest "Loop N".
+- Master gain is **not** in the session: it belongs to the listening setup, not the
+  song. It still resets on restart (could go in `config.toml` later).
+- Not yet stored: markers (next step) and the common gain factor of separated stems
+  (Phase 3, add a field with a default of 1.0).
+
+**Test checklist** (passed):
+1. Open a song, change faders, pan, mute/solo, tempo and pitch, save two loops,
+   leave a loop on, quit with Cmd+Q. Reopen the folder: everything is back, including
+   the position.
+2. Open another song while the first is loaded, then go back: the first one's
+   changes are kept and the second starts with its own (or default) settings.
+3. A song with no session starts at 100 %, 0 st, all faders at 0 dB.
+4. Delete or rename a stem file: the others keep their settings.
+5. Switch the output device to one with another rate while a song is loaded:
+   nothing is lost.
 
 ## Design notes: markers and sections (planned)
 

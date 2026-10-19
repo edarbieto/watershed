@@ -203,9 +203,9 @@ In this order:
 - [x] Tempo without pitch change, transposition: Signalsmith on the master, latency
   compensation in the displayed position, `reset` + `seek` pre-roll on seek, instance
   created off the audio thread. Master limiter.
-- [x] Saved A-B loops (in memory until the session file exists), transport buttons
+- [x] Saved A-B loops (stored in the session file), transport buttons
   (start or loop start, ±5 s).
-- [ ] Session file per song folder (`.watershed.toml`): mixer, tempo/pitch, loops.
+- [x] Session file per song folder (`.watershed.toml`): mixer, tempo/pitch, loops.
 - [ ] Markers and sections (stored in the session file).
 - [ ] Waveform zoom.
 - [ ] Library of recent folders.
