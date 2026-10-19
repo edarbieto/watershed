@@ -21,9 +21,40 @@ pub struct Config {
     pub output_device: Option<String>,
     /// Folder the last song was opened from, to start file dialogs there.
     pub last_folder: Option<PathBuf>,
+    /// Song folders opened recently, most recent first.
+    pub recent: Vec<RecentFolder>,
+}
+
+/// How many recent folders are kept.
+pub const MAX_RECENT: usize = 20;
+
+/// A song folder in the recent list.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecentFolder {
+    pub path: PathBuf,
+    /// When it was last opened, in seconds since the Unix epoch.
+    pub opened: u64,
 }
 
 impl Config {
+    /// Puts `folder` first in the recent list, opened at `now` (Unix seconds).
+    pub fn remember(&mut self, folder: &Path, now: u64) {
+        self.forget(folder);
+        self.recent.insert(
+            0,
+            RecentFolder {
+                path: folder.to_owned(),
+                opened: now,
+            },
+        );
+        self.recent.truncate(MAX_RECENT);
+    }
+
+    /// Removes `folder` from the recent list.
+    pub fn forget(&mut self, folder: &Path) {
+        self.recent.retain(|r| r.path != folder);
+    }
+
     pub fn path() -> Option<PathBuf> {
         project_dirs().map(|d| d.config_dir().join("config.toml"))
     }
@@ -74,10 +105,40 @@ mod tests {
         let config = Config {
             output_device: Some("wasapi:{0.0.0.00000000}.{abc}".into()),
             last_folder: Some(PathBuf::from("songs")),
+            recent: vec![RecentFolder {
+                path: PathBuf::from("songs/one"),
+                opened: 1_700_000_000,
+            }],
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), config);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn recent_list_keeps_the_latest_first_without_duplicates() {
+        let mut config = Config::default();
+        for i in 0..MAX_RECENT + 5 {
+            config.remember(Path::new(&format!("song{i}")), i as u64);
+        }
+        assert_eq!(config.recent.len(), MAX_RECENT);
+        assert_eq!(config.recent[0].path, Path::new("song24"));
+
+        config.remember(Path::new("song10"), 100);
+        assert_eq!(config.recent.len(), MAX_RECENT);
+        assert_eq!(config.recent[0].path, Path::new("song10"));
+        assert_eq!(config.recent[0].opened, 100);
+        assert_eq!(
+            config
+                .recent
+                .iter()
+                .filter(|r| r.path == Path::new("song10"))
+                .count(),
+            1
+        );
+
+        config.forget(Path::new("song10"));
+        assert_eq!(config.recent[0].path, Path::new("song24"));
     }
 
     #[test]

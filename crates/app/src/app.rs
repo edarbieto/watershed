@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Align, Key, Layout, Rect, RichText};
 use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
@@ -11,6 +11,7 @@ use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
 use crate::markers::Markers;
 use crate::playhead::Playhead;
+use crate::stems::song_title;
 use crate::view::View;
 use crate::waveform::{Overlay, RulerAction, WaveformAction, ruler, scrollbar, waveform};
 
@@ -195,6 +196,10 @@ impl WatershedApp {
                     }
                     self.loaded = Some(loaded);
                 } else {
+                    if let Some(folder) = loaded.files[0].parent() {
+                        self.config.remember(folder, unix_now());
+                        self.config.save();
+                    }
                     // Write the session of the song being replaced before switching.
                     self.save_session();
                     self.apply_session(&loaded);
@@ -544,6 +549,7 @@ impl WatershedApp {
             if ui.button("Open folder…").clicked() {
                 self.pick_folder(ui.ctx());
             }
+            self.recent_menu(ui);
             if let Some(loaded) = &self.loaded {
                 ui.label(RichText::new(&loaded.title).strong());
             }
@@ -563,6 +569,118 @@ impl WatershedApp {
                 self.device_picker(ui);
             });
         });
+    }
+
+    fn recent_menu(&mut self, ui: &mut egui::Ui) {
+        let mut open = None;
+        let mut clear = false;
+        ui.add_enabled_ui(!self.config.recent.is_empty(), |ui| {
+            ui.menu_button("Recent", |ui| {
+                let current = self
+                    .loaded
+                    .as_ref()
+                    .and_then(|loaded| loaded.files[0].parent());
+                for recent in &self.config.recent {
+                    let exists = recent.path.is_dir();
+                    let is_current = current == Some(recent.path.as_path());
+                    let item = egui::RadioButton::new(is_current, song_title(&recent.path));
+                    if ui
+                        .add_enabled(exists, item)
+                        .on_hover_text(recent.path.display().to_string())
+                        .on_disabled_hover_text(format!("Not found: {}", recent.path.display()))
+                        .clicked()
+                    {
+                        open = Some(recent.path.clone());
+                    }
+                }
+                ui.separator();
+                if ui.button("Clear list").clicked() {
+                    clear = true;
+                }
+            });
+        });
+        if let Some(path) = open {
+            self.open(&[path], ui.ctx());
+        }
+        if clear {
+            self.config.recent.clear();
+            self.config.save();
+        }
+    }
+
+    /// Start screen, before a song is opened: where to drop files, and the recent
+    /// songs.
+    fn welcome(&mut self, ui: &mut egui::Ui) {
+        let mut open = None;
+        let mut forget = None;
+        ui.vertical_centered(|ui| {
+            ui.add_space(48.0);
+            ui.label(
+                RichText::new("Drop a folder of stems here, or click “Open folder…”")
+                    .weak()
+                    .size(18.0),
+            );
+            if self.config.recent.is_empty() {
+                return;
+            }
+            ui.add_space(32.0);
+            ui.heading("Recent songs");
+            ui.add_space(8.0);
+        });
+        if self.config.recent.is_empty() {
+            return;
+        }
+        let now = unix_now();
+        let width = ui.available_width().min(720.0);
+        let margin = (ui.available_width() - width) / 2.0;
+        ui.horizontal(|ui| {
+            ui.add_space(margin);
+            ui.vertical(|ui| {
+                ui.set_width(width);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("recent_songs")
+                        .num_columns(4)
+                        .striped(true)
+                        .spacing([16.0, 6.0])
+                        .show(ui, |ui| {
+                            for recent in &self.config.recent {
+                                let exists = recent.path.is_dir();
+                                let title = song_title(&recent.path);
+                                if exists {
+                                    if ui.link(RichText::new(title).size(15.0)).clicked() {
+                                        open = Some(recent.path.clone());
+                                    }
+                                } else {
+                                    ui.label(RichText::new(title).size(15.0).weak())
+                                        .on_hover_text("Folder not found");
+                                }
+                                let folder = recent.path.parent().unwrap_or(&recent.path);
+                                ui.label(RichText::new(short_path(folder)).weak().small());
+                                ui.label(
+                                    RichText::new(format_ago(now.saturating_sub(recent.opened)))
+                                        .weak()
+                                        .small(),
+                                );
+                                if ui
+                                    .small_button("🗑")
+                                    .on_hover_text("Remove from the list (the files stay)")
+                                    .clicked()
+                                {
+                                    forget = Some(recent.path.clone());
+                                }
+                                ui.end_row();
+                            }
+                        });
+                });
+            });
+        });
+        if let Some(path) = open {
+            self.open(&[path], ui.ctx());
+        }
+        if let Some(path) = forget {
+            self.config.forget(&path);
+            self.config.save();
+        }
     }
 
     fn device_picker(&mut self, ui: &mut egui::Ui) {
@@ -890,13 +1008,7 @@ impl WatershedApp {
 
     fn tracks(&mut self, ui: &mut egui::Ui) {
         let Some(loaded) = &self.loaded else {
-            ui.centered_and_justified(|ui| {
-                ui.label(
-                    RichText::new("Drop a folder of stems here, or click “Open folder…”")
-                        .weak()
-                        .size(18.0),
-                );
-            });
+            self.welcome(ui);
             return;
         };
 
@@ -1256,6 +1368,41 @@ fn parse_pan(text: &str) -> Option<f64> {
     }
 }
 
+/// A path for display, with the home folder shortened to `~`.
+fn short_path(path: &std::path::Path) -> String {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) => format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// How long ago something happened, given the seconds elapsed: "3 days ago".
+fn format_ago(secs: u64) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+    let plural = |n: u64, unit: &str| {
+        let s = if n == 1 { "" } else { "s" };
+        format!("{n} {unit}{s} ago")
+    };
+    match secs {
+        s if s < MINUTE => "just now".into(),
+        s if s < HOUR => plural(s / MINUTE, "minute"),
+        s if s < DAY => plural(s / HOUR, "hour"),
+        s if s < 2 * DAY => "yesterday".into(),
+        s if s < 14 * DAY => plural(s / DAY, "day"),
+        s if s < 60 * DAY => plural(s / (7 * DAY), "week"),
+        s => plural(s / (30 * DAY), "month"),
+    }
+}
+
 fn format_time(secs: f64) -> String {
     let secs = secs.max(0.0);
     format!("{}:{:04.1}", (secs / 60.0) as u64, secs % 60.0)
@@ -1279,6 +1426,13 @@ mod tests {
         assert_eq!(format_pan(0.0), "C");
         assert_eq!(format_pan(-0.5), "50L");
         assert_eq!(format_pan(1.0), "100R");
+        assert_eq!(format_ago(5), "just now");
+        assert_eq!(format_ago(60), "1 minute ago");
+        assert_eq!(format_ago(3 * 3600 + 5), "3 hours ago");
+        assert_eq!(format_ago(30 * 3600), "yesterday");
+        assert_eq!(format_ago(5 * 86_400), "5 days ago");
+        assert_eq!(format_ago(20 * 86_400), "2 weeks ago");
+        assert_eq!(format_ago(90 * 86_400), "3 months ago");
     }
 
     #[test]
