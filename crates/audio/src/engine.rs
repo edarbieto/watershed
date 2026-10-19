@@ -5,7 +5,9 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{ErrorKind, FromSample, SampleFormat, SizedSample, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use crate::limiter::Limiter;
 use crate::mixer::{MAX_BLOCK, Voice};
+use crate::stretch::{MAX_SEMITONES, MAX_TEMPO, MIN_TEMPO, Stretcher};
 use crate::{AtomicF32, Song};
 
 /// How long pause and resume fade, in seconds. Avoids clicks.
@@ -60,9 +62,13 @@ enum Command {
 #[derive(Default)]
 struct Shared {
     playing: AtomicBool,
-    /// Playback position in frames, published by the audio thread.
+    /// Song frame being heard, published by the audio thread. Latency compensated.
     position: AtomicU64,
     master_gain: AtomicF32,
+    /// Playback speed factor, 1.0 = original tempo.
+    tempo: AtomicF32,
+    /// Transposition in semitones.
+    semitones: AtomicF32,
     /// Set when the device is gone or the stream hit an unrecoverable error.
     failed: AtomicBool,
     /// Set when the stream must be rebuilt, e.g. the device sample rate changed because
@@ -108,6 +114,7 @@ impl Engine {
 
         let shared = Arc::new(Shared {
             master_gain: AtomicF32::new(1.0),
+            tempo: AtomicF32::new(1.0),
             ..Default::default()
         });
         let (commands, command_rx) = RingBuffer::new(64);
@@ -117,7 +124,9 @@ impl Engine {
             garbage: garbage_tx,
             shared: shared.clone(),
             voice: None,
-            position: 0,
+            // Allocates: done here, on the UI thread, never in the callback.
+            stretcher: Stretcher::new(config.sample_rate),
+            limiter: Limiter::new(config.sample_rate),
             fade: 0.0,
             fade_step: 1.0 / (FADE_SECS * config.sample_rate as f32),
             mix: vec![0.0; MAX_BLOCK * 2],
@@ -219,7 +228,8 @@ impl Engine {
         self.shared.position.store(frame as u64, Ordering::Relaxed);
     }
 
-    /// Current playback position in frames.
+    /// Song frame being heard now, in frames. Accounts for the tempo and pitch
+    /// processing latency.
     pub fn position(&self) -> usize {
         self.shared.position.load(Ordering::Relaxed) as usize
     }
@@ -230,6 +240,26 @@ impl Engine {
 
     pub fn set_master_gain(&self, gain: f32) {
         self.shared.master_gain.store(gain.max(0.0));
+    }
+
+    /// Playback speed factor: 0.5 is half speed, 1.0 the original tempo.
+    pub fn tempo(&self) -> f32 {
+        self.shared.tempo.load()
+    }
+
+    pub fn set_tempo(&self, tempo: f32) {
+        self.shared.tempo.store(tempo.clamp(MIN_TEMPO, MAX_TEMPO));
+    }
+
+    /// Transposition in semitones, without changing the tempo.
+    pub fn semitones(&self) -> f32 {
+        self.shared.semitones.load()
+    }
+
+    pub fn set_semitones(&self, semitones: f32) {
+        self.shared
+            .semitones
+            .store(semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES));
     }
 
     /// Drops songs the audio thread is done with. Call regularly from the UI thread.
@@ -290,7 +320,8 @@ struct CallbackState {
     garbage: Producer<Box<Voice>>,
     shared: Arc<Shared>,
     voice: Option<Box<Voice>>,
-    position: usize,
+    stretcher: Stretcher,
+    limiter: Limiter,
     /// Pause/resume fade level, 0.0 (silent) to 1.0 (playing).
     fade: f32,
     fade_step: f32,
@@ -303,8 +334,10 @@ impl CallbackState {
     fn process<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T]) {
         self.handle_commands();
 
-        let playing = self.shared.playing.load(Ordering::Relaxed);
+        let mut playing = self.shared.playing.load(Ordering::Relaxed);
         let master = self.shared.master_gain.load();
+        let tempo = self.shared.tempo.load();
+        let semitones = self.shared.semitones.load();
         let channels = self.channels;
 
         for out in data.chunks_mut(MAX_BLOCK * channels) {
@@ -315,7 +348,7 @@ impl CallbackState {
             if let Some(voice) = &mut self.voice
                 && (playing || self.fade > 0.0)
             {
-                voice.mix_into(self.position, mix);
+                self.stretcher.render(voice, tempo, semitones, mix);
                 for frame in mix.as_chunks_mut::<2>().0 {
                     self.fade = if playing {
                         (self.fade + self.fade_step).min(1.0)
@@ -326,15 +359,20 @@ impl CallbackState {
                     frame[0] *= gain;
                     frame[1] *= gain;
                 }
-                self.position += frames;
 
                 let end = voice.song.frames();
-                if self.position >= end {
-                    self.position = end;
+                let heard = self.stretcher.heard(tempo, self.limiter.latency());
+                if heard >= end {
                     self.fade = 0.0;
+                    playing = false;
                     self.shared.playing.store(false, Ordering::Relaxed);
                 }
+                self.shared
+                    .position
+                    .store(heard.min(end) as u64, Ordering::Relaxed);
             }
+            // Always run, so that the lookahead delay drains when playback stops.
+            self.limiter.process(mix);
 
             for (dst, src) in out.chunks_exact_mut(channels).zip(mix.as_chunks::<2>().0) {
                 // Hard clip as a last line of defense; stems can sum above full scale.
@@ -351,10 +389,6 @@ impl CallbackState {
                 }
             }
         }
-
-        self.shared
-            .position
-            .store(self.position as u64, Ordering::Relaxed);
     }
 
     fn handle_commands(&mut self) {
@@ -366,11 +400,19 @@ impl CallbackState {
                         // If the queue is full we free it here, which is rare and only a glitch.
                         let _ = self.garbage.push(old);
                     }
-                    self.position = 0;
                     self.fade = 0.0;
+                    self.seek(0);
                 }
-                Command::Seek(frame) => self.position = frame,
+                Command::Seek(frame) => self.seek(frame),
             }
+        }
+    }
+
+    fn seek(&mut self, frame: usize) {
+        if let Some(voice) = &mut self.voice {
+            let tempo = self.shared.tempo.load();
+            self.stretcher.seek(voice, frame, tempo);
+            self.shared.position.store(frame as u64, Ordering::Relaxed);
         }
     }
 }

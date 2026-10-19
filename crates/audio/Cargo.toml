@@ -11,11 +11,10 @@ publish.workspace = true
 cpal.workspace = true
 log.workspace = true
 rtrb.workspace = true
+signalsmith-stretch.workspace = true
 thiserror.workspace = true
 
-
 [dev-dependencies]
-signalsmith-stretch.workspace = true
 watershed-dsp.workspace = true
 
 [lints]
