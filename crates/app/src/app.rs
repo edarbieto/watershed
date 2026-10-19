@@ -4,13 +4,15 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align, Key, Layout, RichText};
 use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
+use watershed_dsp::Peaks;
 use watershed_storage::{Config, Session, TrackState};
 
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
-use crate::waveform::{WaveformAction, waveform};
+use crate::waveform::{WaveformAction, ruler, waveform};
 
 const ROW_HEIGHT: f32 = 64.0;
+const RULER_HEIGHT: f32 = 18.0;
 const CONTROLS_WIDTH: f32 = 240.0;
 const PAN_SLIDER_WIDTH: f32 = 40.0;
 const MIN_DB: f32 = -60.0;
@@ -631,7 +633,7 @@ impl WatershedApp {
                 ui.horizontal(|ui| {
                     if ui
                         .selectable_label(current, "▶")
-                        .on_hover_text("Loop this section")
+                        .on_hover_text("Play this loop from its start")
                         .clicked()
                     {
                         recall = Some(index);
@@ -654,6 +656,14 @@ impl WatershedApp {
         });
         if let Some(index) = recall {
             self.loops.recall(index);
+            if let Some((start, _)) = self.loops.active() {
+                self.seek_secs(start);
+                // Already at the start: `sync_loop` need not jump there again.
+                self.last_loop = self.loops.active();
+                if let Some(engine) = &mut self.engine {
+                    engine.play();
+                }
+            }
         }
         if let Some(index) = remove {
             self.loops.saved.remove(index);
@@ -679,6 +689,12 @@ impl WatershedApp {
             (frame(a), frame(b), self.loops.enabled)
         });
         let mut wave_action = None;
+        // The ruler is drawn once the rows have shown where the waveforms start.
+        let (_, ruler_response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), RULER_HEIGHT),
+            egui::Sense::click_and_drag(),
+        );
+        let mut wave_x = None;
         let any_solo = loaded.song.tracks.iter().any(|t| t.params.solo());
 
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -691,7 +707,7 @@ impl WatershedApp {
             {
                 let params = &track.params;
                 let audible = !params.mute() && (!any_solo || params.solo());
-                let silent = peaks.max.iter().chain(&peaks.min).all(|s| s.abs() < 1e-4);
+                let silent = peaks.iter().all(Peaks::is_silent);
 
                 ui.horizontal(|ui| {
                     ui.allocate_ui_with_layout(
@@ -755,15 +771,30 @@ impl WatershedApp {
                     } else {
                         kind.color().gamma_multiply(0.3)
                     };
-                    if let Some(action) =
-                        waveform(ui, peaks, color, ROW_HEIGHT, position, loop_region)
-                    {
-                        wave_action = Some(action);
+                    let (rect, action) =
+                        waveform(ui, peaks, color, ROW_HEIGHT, position, loop_region);
+                    wave_x.get_or_insert(rect.x_range());
+                    if action.is_some() {
+                        wave_action = action;
                     }
                 });
                 ui.add_space(4.0);
             }
         });
+
+        if let Some(x_range) = wave_x
+            && let Some(frame) = ruler(
+                ui,
+                &ruler_response,
+                x_range,
+                loaded.song.frames(),
+                loaded.song.sample_rate,
+                position,
+                loop_region,
+            )
+        {
+            wave_action = Some(WaveformAction::Seek(frame));
+        }
 
         match wave_action {
             Some(WaveformAction::Seek(frame)) => {

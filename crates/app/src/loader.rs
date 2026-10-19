@@ -19,7 +19,8 @@ pub struct LoadedSong {
     pub files: Vec<PathBuf>,
     pub song: Arc<Song>,
     pub kinds: Vec<StemKind>,
-    pub peaks: Vec<Peaks>,
+    /// Left and right peaks of each track.
+    pub peaks: Vec<[Peaks; 2]>,
 }
 
 /// A load in progress.
@@ -145,7 +146,7 @@ fn load(
     let peaks = song
         .tracks
         .iter()
-        .map(|t| Peaks::compute(&t.samples, Peaks::DEFAULT_FRAMES_PER_BUCKET))
+        .map(|t| Peaks::stereo(&t.samples, Peaks::DEFAULT_FRAMES_PER_BUCKET))
         .collect();
 
     // The instrumental stem is the sum of the others; start it muted when they are present.

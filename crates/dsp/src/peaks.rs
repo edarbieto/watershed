@@ -13,14 +13,16 @@ pub struct Peaks {
 impl Peaks {
     pub const DEFAULT_FRAMES_PER_BUCKET: usize = 256;
 
-    /// Summarizes interleaved stereo `samples` into buckets, both channels together.
-    pub fn compute(samples: &[f32], frames_per_bucket: usize) -> Self {
+    /// Summarizes one channel (0 left, 1 right) of interleaved stereo `samples`.
+    pub fn compute(samples: &[f32], channel: usize, frames_per_bucket: usize) -> Self {
         let frames_per_bucket = frames_per_bucket.max(1);
         let (min, max) = samples
             .chunks(frames_per_bucket * 2)
             .map(|chunk| {
                 chunk
                     .iter()
+                    .skip(channel)
+                    .step_by(2)
                     .fold((0.0f32, 0.0f32), |(lo, hi), &s| (lo.min(s), hi.max(s)))
             })
             .unzip();
@@ -30,6 +32,16 @@ impl Peaks {
             min,
             max,
         }
+    }
+
+    /// Left and right peaks of interleaved stereo `samples`.
+    pub fn stereo(samples: &[f32], frames_per_bucket: usize) -> [Self; 2] {
+        [0, 1].map(|channel| Self::compute(samples, channel, frames_per_bucket))
+    }
+
+    /// True if every sample is below about -80 dBFS.
+    pub fn is_silent(&self) -> bool {
+        self.max.iter().chain(&self.min).all(|s| s.abs() < 1e-4)
     }
 
     /// Min and max over the frame range `[start, end)`.
@@ -57,18 +69,21 @@ mod tests {
         let mut samples = vec![0.0; 16];
         samples[2] = 0.9;
         samples[13] = -0.5;
-        let peaks = Peaks::compute(&samples, 4);
+        let [left, right] = Peaks::stereo(&samples, 4);
 
-        assert_eq!(peaks.min.len(), 2);
-        assert_eq!((peaks.min[0], peaks.max[0]), (0.0, 0.9));
-        assert_eq!((peaks.min[1], peaks.max[1]), (-0.5, 0.0));
-        assert_eq!(peaks.range(0, 8), (-0.5, 0.9));
-        assert_eq!(peaks.range(5, 6), (-0.5, 0.0));
+        assert_eq!(left.min.len(), 2);
+        assert_eq!((left.min[0], left.max[0]), (0.0, 0.9));
+        assert_eq!(left.range(0, 8), (0.0, 0.9));
+        assert_eq!((right.min[1], right.max[1]), (-0.5, 0.0));
+        assert_eq!(right.range(0, 8), (-0.5, 0.0));
+        assert_eq!(right.range(5, 6), (-0.5, 0.0));
+        assert!(!right.is_silent());
+        assert!(Peaks::compute(&samples[..8], 1, 4).is_silent());
     }
 
     #[test]
     fn empty_audio_is_flat() {
-        let peaks = Peaks::compute(&[], 256);
+        let peaks = Peaks::compute(&[], 0, 256);
         assert_eq!(peaks.range(0, 100), (0.0, 0.0));
     }
 }
