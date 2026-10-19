@@ -6,7 +6,8 @@ use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
 use watershed_storage::Config;
 
 use crate::loader::{self, LoadedSong, Loading};
-use crate::waveform::waveform;
+use crate::loops::Loops;
+use crate::waveform::{WaveformAction, waveform};
 
 const ROW_HEIGHT: f32 = 64.0;
 const CONTROLS_WIDTH: f32 = 240.0;
@@ -19,6 +20,19 @@ const MAX_TEMPO_PCT: f32 = 125.0;
 /// Transposition slider range, in semitones.
 const MAX_SEMITONES: f32 = 12.0;
 const FALLBACK_SAMPLE_RATE: u32 = 48_000;
+/// How far the skip buttons and arrow keys move, in seconds.
+const SKIP_SECS: f64 = 5.0;
+const LOOPS_PANEL_WIDTH: f32 = 240.0;
+
+/// Transport commands shared by the buttons and the keyboard.
+enum Action {
+    /// Back to the loop start when a loop is on, else to the start of the song.
+    ToStart,
+    Skip(f64),
+    SetA,
+    SetB,
+    ToggleLoop,
+}
 
 /// Mixer settings carried over when a song is reloaded, e.g. after switching to a
 /// device with a different sample rate.
@@ -40,6 +54,9 @@ pub struct WatershedApp {
     xruns_logged: u64,
     /// Wakes the UI when the engine needs a restart, even if nothing else repaints.
     notify: Notify,
+    loops: Loops,
+    /// Active loop last seen by [`WatershedApp::sync_loop`].
+    last_loop: Option<(f64, f64)>,
 }
 
 impl WatershedApp {
@@ -61,6 +78,8 @@ impl WatershedApp {
             error,
             xruns_logged: 0,
             notify,
+            loops: Loops::default(),
+            last_loop: None,
         }
     }
 
@@ -82,6 +101,7 @@ impl WatershedApp {
         }
         self.error = None;
         self.restore = None;
+        self.loops = Loops::default();
         self.loading = Some(loader::start(files, self.sample_rate(), ctx.clone()));
     }
 
@@ -209,24 +229,71 @@ impl WatershedApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
+        if ui.input(|i| i.key_pressed(Key::Space))
+            && let Some(engine) = &mut self.engine
+        {
+            engine.toggle();
+        }
+        let keys = [
+            (Key::Home, Action::ToStart),
+            (Key::ArrowLeft, Action::Skip(-SKIP_SECS)),
+            (Key::ArrowRight, Action::Skip(SKIP_SECS)),
+            (Key::A, Action::SetA),
+            (Key::B, Action::SetB),
+            (Key::L, Action::ToggleLoop),
+        ];
+        for (key, action) in keys {
+            if ui.input(|i| i.key_pressed(key)) {
+                self.apply(action);
+            }
+        }
+    }
+
+    fn position_secs(&self) -> f64 {
+        self.engine
+            .as_ref()
+            .map_or(0.0, |e| e.position() as f64 / f64::from(e.sample_rate()))
+    }
+
+    fn apply(&mut self, action: Action) {
+        let position = self.position_secs();
+        match action {
+            Action::ToStart => {
+                let start = self.loops.active().map_or(0.0, |(a, _)| a);
+                self.seek_secs(start);
+            }
+            Action::Skip(secs) => self.seek_secs((position + secs).max(0.0)),
+            Action::SetA => self.loops.set_a(position),
+            Action::SetB => self.loops.set_b(position),
+            Action::ToggleLoop => self.loops.toggle(),
+        }
+    }
+
+    fn seek_secs(&mut self, secs: f64) {
+        if let Some(engine) = &mut self.engine {
+            engine.seek((secs * f64::from(engine.sample_rate())) as usize);
+        }
+    }
+
+    /// Sends the active loop to the engine. When a loop is turned on while playing
+    /// elsewhere, jumps to its start once the mouse is released.
+    fn sync_loop(&mut self, ui: &egui::Ui) {
         let Some(engine) = &mut self.engine else {
             return;
         };
-        let rate = engine.sample_rate() as usize;
-        ui.input(|i| {
-            if i.key_pressed(Key::Space) {
-                engine.toggle();
+        let rate = f64::from(engine.sample_rate());
+        let active = self.loops.active();
+        engine.set_loop(active.map(|(a, b)| (a * rate) as usize..(b * rate) as usize));
+
+        if active != self.last_loop && !ui.input(|i| i.pointer.any_down()) {
+            self.last_loop = active;
+            let position = engine.position() as f64 / rate;
+            if let Some((a, b)) = active
+                && !(a..b).contains(&position)
+            {
+                engine.seek((a * rate) as usize);
             }
-            if i.key_pressed(Key::Home) {
-                engine.seek(0);
-            }
-            if i.key_pressed(Key::ArrowLeft) {
-                engine.seek(engine.position().saturating_sub(5 * rate));
-            }
-            if i.key_pressed(Key::ArrowRight) {
-                engine.seek(engine.position() + 5 * rate);
-            }
-        });
+        }
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
@@ -280,29 +347,33 @@ impl WatershedApp {
     }
 
     fn transport(&mut self, ui: &mut egui::Ui) {
+        let mut action = None;
         ui.horizontal(|ui| {
             let Some(engine) = &mut self.engine else {
                 ui.label("No audio output");
                 return;
             };
             let enabled = self.loaded.is_some();
+            let button = |ui: &mut egui::Ui, label: &str, hint: &str| {
+                ui.add_enabled(enabled, egui::Button::new(RichText::new(label).size(18.0)))
+                    .on_hover_text(hint)
+                    .clicked()
+            };
+            if button(ui, "⏮", "Back to the start, or to the loop start (Home)") {
+                action = Some(Action::ToStart);
+            }
+            if button(ui, "⏪", "Back 5 seconds (Left arrow)") {
+                action = Some(Action::Skip(-SKIP_SECS));
+            }
             let play_label = if engine.is_playing() { "⏸" } else { "▶" };
-            if ui
-                .add_enabled(
-                    enabled,
-                    egui::Button::new(RichText::new(play_label).size(18.0)),
-                )
-                .on_hover_text("Play / pause (Space)")
-                .clicked()
-            {
+            if button(ui, play_label, "Play / pause (Space)") {
                 engine.toggle();
             }
-            if ui
-                .add_enabled(enabled, egui::Button::new(RichText::new("⏹").size(18.0)))
-                .on_hover_text("Stop")
-                .clicked()
-            {
+            if button(ui, "⏹", "Stop") {
                 engine.stop();
+            }
+            if button(ui, "⏩", "Forward 5 seconds (Right arrow)") {
+                action = Some(Action::Skip(SKIP_SECS));
             }
 
             if let Some(loaded) = &self.loaded {
@@ -314,6 +385,41 @@ impl WatershedApp {
                         format_time(loaded.song.duration_secs())
                     ))
                     .monospace(),
+                );
+            }
+
+            ui.separator();
+            if ui
+                .add_enabled(enabled, egui::Button::new("A"))
+                .on_hover_text("Set the loop start here (A)")
+                .clicked()
+            {
+                action = Some(Action::SetA);
+            }
+            if ui
+                .add_enabled(enabled, egui::Button::new("B"))
+                .on_hover_text("Set the loop end here and start looping (B)")
+                .clicked()
+            {
+                action = Some(Action::SetB);
+            }
+            let can_loop = self.loops.region().is_some();
+            if ui
+                .add_enabled(
+                    can_loop,
+                    egui::Button::selectable(self.loops.enabled, "Loop"),
+                )
+                .on_hover_text("Loop between A and B (L). Drag on a waveform to select a loop.")
+                .clicked()
+            {
+                action = Some(Action::ToggleLoop);
+            }
+            if self.loops.a.is_some() || self.loops.b.is_some() {
+                let end = |t: Option<f64>| t.map_or("?".to_owned(), format_time);
+                ui.label(
+                    RichText::new(format!("{} → {}", end(self.loops.a), end(self.loops.b)))
+                        .monospace()
+                        .weak(),
                 );
             }
 
@@ -358,6 +464,69 @@ impl WatershedApp {
                 );
             });
         });
+        if let Some(action) = action {
+            self.apply(action);
+        }
+    }
+
+    fn loops_panel(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.heading("Loops");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui
+                    .add_enabled(self.loops.region().is_some(), egui::Button::new("Save"))
+                    .on_hover_text("Save the current A-B loop")
+                    .clicked()
+                {
+                    self.loops.save();
+                }
+            });
+        });
+        ui.separator();
+        if self.loops.saved.is_empty() {
+            ui.label(
+                RichText::new("Set A and B, or drag on a waveform, then click Save.")
+                    .weak()
+                    .small(),
+            );
+        }
+
+        let mut recall = None;
+        let mut remove = None;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for (index, saved) in self.loops.saved.iter_mut().enumerate() {
+                let current = self.loops.a == Some(saved.start) && self.loops.b == Some(saved.end);
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(current, "▶")
+                        .on_hover_text("Loop this section")
+                        .clicked()
+                    {
+                        recall = Some(index);
+                    }
+                    ui.add(egui::TextEdit::singleline(&mut saved.name).desired_width(90.0));
+                    ui.label(
+                        RichText::new(format!(
+                            "{}–{}",
+                            format_time(saved.start),
+                            format_time(saved.end)
+                        ))
+                        .monospace()
+                        .small(),
+                    );
+                    if ui.small_button("🗑").on_hover_text("Delete").clicked() {
+                        remove = Some(index);
+                    }
+                });
+            }
+        });
+        if let Some(index) = recall {
+            self.loops.recall(index);
+        }
+        if let Some(index) = remove {
+            self.loops.saved.remove(index);
+        }
     }
 
     fn tracks(&mut self, ui: &mut egui::Ui) {
@@ -373,7 +542,12 @@ impl WatershedApp {
         };
 
         let position = self.engine.as_ref().map_or(0, Engine::position);
-        let mut seek = None;
+        let rate = f64::from(loaded.song.sample_rate);
+        let loop_region = self.loops.region().map(|(a, b)| {
+            let frame = |secs: f64| (secs * rate) as usize;
+            (frame(a), frame(b), self.loops.enabled)
+        });
+        let mut wave_action = None;
         let any_solo = loaded.song.tracks.iter().any(|t| t.params.solo());
 
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -450,16 +624,26 @@ impl WatershedApp {
                     } else {
                         kind.color().gamma_multiply(0.3)
                     };
-                    if let Some(frame) = waveform(ui, peaks, color, ROW_HEIGHT, position) {
-                        seek = Some(frame);
+                    if let Some(action) =
+                        waveform(ui, peaks, color, ROW_HEIGHT, position, loop_region)
+                    {
+                        wave_action = Some(action);
                     }
                 });
                 ui.add_space(4.0);
             }
         });
 
-        if let (Some(frame), Some(engine)) = (seek, &mut self.engine) {
-            engine.seek(frame);
+        match wave_action {
+            Some(WaveformAction::Seek(frame)) => {
+                if let Some(engine) = &mut self.engine {
+                    engine.seek(frame);
+                }
+            }
+            Some(WaveformAction::Select(start, end)) => {
+                self.loops.select(start as f64 / rate, end as f64 / rate);
+            }
+            None => {}
         }
     }
 }
@@ -501,6 +685,12 @@ impl eframe::App for WatershedApp {
             }
             ui.add_space(2.0);
         });
+        if self.loaded.is_some() {
+            egui::Panel::right("loops")
+                .resizable(true)
+                .default_size(LOOPS_PANEL_WIDTH)
+                .show(ui, |ui| self.loops_panel(ui));
+        }
         egui::CentralPanel::default_margins().show(ui, |ui| {
             if let Some(loading) = &self.loading {
                 ui.horizontal(|ui| {
@@ -517,6 +707,7 @@ impl eframe::App for WatershedApp {
             }
             self.tracks(ui);
         });
+        self.sync_loop(ui);
 
         if self.engine.as_ref().is_some_and(Engine::is_playing) {
             ui.ctx().request_repaint();

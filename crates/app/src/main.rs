@@ -3,6 +3,7 @@
 
 mod app;
 mod loader;
+mod loops;
 mod stems;
 mod waveform;
 
