@@ -19,6 +19,8 @@ Last updated: 2026-10-19.
   "Waveforms and ruler" below).
 - **Phase 2.4, markers and sections: done.** Tested by the user (see "Markers and
   sections" below).
+- **Phase 2.5, waveform zoom: done.** Tested by the user (see "Waveform zoom"
+  below).
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -30,7 +32,7 @@ Last updated: 2026-10-19.
 1. **Phase 2**, in this order:
    1. ~~Session file~~: done.
    2. ~~Markers and sections~~: done.
-   3. Waveform zoom.
+   3. ~~Waveform zoom~~: done.
    4. Library of recent folders.
 2. On the Windows machine when available (before Phase 3): Signalsmith benchmark;
    BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA.
@@ -200,6 +202,45 @@ end; each has ▶ and loop, like playing a section in Ableton.
    last one up to the end). `[Start]` works the same.
 5. With a loop on, ▶ on a section outside it plays on without being pulled back.
 6. Delete a marker: the sections before and after merge.
+
+## Waveform zoom
+
+- `view.rs`: `View` is the visible window in seconds (`start`, `span`), from the
+  whole song down to 2 s (the peaks have one bucket per 256 frames, ~6 ms; closer
+  would only show blocks). Reset to the whole song when a song is opened; not saved.
+- **Zoom:** Cmd + scroll or a trackpad pinch over the ruler or the waveforms, around
+  the pointer; `+` / `-` keys (Reaper's) and the − / + buttons, around the playhead
+  (or the center if it is off screen), by 1.5×; Fit shows the whole song.
+- **Scroll:** Shift + wheel or two fingers sideways, or the scrollbar under the
+  ruler (drag the thumb, or click beside it to center there). Plain vertical scroll
+  still scrolls the track list.
+- **Following the playhead**, like Reaper's continuous scrolling: while playing,
+  the view stays centered on the playhead, except near the start and end of the
+  song, where the view stops and the playhead moves. While paused the view is free;
+  a jump outside it (seek, marker key, ⏮) centers it there. (First version paged
+  like Reaper's page mode; the user preferred continuous.)
+- **Smooth playhead** (`playhead.rs`): the engine updates its position once per
+  callback (~11 ms at 512 frames, larger and irregular on Bluetooth), which made the
+  playhead and the centered view stutter at full zoom (2 s ≈ 5 points per callback).
+  The UI now draws a clock that advances with real time × tempo and is pulled
+  towards the engine's position with a 0.1 s time constant; jumps over 0.15 s (seek,
+  loop) and pauses take the engine's position at once. Only drawing and following
+  use it; actions (A, B, markers) still use the engine's position.
+- Waveforms, ruler ticks (1 s to 10 min, at least 60 points apart), markers, loop
+  region and clicks all use the visible range, so seeking, drag-to-loop and
+  double-click-to-add-marker are as precise as the zoom.
+
+**Test checklist** (passed):
+1. Cmd + scroll and pinch zoom around the pointer; `+` / `-` and the buttons around
+   the playhead; Fit goes back to the whole song.
+2. Shift + scroll, two-finger swipe and the scrollbar move the view; vertical scroll
+   still scrolls the tracks.
+3. Zoomed in, scroll elsewhere and press play: the view centers on the playhead and
+   moves with it; near the start and end it stops and the playhead moves.
+4. Zoomed in, press a marker key or ⏮ for a point off screen: the view jumps there.
+5. Zoomed in, drag a loop and double-click the ruler: they land where the pointer is.
+6. At full zoom while playing (also at 50 % tempo and on Bluetooth): the playhead and
+   the waveforms move smoothly.
 
 ## Spike: Signalsmith Stretch
 

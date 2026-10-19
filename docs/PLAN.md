@@ -57,17 +57,17 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 - [ ] One row per stem: waveform, **volume**, **pan L/R**, **mute**, **solo**.
 - [ ] Play / pause / stop. Click the waveform to seek.
 - [ ] **Master volume.**
-- [ ] **Choose the audio output device.**
-- [ ] **Tempo change without pitch change** (e.g. 50%–125%).
-- [ ] **Transposition** in semitones (for songs tuned a half step down, etc.).
+- [x] **Choose the audio output device.**
+- [x] **Tempo change without pitch change** (e.g. 50%–125%).
+- [x] **Transposition** in semitones (for songs tuned a half step down, etc.).
 - [x] **A-B loop**, with several saved loops per song.
-- [ ] **Markers and sections**: named markers placed on the waveform (button, a click,
+- [x] **Markers and sections**: named markers placed on the waveform (button, a click,
   and Reaper's shortcut, `M`). A section runs from one marker to the next, or to the
   end of the song. Each marker has ▶ (play from here) and loop (loop its section).
-- [ ] **Waveform zoom** and horizontal scroll, to place markers and loop ends precisely.
+- [x] **Waveform zoom** and horizontal scroll, to place markers and loop ends precisely.
 
 ### Sessions
-- [ ] Each song folder keeps its **session** in a file next to the stems
+- [x] Each song folder keeps its **session** in a file next to the stems
   (`.watershed.toml`): mixer state, tempo and pitch, saved loops, markers, and the
   common gain factor of separated stems. Reopening the folder restores everything;
   a separated song is such a folder, so it never separates again.
@@ -207,7 +207,7 @@ In this order:
   (start or loop start, ±5 s).
 - [x] Session file per song folder (`.watershed.toml`): mixer, tempo/pitch, loops.
 - [x] Markers and sections (stored in the session file).
-- [ ] Waveform zoom.
+- [x] Waveform zoom.
 - [ ] Library of recent folders.
 
 ### Phase 3: Separation with a temporary backend
