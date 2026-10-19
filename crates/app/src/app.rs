@@ -13,6 +13,11 @@ const CONTROLS_WIDTH: f32 = 240.0;
 const PAN_SLIDER_WIDTH: f32 = 40.0;
 const MIN_DB: f32 = -60.0;
 const MAX_DB: f32 = 6.0;
+/// Tempo slider range, in percent of the original speed.
+const MIN_TEMPO_PCT: f32 = 50.0;
+const MAX_TEMPO_PCT: f32 = 125.0;
+/// Transposition slider range, in semitones.
+const MAX_SEMITONES: f32 = 12.0;
 const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 
 /// Mixer settings carried over when a song is reloaded, e.g. after switching to a
@@ -131,6 +136,17 @@ impl WatershedApp {
             .as_ref()
             .map_or(0.0, |e| e.position() as f64 / f64::from(e.sample_rate()));
         let playing = self.engine.as_ref().is_some_and(Engine::is_playing);
+        let master = self
+            .engine
+            .as_ref()
+            .map(|e| (e.master_gain(), e.tempo(), e.semitones()));
+        let restore_master = |engine: &Engine| {
+            if let Some((gain, tempo, semitones)) = master {
+                engine.set_master_gain(gain);
+                engine.set_tempo(tempo);
+                engine.set_semitones(semitones);
+            }
+        };
         // Close the old stream first; some drivers allow only one at a time.
         self.engine = None;
         let engine = match Engine::start(Some(id), self.notify.clone()) {
@@ -138,9 +154,13 @@ impl WatershedApp {
             Err(e) => {
                 self.error = Some(e.to_string());
                 self.engine = Engine::start(None, self.notify.clone()).ok();
+                if let Some(engine) = &self.engine {
+                    restore_master(engine);
+                }
                 return;
             }
         };
+        restore_master(&engine);
         self.error = None;
         self.config.output_device = Some(engine.device().id.clone());
         self.config.save();
@@ -296,6 +316,39 @@ impl WatershedApp {
                     .monospace(),
                 );
             }
+
+            ui.separator();
+            let mut percent = engine.tempo() * 100.0;
+            let response = ui
+                .add(
+                    egui::Slider::new(&mut percent, MIN_TEMPO_PCT..=MAX_TEMPO_PCT)
+                        .step_by(1.0)
+                        .suffix(" %"),
+                )
+                .on_hover_text("Tempo, without changing the pitch (double-click to reset)");
+            if double_clicked(&response) {
+                engine.set_tempo(1.0);
+            } else if response.changed() {
+                engine.set_tempo(percent / 100.0);
+            }
+            ui.label("Tempo");
+
+            ui.separator();
+            let mut semitones = engine.semitones();
+            let response = ui
+                .add(
+                    egui::Slider::new(&mut semitones, -MAX_SEMITONES..=MAX_SEMITONES)
+                        .step_by(1.0)
+                        .custom_formatter(|v, _| format!("{v:+.0} st"))
+                        .custom_parser(|t| t.trim().trim_end_matches("st").trim().parse().ok()),
+                )
+                .on_hover_text("Transpose in semitones (double-click to reset)");
+            if double_clicked(&response) {
+                engine.set_semitones(0.0);
+            } else if response.changed() {
+                engine.set_semitones(semitones);
+            }
+            ui.label("Pitch");
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
