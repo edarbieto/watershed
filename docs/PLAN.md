@@ -73,7 +73,7 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
   (`.watershed.toml`): mixer state, tempo and pitch, saved loops, markers, and the
   common gain factor of separated stems. Reopening the folder restores everything;
   a separated song is such a folder, so it never separates again.
-- [ ] Simple session library: recently opened folders, kept in the app config.
+- [x] Simple session library: recently opened folders, kept in the app config.
 - [ ] Export individual stems or the current mix to WAV.
 
 ### 3.1 BPM estimation (idea, not scheduled)
@@ -259,7 +259,7 @@ In this order:
 - [x] Session file per song folder (`.watershed.toml`): mixer, tempo/pitch, loops.
 - [x] Markers and sections (stored in the session file).
 - [x] Waveform zoom.
-- [ ] Library of recent folders.
+- [x] Library of recent folders.
 
 ### Phase 3: Separation with a temporary backend
 - [ ] `trait Separator` + GGUF backend.

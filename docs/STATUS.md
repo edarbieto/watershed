@@ -21,6 +21,8 @@ Last updated: 2026-10-19.
   sections" below).
 - **Phase 2.5, waveform zoom: done.** Tested by the user (see "Waveform zoom"
   below).
+- **Phase 2.6, library of recent folders: done.** Tested by the user (see "Recent
+  songs" below). Also a CPU and RAM display in the top bar.
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -33,7 +35,7 @@ Last updated: 2026-10-19.
    1. ~~Session file~~: done.
    2. ~~Markers and sections~~: done.
    3. ~~Waveform zoom~~: done.
-   4. Library of recent folders.
+   4. ~~Library of recent folders~~: done.
    5. Then, before Phase 3: the Cmd+Tab issue (an `.app` wrapper for development) and
       the slow maximized window (see "Observations to investigate").
    6. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
@@ -245,6 +247,43 @@ end; each has ▶ and loop, like playing a section in Ableton.
 5. Zoomed in, drag a loop and double-click the ruler: they land where the pointer is.
 6. At full zoom while playing (also at 50 % tempo and on Bluetooth): the playhead and
    the waveforms move smoothly.
+
+## Recent songs
+
+- `Config::recent` in `config.toml`: up to 20 song folders (`path`, `opened` in Unix
+  seconds), most recent first, no duplicates. A folder is added when it finishes
+  loading (not when the load fails).
+- **Start screen** (no song open): the drop hint plus a "Recent songs" list with
+  name, parent folder (home shown as `~`), how long ago, and 🗑 to remove it from the
+  list (the files stay). Folders that no longer exist are shown dimmed and cannot be
+  opened.
+- **Recent** menu in the top bar, next to "Open folder…", to switch songs without
+  going back to the start screen; the open song has a filled radio circle, as in
+  macOS menus. It has "Clear list".
+
+## CPU and RAM display
+
+Always visible in the top bar, left of the output device: `CPU 0.1 %   RAM 836 MiB
+(3.4 %)`, refreshed every second (`usage.rs`, `sysinfo` crate with only its `system`
+feature).
+- Measured **per process**, which is what the OS can measure: one process may own
+  several windows and threads (UI, audio, loading), and they all count. Watershed has
+  one window, so per process and per window are the same here.
+- CPU is a share of the whole machine (all cores), like Windows Task Manager; macOS
+  Activity Monitor instead shows a share of one core (up to 100 % per core).
+- RAM is the resident memory (what `ps` reports as RSS). Activity Monitor's "Memory"
+  column is a different measure (memory footprint) and can differ.
+- With the 7 MVSEP stems loaded: ~840 MiB, consistent with the f32 stem storage
+  noted under "Load spike when opening stems".
+
+**Test checklist** (passed):
+1. Open two or three songs: they appear in Recent, latest first, and on the start
+   screen after restarting the app.
+2. Open a song from the menu and from the start screen.
+3. Rename or move a song folder: it shows dimmed and cannot be opened; 🗑 removes it.
+4. Clear list empties the menu.
+5. The open song has the filled circle in the Recent menu.
+6. CPU and RAM update every second, also while paused.
 
 ## Spike: Signalsmith Stretch
 
