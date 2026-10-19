@@ -15,6 +15,8 @@ Last updated: 2026-10-19.
   to always start a new loop (clears B) and a Clear button was added.
 - **Phase 2.3, session file: done.** Tested by the user: works (see
   "Session file" below).
+- **Stereo waveforms, time ruler, ▶ on saved loops: done.** Tested by the user (see
+  "Waveforms and ruler" below).
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -137,6 +139,30 @@ linear `gain`, `pan`, `mute`, `solo`) and the saved `[[loops]]`.
 4. Delete or rename a stem file: the others keep their settings.
 5. Switch the output device to one with another rate while a song is loaded:
    nothing is lost.
+
+## Waveforms and ruler
+
+- Each track shows **left on top, right below** (`Peaks::stereo`, one `Peaks` per
+  channel). Mono files are duplicated to both channels by the decoder, so they show
+  two identical halves. Files with more than two channels (5.1) keep only the first
+  two (front L and R) when decoded, so the display never has more than two; note that
+  this drops the center channel, where a 5.1 mix usually puts the vocals. A proper
+  downmix is only worth it if someone loads surround files.
+- **Ruler** above the tracks: `m:ss` labels every 1 s to 10 min (at least 60 points
+  apart) with a short tick in between, the playhead as a triangle and the loop region.
+  A click moves the playhead (it plays if it was playing); a drag scrubs, seeking only
+  when the pointer moves (each seek resets the stretcher). It takes its x range from
+  the first waveform, so both always line up. Markers will go on it later.
+- **▶ on a saved loop** recalls it, jumps to its start and plays. Before, it only set
+  the loop, which did nothing audible while paused or when the playhead was already
+  inside it.
+
+**Test checklist** (passed):
+1. A song with a stem panned to one side shows it in one half only.
+2. Click on the ruler while paused, then Space: plays from there. Click while
+   playing: jumps. Drag on the ruler: the playhead follows.
+3. ▶ on a saved loop, paused or playing, anywhere in the song: plays from its start
+   and loops.
 
 ## Design notes: markers and sections (planned)
 
