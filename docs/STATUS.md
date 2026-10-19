@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-17.
+Last updated: 2026-10-19.
 
 ## Where we are
 
@@ -17,8 +17,8 @@ Last updated: 2026-10-17.
 
 1. Spike: Signalsmith Stretch, **done on macOS** (see below). Pending: the same
    benchmark on Windows.
-2. Spike: build BSRoformer.cpp with the GGUF model; measure on the MacBook (Metal) and
-   on the RTX 3050 (Vulkan), compare with the PyTorch numbers above.
+2. Spike: BSRoformer.cpp + GGUF, **measured on the MacBook** (see below). Pending: the
+   same test on the RTX 3050 (Vulkan and CUDA).
 3. Phase 2: tempo/pitch, saved A-B loops, sessions.
 
 ## Open questions for the user
@@ -63,6 +63,52 @@ Measured on the MacBook (M5 Pro), a 4:39 song at 48 kHz, blocks of 512 frames
 - The crate generates its bindings with `bindgen`, which needs **libclang** at build
   time (Xcode tools on macOS; CI runners have it). If that becomes a problem, replace
   it with a small hand-written C wrapper built with `cc` only.
+
+## Spike: BSRoformer.cpp + GGUF
+
+[BSRoformer.cpp](https://github.com/chenmozhijin/BSRoformer.cpp) (MIT, built on ggml)
+with the q8_0 GGUF of BS-RoFormer SW (188 MB, from the FractalSurfer mirror). Built
+outside the repo with CMake against the latest ggml (the project pins no ggml version);
+on macOS ggml enables Metal and Accelerate by default.
+
+```sh
+cmake -B build -DGGML_CUDA=OFF -DCMAKE_BUILD_TYPE=Release   # ggml cloned next to it
+cmake --build build --config Release --parallel
+bs_roformer-cli model.gguf song.wav out.wav                 # writes out_stem_0..5.wav
+```
+
+The CLI only reads 44.1 kHz WAV and names outputs `stem_N`; the order comes from the
+`.yaml` (bass, drums, other, vocals, guitar, piano).
+
+Measured on the MacBook (M5 Pro), the same 4:39 song as the PyTorch reference, model
+defaults (chunk 352800, overlap 2, same as the reference `.yaml`):
+
+| Backend | Time | Memory |
+|---|---|---|
+| BSRoformer.cpp, Metal | **79 s** (83 s with model load) | 1.9 GB RSS, 2.4 GB peak |
+| BSRoformer.cpp, CPU only, 4 threads (its default) | 984 s | 3.1 GB RSS |
+| BSRoformer.cpp, CPU only, 15 threads (patched) | ~450 s (estimated) | |
+| PyTorch, MPS (reference) | 120 s | |
+| PyTorch, CPU (reference) | ~310 s (MPS is 2.6× faster) | |
+
+- **CPU threads:** BSRoformer.cpp never sets a thread count, so ggml uses its default of
+  4 on a 15-core machine. A local patch (`ggml_backend_cpu_set_n_threads`) on a 60 s
+  clip: 4 threads 248 s, 10 threads 124 s, 15 threads 114 s. Our wrapper must set it
+  (e.g. to the number of performance cores). Even then the CPU path is ~1.5× slower
+  than PyTorch on CPU: fine as a fallback, the GPU is the real path.
+- **Quality:** compared with the PyTorch FLACs after fitting one gain per stem (the
+  reference was scaled by a common −1.1 dB to avoid clipping): SDR between the two is
+  36–43 dB for bass, drums, vocals, guitar and piano, i.e. the q8_0 quantization is
+  inaudible. `other` is silent in this song (−99 dB RMS), so its 16 dB is meaningless.
+- GGUF stems also exceed full scale (drums +1.1 dBFS, guitar +0.3 dBFS): the common
+  gain factor is still needed when writing FLAC.
+- **Integration looks simple:** the C++ API is `Inference(model_path)` and
+  `Process(interleaved_stereo, chunk_size, num_overlap, progress_cb, cancel_cb)`, which
+  returns one interleaved buffer per stem. Plan: a small `extern "C"` wrapper, built
+  from `build.rs` with the `cmake` crate, ggml linked statically.
+- Open points for Phase 3: pin a ggml commit; CI build cost (Metal is free, Vulkan on
+  Windows/Linux needs the Vulkan SDK and `glslc` at build time); how backends are
+  chosen (ggml picks the best available, `BSR_FORCE_CPU=1` forces CPU).
 
 ## Observations to investigate
 
