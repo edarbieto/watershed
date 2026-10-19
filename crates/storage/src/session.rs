@@ -108,13 +108,27 @@ impl Session {
     pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
         let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
         let tmp = path.with_extension("toml.tmp");
-        std::fs::write(&tmp, text)?;
+        write_hidden(&tmp, text.as_bytes())?;
         std::fs::rename(&tmp, path)
     }
 
     pub fn track(&self, file: &str) -> Option<&TrackState> {
         self.tracks.iter().find(|t| t.file == file)
     }
+}
+
+/// Writes a new file. On Windows it is marked hidden, since only macOS and Linux hide
+/// dot files by their name; the rename that follows keeps the attribute.
+fn write_hidden(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        options.attributes(FILE_ATTRIBUTE_HIDDEN);
+    }
+    std::io::Write::write_all(&mut options.open(path)?, contents)
 }
 
 #[cfg(test)]
@@ -163,6 +177,26 @@ mod tests {
             ..Session::default()
         };
         session.save_to(&path).unwrap();
+        assert_eq!(Session::load_from(&path), Some(session));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hidden_on_windows() {
+        use std::os::windows::fs::MetadataExt;
+        let dir = temp_dir("session-hidden");
+        let path = Session::path_in(&dir);
+        // A visible file from before is replaced; saving again over the hidden one works.
+        std::fs::write(&path, "").unwrap();
+        let session = Session {
+            tempo: 0.5,
+            ..Session::default()
+        };
+        session.save_to(&path).unwrap();
+        session.save_to(&path).unwrap();
+        let attributes = std::fs::metadata(&path).unwrap().file_attributes();
+        assert_eq!(attributes & 0x2, 0x2, "not hidden: {attributes:#x}");
         assert_eq!(Session::load_from(&path), Some(session));
         std::fs::remove_dir_all(dir).unwrap();
     }

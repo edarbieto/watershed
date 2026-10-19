@@ -44,10 +44,9 @@ Last updated: 2026-10-19.
       (MSVC linker, Defender scanning `target\`); later ones ~40 s. Excluding the
       project from Defender or using a Dev Drive should help. The Windows CI job is
       also the slowest; it builds three times (clippy, tests, release).
-   2. ~~Phase 2 checklists~~ done: the user tried everything new, works well. Still
-      to look at: `.watershed.toml` is not hidden on Windows (no dot-file
-      convention), OK?
-   3. Is the maximized window slow there too? (see "Observations to investigate").
+   2. ~~Phase 2 checklists~~ done: the user tried everything new, works well.
+      `.watershed.toml` is now hidden on Windows too (see "Session file").
+   3. ~~Maximized window~~ not slow on Windows (see "Observations to investigate").
    4. ~~Practice session~~ mostly done: Reaper's metronome and Watershed played
       together on headphones, both on shared WASAPI, with no problems. Still to try
       with the AG03 and Reaper on ASIO (open question below).
@@ -148,6 +147,10 @@ linear `gain`, `pan`, `mute`, `solo`) and the saved `[[loops]]`.
   and on exit (`App::on_exit`). The position alone is not a change: it is written
   with the next change or on close. Opening a song without changing anything still
   writes the file on exit, because the position moved.
+- **Hidden** on every platform: macOS and Linux hide it by its leading dot; on
+  Windows the temporary file is created with the hidden attribute, which the rename
+  keeps. Moving a folder between platforms breaks nothing: the attribute only
+  affects file browsers, and the app finds the file by name.
 - Written to a `.toml.tmp` file and renamed, so a crash never leaves half a file.
   An invalid file is logged, ignored and later overwritten. Write errors (read-only
   folder) are logged, not shown.
@@ -474,8 +477,10 @@ needed for distribution anyway (PLAN section 9). Check with the system Cmd+Tab t
 
 ### Slow UI when the window is maximized
 
-Reported by the user: maximizing the window is slow, playing or paused. Not
-investigated yet. Candidates: the cost of a frame grows with the width (each waveform
+Reported by the user: maximizing the window is slow, playing or paused. Only
+**during** the maximize animation on macOS, and not at all on Windows, so it is
+likely how macOS resizes the window surface frame by frame (live resize), not our
+drawing. Low priority; if it is ever worth looking at, start there. Candidates: the cost of a frame grows with the width (each waveform
 draws one line per column per channel: ~2,500 columns × 2 × 7 tracks ≈ 35,000 line
 segments, retessellated every frame while playing); or the resize itself (wgpu
 surface reconfiguration). Next step: measure the frame time at both sizes, then
