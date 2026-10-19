@@ -23,6 +23,9 @@ Last updated: 2026-10-19.
   below).
 - **Phase 2.6, library of recent folders: done.** Tested by the user (see "Recent
   songs" below). Also a CPU and RAM display in the top bar.
+- **Windows check of Phase 2: mostly done.** The user tried all the Phase 2 features
+  on Windows: they work well. Found and fixed one bug there (it also affected macOS):
+  see "Resume after changing the mix while paused" below.
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -31,22 +34,23 @@ Last updated: 2026-10-19.
 
 ## Next steps
 
-**Phase 2 is feature-complete on macOS.** To close it, everything must be checked on
-Windows (it was all built and tested on the MacBook only). Then Phase 3.
+**Phase 2 is feature-complete and works on macOS and Windows.** Then Phase 3.
 
-1. **On the Windows machine** (next session):
-   1. Setup: `git pull`, `rustup update`, `cargo build --release`. Signalsmith's
-      bindings need **libclang** at build time: if the build fails on `bindgen`,
-      install LLVM (`winget install LLVM.LLVM`) and set `LIBCLANG_PATH` to its `bin`.
-   2. Run the Phase 2 checklists below on Windows. Windows-specific points:
-      - Zoom with **Ctrl** + scroll (Cmd on macOS); Shift + scroll; touchpad pinch.
-      - Smooth playhead at full zoom on WASAPI (different callback sizes than macOS).
-      - `.watershed.toml` is not hidden on Windows (no dot-file convention); OK?
-      - Recent list: home shown as `~` (from `USERPROFILE`); paths with backslashes.
-      - CPU/RAM numbers against Task Manager (both show CPU as a share of all cores).
+1. **On the Windows machine:**
+   1. ~~Setup~~ done. Signalsmith's bindings need **libclang** at build time:
+      installed LLVM (`winget install LLVM.LLVM`) and set `LIBCLANG_PATH` to
+      `C:\Program Files\LLVM\bin` as a user environment variable (only terminals
+      opened afterwards see it). The first release build takes ~5 min on Windows
+      (MSVC linker, Defender scanning `target\`); later ones ~40 s. Excluding the
+      project from Defender or using a Dev Drive should help. The Windows CI job is
+      also the slowest; it builds three times (clippy, tests, release).
+   2. ~~Phase 2 checklists~~ done: the user tried everything new, works well. Still
+      to look at: `.watershed.toml` is not hidden on Windows (no dot-file
+      convention), OK?
    3. Is the maximized window slow there too? (see "Observations to investigate").
-   4. Practice session: Reaper on ASIO and Watershed on shared WASAPI, both on the
-      AG03. Clicks or dropouts? (open question below).
+   4. ~~Practice session~~ mostly done: Reaper's metronome and Watershed played
+      together on headphones, both on shared WASAPI, with no problems. Still to try
+      with the AG03 and Reaper on ASIO (open question below).
    5. Before Phase 3: Signalsmith benchmark
       (`cargo run --release -p watershed-audio --example stretch -- STEMS...`), and
       BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA (needs CMake, the Visual
@@ -60,6 +64,7 @@ Windows (it was all built and tested on the MacBook only). Then Phase 3.
 
 - **Windows practice session** (nice to have, not blocking): Reaper on ASIO and
   Watershed on shared WASAPI, both on the Yamaha AG03. Any clicks or dropouts?
+  Both on shared WASAPI with headphones already works.
 
 ## Tempo, pitch and limiter
 
@@ -78,7 +83,9 @@ limiter → hard clip → device.
 - **Seek and load:** `reset()`, then `seek()` with one block + one interval of
   pre-roll ending at `target + input latency`, so the first output is centered on the
   target. Sound starts within the output latency (~60 ms).
-- **Pause** keeps the stretcher state, so resuming continues seamlessly. **End of
+- **Pause** fades out over 10 ms. **Resume** seeks the stretcher to the position
+  heard at the pause and fades in, so a mix changed while paused is heard at once
+  (see "Resume after changing the mix while paused"). **End of
   song:** stops when the heard position reaches the end, so the latency tail plays.
 - **Limiter** (`limiter.rs`): peak limiter at −1 dBFS with 3 ms lookahead and 100 ms
   release. Quiet material passes through unchanged (only delayed); tests check a
@@ -383,6 +390,20 @@ defaults (chunk 352800, overlap 2, same as the reference `.yaml`):
   chosen (ggml picks the best available, `BSR_FORCE_CPU=1` forces CPU).
 
 ## Observations to investigate
+
+### Resume after changing the mix while paused (fixed)
+
+Reported by the user on Windows: all tracks on, play, pause, solo one track, play:
+all tracks sounded for a split second before the solo applied.
+
+**Cause:** the stretcher holds about 120 ms of already mixed audio (its latency).
+Pausing kept that audio, mixed with the old mute/solo/fader settings, and resuming
+played it first.
+
+**Fixed:** resuming from silence seeks the stretcher to the position heard at the
+pause, so it refills with the current mix (`CallbackState::process`). A seek also
+jumps the track gains to their targets instead of ramping them across the pre-roll
+(`Voice::snap_gains`). Test: `mix_changes_while_paused_are_heard_at_once`.
 
 ### Output lost when another app opens a Bluetooth headset's mic
 
