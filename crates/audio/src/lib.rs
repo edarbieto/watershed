@@ -15,6 +15,6 @@ mod song;
 mod stretch;
 
 pub use atomic::AtomicF32;
-pub use engine::{Engine, EngineError, Notify, OutputDevice, output_devices};
+pub use engine::{Engine, EngineError, MIN_LOOP_SECS, Notify, OutputDevice, output_devices};
 pub use song::{Song, Track, TrackParams};
 pub use stretch::{MAX_SEMITONES, MAX_TEMPO, MIN_TEMPO};

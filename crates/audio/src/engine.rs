@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -12,6 +13,10 @@ use crate::{AtomicF32, Song};
 
 /// How long pause and resume fade, in seconds. Avoids clicks.
 const FADE_SECS: f32 = 0.01;
+
+/// Shortest A-B loop, in seconds. Must stay above the tempo and pitch latency
+/// (about 0.2 s at most) so the displayed position can follow the jumps.
+pub const MIN_LOOP_SECS: f64 = 0.5;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -69,6 +74,9 @@ struct Shared {
     tempo: AtomicF32,
     /// Transposition in semitones.
     semitones: AtomicF32,
+    /// A-B loop as `start << 32 | end` in frames, 0 when off. One atomic so the audio
+    /// thread never sees the start of one loop with the end of another.
+    looped: AtomicU64,
     /// Set when the device is gone or the stream hit an unrecoverable error.
     failed: AtomicBool,
     /// Set when the stream must be rebuilt, e.g. the device sample rate changed because
@@ -262,6 +270,21 @@ impl Engine {
             .store(semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES));
     }
 
+    /// Loops playback between two frames, or plays straight through with `None`.
+    /// Loops shorter than [`MIN_LOOP_SECS`] are ignored.
+    pub fn set_loop(&self, range: Option<Range<usize>>) {
+        let min = (MIN_LOOP_SECS * f64::from(self.sample_rate)) as usize;
+        let packed = range
+            .filter(|r| r.end >= r.start + min)
+            .and_then(|r| {
+                let start = u64::from(u32::try_from(r.start).ok()?);
+                let end = u64::from(u32::try_from(r.end).ok()?);
+                Some(start << 32 | end)
+            })
+            .unwrap_or(0);
+        self.shared.looped.store(packed, Ordering::Relaxed);
+    }
+
     /// Drops songs the audio thread is done with. Call regularly from the UI thread.
     pub fn collect_garbage(&mut self) {
         while self.garbage.pop().is_ok() {}
@@ -338,6 +361,10 @@ impl CallbackState {
         let master = self.shared.master_gain.load();
         let tempo = self.shared.tempo.load();
         let semitones = self.shared.semitones.load();
+        let looped = match self.shared.looped.load(Ordering::Relaxed) {
+            0 => None,
+            packed => Some((packed >> 32) as usize..(packed & 0xffff_ffff) as usize),
+        };
         let channels = self.channels;
 
         for out in data.chunks_mut(MAX_BLOCK * channels) {
@@ -348,7 +375,8 @@ impl CallbackState {
             if let Some(voice) = &mut self.voice
                 && (playing || self.fade > 0.0)
             {
-                self.stretcher.render(voice, tempo, semitones, mix);
+                self.stretcher
+                    .render(voice, tempo, semitones, looped.clone(), mix);
                 for frame in mix.as_chunks_mut::<2>().0 {
                     self.fade = if playing {
                         (self.fade + self.fade_step).min(1.0)
