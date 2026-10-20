@@ -100,6 +100,8 @@ fn write_partial(
         return Err(SeparationError::Cancelled);
     }
 
+    // Models report their first progress only after a whole chunk.
+    progress(Stage::Separating, 0.0);
     let stems = separator.separate(&audio, &|f| progress(Stage::Separating, f), cancel)?;
     drop(audio);
     let names = separator.stem_names();
