@@ -5,10 +5,14 @@ use std::path::PathBuf;
 use watershed_dsp::{DecodeError, FlacError, ResampleError, StereoBuffer};
 
 pub mod bsroformer;
+pub mod catalog;
+mod download;
 mod gguf;
 mod song;
 
-pub use gguf::{BS_ROFORMER_SW_STEMS, GgufSeparator};
+pub use catalog::ModelEntry;
+pub use download::{DownloadError, sha256_file};
+pub use gguf::GgufSeparator;
 pub use song::{SeparatedSong, Stage, separate_song};
 
 /// Splits a stereo mix into stems. Implemented by each backend, so the rest of the

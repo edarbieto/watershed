@@ -1,24 +1,53 @@
-//! Separates one song with the BS-RoFormer SW GGUF model into a new folder of
-//! FLAC stems plus a session, ready to open in the app.
+//! Separates one song with the catalog's default model into a new folder of FLAC
+//! stems plus a session, ready to open in the app. The model is downloaded into
+//! the models cache folder on first use, unless `--model` points to a local copy.
 //!
 //! ```sh
-//! cargo run --release -p watershed-separation --example separate -- model.gguf song.mp3 out-dir [--cpu]
+//! cargo run --release -p watershed-separation --example separate -- song.mp3 out-dir [--model file.gguf] [--cpu]
 //! ```
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use watershed_separation::bsroformer::{Device, LoadOptions};
-use watershed_separation::{BS_ROFORMER_SW_STEMS, GgufSeparator, Separator, Stage};
+use watershed_separation::{GgufSeparator, Separator, Stage, catalog};
 
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let cpu = args.iter().any(|a| a == "--cpu");
-    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
-    let [model_path, song_path, out_dir] = paths[..] else {
-        bail!("usage: separate <model.gguf> <song> <out-dir> [--cpu]");
+    let mut args = std::env::args().skip(1);
+    let (mut cpu, mut model_file, mut paths) = (false, None, Vec::new());
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--cpu" => cpu = true,
+            "--model" => {
+                model_file = Some(PathBuf::from(args.next().context("--model needs a file")?))
+            }
+            _ => paths.push(arg),
+        }
+    }
+    let [song_path, out_dir] = &paths[..] else {
+        bail!("usage: separate <song> <out-dir> [--model file.gguf] [--cpu]");
+    };
+
+    let entry = catalog::default_model();
+    let model_path = match model_file {
+        Some(path) => path,
+        None => {
+            let dir = watershed_storage::models_dir().context("no cache folder on this system")?;
+            if !entry.is_installed(&dir) {
+                println!("downloading {} to {}", entry.name, dir.display());
+            }
+            let path = entry.install(
+                &dir,
+                &|done, total| {
+                    eprint!("\r{:6.1} / {:.1} MB", done as f64 / 1e6, total as f64 / 1e6)
+                },
+                &|| false,
+            )?;
+            eprintln!();
+            path
+        }
     };
 
     let start = Instant::now();
@@ -26,8 +55,7 @@ fn main() -> anyhow::Result<()> {
         device: if cpu { Device::Cpu } else { Device::Auto },
         ..Default::default()
     };
-    let names = BS_ROFORMER_SW_STEMS.map(String::from).to_vec();
-    let mut separator = GgufSeparator::load(Path::new(model_path), names, &options)?;
+    let mut separator = GgufSeparator::load(&model_path, entry.stems.clone(), &options)?;
     println!(
         "loaded in {:.1} s on {}: {} stems at {} Hz",
         start.elapsed().as_secs_f64(),

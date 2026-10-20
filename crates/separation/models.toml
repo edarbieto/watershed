@@ -1,0 +1,25 @@
+# Models Watershed can download, embedded in the binary.
+#
+# Each model:
+# - id: stable identifier, never reused.
+# - file: name in the models folder.
+# - size (bytes) and sha256: checked after every download.
+# - urls: mirrors, tried in order. Pin a commit, not a branch, so the file
+#   behind a URL never changes.
+# - stems: output order of the model. GGUF files store how many stems there
+#   are but not their names; these become the stem file names.
+# - default: the model used unless the user picks another (exactly one).
+
+[[model]]
+id = "bs-roformer-sw-q8_0"
+name = "BS-RoFormer SW (6 stems)"
+file = "BS-RoFormer-SW-6stem-q8_0.gguf"
+size = 188130912
+sha256 = "e4c53c3389c4426bf8b6cdbcc4e3d7d813323ef8a3e4f1f157084b71960bdf63"
+urls = [
+    "https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem/resolve/2b98254b19bdab07ce225d884ec4aa9dd8aafce1/gguf/BS-RoFormer-SW-6stem-q8_0.gguf",
+]
+stems = ["bass", "drums", "other", "vocals", "guitar", "piano"]
+# The checkpoint declares no license: download on demand, never bundle it.
+license = "unknown"
+default = true

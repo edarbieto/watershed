@@ -7,10 +7,6 @@ use watershed_dsp::StereoBuffer;
 use crate::bsroformer::{LoadOptions, Model};
 use crate::{SeparationError, Separator};
 
-/// Stem order of BS-RoFormer SW, the default model (from its `.yaml`). GGUF files
-/// do not store stem names; the model catalog will provide them per model.
-pub const BS_ROFORMER_SW_STEMS: [&str; 6] = ["bass", "drums", "other", "vocals", "guitar", "piano"];
-
 pub struct GgufSeparator {
     model: Model,
     stem_names: Vec<String>,
