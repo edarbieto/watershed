@@ -50,9 +50,8 @@ Last updated: 2026-10-19.
    4. ~~Practice session~~ mostly done: Reaper's metronome and Watershed played
       together on headphones, both on shared WASAPI, with no problems. Still to try
       with the AG03 and Reaper on ASIO (open question below).
-   5. Before Phase 3: Signalsmith benchmark
-      (`cargo run --release -p watershed-audio --example stretch -- STEMS...`), and
-      BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA (needs CMake, the Visual
+   5. Before Phase 3: ~~Signalsmith benchmark~~ done (see "Spike: Signalsmith
+      Stretch"). Next: BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA (needs CMake, the Visual
       Studio C++ tools and the Vulkan SDK).
 2. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
@@ -326,6 +325,20 @@ Measured on the MacBook (M5 Pro), a 4:39 song at 48 kHz, blocks of 512 frames
 |---|---|---|---|---|
 | default | 60 + 60 ms | 0.43–0.58 % | 0.14–0.19 ms | 0.2–2.3 ms |
 | cheaper | 50 + 90 ms | 0.31–0.40 % | 0.05–0.06 ms | 0.07–0.16 ms |
+
+Measured on Windows (Ryzen 7 5700G), 6 MVSEP stems of 3:35 at 48 kHz:
+
+| Preset | Block | CPU (one core) | p99 per call | Max per call |
+|---|---|---|---|---|
+| default | 512 | 1.1–1.5 % | 0.37–0.56 ms | 0.6–1.6 ms |
+| cheaper | 512 | 0.7–1.0 % | 0.12–0.16 ms | 0.2–0.8 ms |
+| default | 64 | 1.1–1.4 % | 0.31–0.41 ms | 0.6–3.0 ms |
+| cheaper | 64 | 0.8–1.0 % | 0.03 ms | 0.07–1.2 ms |
+
+About 2.5× the CPU of the M5 Pro, still far below the budget (10.7 ms per call at
+512 frames). Only `default` with tiny 64-frame blocks has a max (3 ms) above the
+1.3 ms budget, once; device buffers on shared WASAPI are ~10 ms, so not a concern.
+Same conclusion: keep `default`.
 
 - Tempo 0.5–1.25 and ±2 semitones cost about the same; tempo 1.0 with no pitch change
   is the cheapest. With blocks of 64 frames (1.3 ms budget) `default` peaks at ~0.2 ms:
