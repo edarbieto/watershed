@@ -166,8 +166,8 @@ separate step.
 | Community guitar MelBand / BS RoFormer | guitar / other | Research which ones are public. The "MVSep Guitar" models are private. |
 | MVSep Mega 53-stem (ZFTurbo) | 53 | **Out of scope**: needs ≥16 GB of VRAM. |
 
-- The catalog lives in a config file (JSON or TOML) inside the repo: name, URL(s) with mirrors, sha256, architecture, associated `.yaml`, and stem names/order.
-- On-disk location: the OS cache folder (`directories` crate).
+- The catalog is `crates/separation/models.toml`, embedded in the binary: id, name, file, size, sha256, URL(s) with mirrors (pinned to a commit), stem names/order, license. The `burn` backend will add the architecture and the associated `.yaml`.
+- On-disk location: `models` in the OS cache folder (`directories` crate; `%LOCALAPPDATA%\Watershed\cache\models` on Windows).
 
 ## 7. Audio and coexisting with Reaper
 
@@ -189,7 +189,7 @@ separate step.
 | ML | `burn` (`wgpu` backend) |
 | Weights | `safetensors`, `burn-import` |
 | Model config | `serde`, `serde_yaml`, `serde_json` / `toml` |
-| Downloads | `reqwest` (or `hf-hub`), `sha2` for verification |
+| Downloads | `ureq` (blocking, rustls), `sha2` for verification |
 | Time-stretch / pitch | Signalsmith Stretch bindings (MIT) |
 | FLAC encoding | `flac-codec` (pure Rust, 24-bit) |
 | WAV export | `hound` |
@@ -268,7 +268,7 @@ In this order:
   Linux), Metal on macOS.
 - [x] `trait Separator` + GGUF backend, `separate_song` (decode → separate → 24-bit
   FLAC stems with one common gain, stored in the session and undone on load).
-- [ ] Model catalog + download + sha256.
+- [x] Model catalog + download + sha256 (resumable, mirrors; no UI yet).
 - [ ] Full flow: drop an mp3 → separate → open the session.
 - ✅ Milestone: replaces MVSEP + Reaper for the basic case.
 
