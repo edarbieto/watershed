@@ -31,26 +31,35 @@ Last updated: 2026-10-19.
 - **Phase 3.1, BSRoformer.cpp in the build: done.** CI green on all three platforms (see
   "BSRoformer.cpp in the build" below). Separating from Rust gives output
   bit-identical to the spike's CLI, at the same speed.
+- **Phase 3.2, `trait Separator` + GGUF backend: done** (see "Separator and stem
+  files" below). A real 4:03 song on Windows: 145 s from mp3 to a folder of six
+  24-bit FLAC stems plus its session. Not yet tried by the user in the app.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps
 
-**Phase 3 under way.** Step 1 (BSRoformer.cpp + ggml in the build) is done on
-Windows; see `PLAN.md` section 10 for the rest.
+**Phase 3 under way.** Steps 1 (BSRoformer.cpp + ggml in the build) and 2
+(`trait Separator`, writing stems) are done; see `PLAN.md` section 10 for the rest.
 
-1. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then
+1. **User check (Windows):** separate a song with the example, then open the
+   output folder in the app: stems play at their original level (the stem gain
+   is undone on load) and the mixer settings save without losing `stem_gain`.
+   `out-dir` must not exist yet:
    `cargo run --release -p watershed-separation --example separate -- model.gguf
-   song.wav out-dir` and compare with the spike's Metal numbers (79 s for the 4:39
-   song).
-2. **Phase 3.2:** `trait Separator` + the GGUF backend on top of
-   `bsroformer::Model` (stem names, writing the stems with one common gain).
-3. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
+   song.mp3 out-dir`.
+2. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then the
+   same example; compare with the spike's Metal numbers (79 s for the 4:39 song).
+3. **Phase 3.3:** model catalog + download + sha256. It also supplies the stem
+   names, which GGUF files do not store (`BS_ROFORMER_SW_STEMS` is a stopgap).
+4. **Phase 3.4:** the full flow in the app: drop an mp3 → separate on a background
+   thread with a progress bar and Cancel → open the session.
+5. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
    (open question below).
-4. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+6. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
-5. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
+7. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
    optimization (design principles), portable builds (section 9).
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
@@ -499,6 +508,39 @@ cancel callbacks). GPU backend: Vulkan on Windows and Linux, Metal on macOS.
 - **CI time** with the C++ build (first run): macOS 5.5 min, Linux 10 min, Windows
   14.5 min (it installs the 300 MB Vulkan SDK each run).
 
+## Separator and stem files
+
+- **`trait Separator`** (`crates/separation/src/lib.rs`): sample rate, stem names in
+  output order, a device description, and `separate(input, progress, cancel)`.
+  `GgufSeparator` implements it on top of `bsroformer::Model`. GGUF files store
+  the stem count but not the names, so the caller passes them; for now
+  `BS_ROFORMER_SW_STEMS` (bass, drums, other, vocals, guitar, piano), later the
+  model catalog.
+- **`separate_song(separator, song, folder, progress, cancel)`**: decode → resample
+  to the model rate → separate → one common gain → `<stem>.flac` (24-bit, one
+  thread per stem) + `.watershed.toml` with `stem_gain`. It writes into
+  `<folder>.partial` and renames at the end, so a cancel or error leaves nothing
+  behind, and it never overwrites an existing folder. Progress comes per stage
+  (decoding, separating, writing) for the Phase 3.4 progress bar.
+- **Stem gain:** the session's `stem_gain` (linear; 1.0 when nothing was scaled) is
+  undone by the loader, so stems play at their original level and hot peaks are
+  left to the master limiter. The app keeps it when it saves the session.
+- **FLAC encoder: `flac-codec`, not `flacenc`.** `flacenc` (the crate the plan
+  named) wrote a 172 MB drums stem for 64.5 MB of raw 24-bit audio: it only has
+  4-bit Rice parameters (max 14, the 16-bit-era limit, no RICE2 or escape codes), so
+  the residuals of loud 24-bit audio take dozens of bits per sample. It also wrote
+  a minimum block size that symphonia refuses. `flac-codec` (pure Rust, MIT/Apache)
+  on the same stems: 155 MB for all six (drums 44 MB), bit-exact when read back by
+  symphonia, 2–3 s per stem. A test guards against the regression (loud noise must
+  not exceed the raw size).
+- **Timing** (RTX 3050, Vulkan, 4:03 mp3): load 1.3 s, decode + resample 4.5 s,
+  separation 138 s, writing 3 s (sequential, with flacenc; parallel `flac-codec`
+  measured separately). A second run was stopped: a game was using the same GPU, which
+  slowed separation several times over.
+- **Memory:** a 4 min song holds its input (~86 MB) during separation and six stems
+  (~515 MB) while writing; the FLAC writer converts in 64k-sample chunks, so
+  writing adds almost nothing.
+
 ## Observations to investigate
 
 ### Resume after changing the mix while paused (fixed)
@@ -611,8 +653,6 @@ per track (saved in the session).
 
 ### Other pending items
 
-- Sessions (Phase 2) must store the common gain factor used to avoid clipping when
-  writing FLAC.
 - **Clipping, explained** (asked by the user): stems exceed 0 dBFS because the model
   works in float and stems partly cancel each other; together they add back up to about
   the original mix. MVSEP mp3s do it too (mp3 decodes to float) and nothing warns about

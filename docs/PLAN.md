@@ -7,7 +7,7 @@
 | Language | Code, docs, commits and UI in English. i18n in v0.2. |
 | License | `MIT OR Apache-2.0`. No GPL dependencies, so time-stretching uses Signalsmith Stretch (MIT). |
 | Tempo / pitch | Applied to the **stereo mix**, after the mixer, so the cost does not grow with the number of stems. Real-time first; offline pre-render as an option if CPU is not enough. |
-| Session stem format | FLAC (`flacenc` to write, `symphonia` to read). No lossy formats: separation artifacts plus lossy compression plus time-stretching add up. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
+| Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). No lossy formats: separation artifacts plus lossy compression plus time-stretching add up. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
 | Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, to be validated by a spike. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
 | Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
@@ -191,7 +191,7 @@ separate step.
 | Model config | `serde`, `serde_yaml`, `serde_json` / `toml` |
 | Downloads | `reqwest` (or `hf-hub`), `sha2` for verification |
 | Time-stretch / pitch | Signalsmith Stretch bindings (MIT) |
-| FLAC encoding | `flacenc` |
+| FLAC encoding | `flac-codec` (pure Rust, 24-bit) |
 | WAV export | `hound` |
 | Paths | `directories` |
 | Thread communication | `crossbeam-channel`, `rtrb` (RT ring buffer), atomics |
@@ -266,7 +266,8 @@ In this order:
 - [x] BSRoformer.cpp + ggml (pinned commit) built by `build.rs` with the `cmake`
   crate behind a small `extern "C"` wrapper; Vulkan SDK + `glslc` in CI (Windows,
   Linux), Metal on macOS.
-- [ ] `trait Separator` + GGUF backend.
+- [x] `trait Separator` + GGUF backend, `separate_song` (decode → separate → 24-bit
+  FLAC stems with one common gain, stored in the session and undone on load).
 - [ ] Model catalog + download + sha256.
 - [ ] Full flow: drop an mp3 → separate → open the session.
 - ✅ Milestone: replaces MVSEP + Reaper for the basic case.
