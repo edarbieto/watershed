@@ -8,11 +8,13 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+log.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
+watershed-dsp.workspace = true
+watershed-storage.workspace = true
 
 [dev-dependencies]
-watershed-dsp.workspace = true
 anyhow.workspace = true
 
 [build-dependencies]
