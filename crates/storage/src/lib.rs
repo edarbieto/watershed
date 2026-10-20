@@ -13,6 +13,12 @@ fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "Watershed")
 }
 
+/// Where downloaded separation models live: a `models` folder in the OS cache
+/// folder, since they can always be downloaded again.
+pub fn models_dir() -> Option<PathBuf> {
+    project_dirs().map(|d| d.cache_dir().join("models"))
+}
+
 /// User settings, stored as `config.toml` in the OS config folder.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
