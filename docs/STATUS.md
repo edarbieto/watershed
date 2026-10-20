@@ -28,7 +28,7 @@ Last updated: 2026-10-19.
   see "Resume after changing the mix while paused" below.
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
-- **Phase 3.1, BSRoformer.cpp in the build: done on Windows**, CI pending (see
+- **Phase 3.1, BSRoformer.cpp in the build: done.** CI green on all three platforms (see
   "BSRoformer.cpp in the build" below). Separating from Rust gives output
   bit-identical to the spike's CLI, at the same speed.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -40,19 +40,17 @@ Last updated: 2026-10-19.
 **Phase 3 under way.** Step 1 (BSRoformer.cpp + ggml in the build) is done on
 Windows; see `PLAN.md` section 10 for the rest.
 
-1. **Push and check CI** on the three platforms. Linux (apt Vulkan packages) and
-   macOS (Metal) have not been built locally yet.
-2. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then
+1. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then
    `cargo run --release -p watershed-separation --example separate -- model.gguf
    song.wav out-dir` and compare with the spike's Metal numbers (79 s for the 4:39
    song).
-3. **Phase 3.2:** `trait Separator` + the GGUF backend on top of
+2. **Phase 3.2:** `trait Separator` + the GGUF backend on top of
    `bsroformer::Model` (stem names, writing the stems with one common gain).
-4. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
+3. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
    (open question below).
-5. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+4. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
-6. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
+5. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
    optimization (design principles), portable builds (section 9).
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
@@ -496,8 +494,10 @@ cancel callbacks). GPU backend: Vulkan on Windows and Linux, Metal on macOS.
   cache the CMake build with sccache.
 - **Open points:** the app binary now needs `vulkan-1.dll` on Windows (installed by
   every GPU driver, but missing on machines with no GPU driver at all); the library
-  prints its progress logs to stdout; Linux and macOS builds are untested until CI
-  runs.
+  prints its progress logs to stdout. Linux (apt Vulkan packages) and macOS
+  (Metal) build and pass the tests in CI but have not separated a real song yet.
+- **CI time** with the C++ build (first run): macOS 5.5 min, Linux 10 min, Windows
+  14.5 min (it installs the 300 MB Vulkan SDK each run).
 
 ## Observations to investigate
 
