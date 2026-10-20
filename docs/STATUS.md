@@ -51,8 +51,9 @@ Last updated: 2026-10-19.
       together on headphones, both on shared WASAPI, with no problems. Still to try
       with the AG03 and Reaper on ASIO (open question below).
    5. Before Phase 3: ~~Signalsmith benchmark~~ done (see "Spike: Signalsmith
-      Stretch"). Next: BSRoformer.cpp on the RTX 3050 with Vulkan vs CUDA (needs CMake, the Visual
-      Studio C++ tools and the Vulkan SDK).
+      Stretch") and ~~BSRoformer.cpp on the RTX 3050~~ done (see "Spike:
+      BSRoformer.cpp + GGUF"). **To decide:** the Phase 3 Windows backend, Vulkan
+      or CUDA. Still open: Vulkan SDK and `glslc` in CI, pin a ggml commit.
 2. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
 3. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
@@ -376,7 +377,8 @@ The CLI only reads 44.1 kHz WAV and names outputs `stem_N`; the order comes from
 `.yaml` (bass, drums, other, vocals, guitar, piano).
 
 Measured on the MacBook (M5 Pro), the same 4:39 song as the PyTorch reference, model
-defaults (chunk 352800, overlap 2, same as the reference `.yaml`):
+defaults (chunk and overlap from the GGUF, same as the reference `.yaml`: chunk
+588800, overlap 2; this note used to say 352800, which is only the CLI's fallback):
 
 | Backend | Time | Memory |
 |---|---|---|
@@ -385,6 +387,33 @@ defaults (chunk 352800, overlap 2, same as the reference `.yaml`):
 | BSRoformer.cpp, CPU only, 15 threads (patched) | ~450 s (estimated) | |
 | PyTorch, MPS (reference) | 120 s | |
 | PyTorch, CPU (reference) | ~310 s (MPS is 2.6× faster) | |
+
+Measured on Windows (RTX 3050, 6 GB; Ryzen 7 5700G), a 5:06 song (44.1 kHz
+WAV), same model and defaults, ggml commit `a05c992` (2026-10-15):
+
+| Backend | Separation | Total (with model load and writing) |
+|---|---|---|
+| BSRoformer.cpp, CUDA 13.4 | **80 s** | 84 s |
+| BSRoformer.cpp, Vulkan (first run) | 143 s | 162 s |
+| BSRoformer.cpp, Vulkan (second run) | 128 s | 130 s |
+| PyTorch, CUDA (reference) | 74 s | |
+
+- **Vulkan is ~1.6× slower than CUDA** on this NVIDIA card, and the first run also
+  compiles its shaders (~20 s more). CUDA is about as fast as PyTorch.
+- **Quality:** SDR against the PyTorch stems (one gain fitted per stem): CUDA
+  31–38 dB and Vulkan 32–39 dB for bass, drums, other, vocals and guitar; piano
+  23–24 dB, but it is nearly silent in this song (−44 dB RMS). Both inaudible.
+- **Trade-off for the Windows backend:** Vulkan works on any GPU (NVIDIA, AMD,
+  Intel) with what the driver already has; CUDA only on NVIDIA and the app would
+  have to ship the CUDA runtime DLLs (cuBLAS alone is hundreds of MB). A 5 min
+  song in ~2 min (Vulkan) vs ~1.3 min (CUDA). Phase 4 (`burn` + `wgpu`) runs on
+  DX12/Vulkan anyway.
+- **Build notes (Windows):** Vulkan builds with the default Visual Studio
+  generator once the Vulkan SDK is installed (`VULKAN_SDK` set). CUDA 13.4 does not
+  integrate with Visual Studio 2026 Build Tools: use the Ninja generator from a
+  `vcvars64.bat` shell with `-DCMAKE_CUDA_FLAGS=-allow-unsupported-compiler` and
+  `-DCMAKE_CUDA_ARCHITECTURES=86`. Its DLLs are in `CUDA\v13.4\bin\x64`, which
+  must be on `PATH` to run (otherwise exit code 0xC0000135, DLL not found).
 
 - **CPU threads:** BSRoformer.cpp never sets a thread count, so ggml uses its default of
   4 on a 15-core machine. A local patch (`ggml_backend_cpu_set_n_threads`) on a 60 s

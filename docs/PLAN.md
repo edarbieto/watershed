@@ -245,7 +245,7 @@ separate step.
 
 ### Before Phase 3 (Windows, not blocking Phase 2)
 - [x] Signalsmith benchmark on the Windows machine.
-- [ ] BSRoformer.cpp on the RTX 3050: Vulkan vs CUDA vs PyTorch CUDA. Decides whether
+- [x] BSRoformer.cpp on the RTX 3050: Vulkan vs CUDA vs PyTorch CUDA. Decides whether
   Vulkan is good enough as the Windows backend.
 - [ ] Vulkan SDK + `glslc` in CI (Windows, Linux); pin a ggml commit.
 
