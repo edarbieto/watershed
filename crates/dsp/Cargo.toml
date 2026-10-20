@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+flac-codec.workspace = true
 rubato.workspace = true
 symphonia.workspace = true
 thiserror.workspace = true
