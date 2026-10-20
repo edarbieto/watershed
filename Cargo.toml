@@ -16,6 +16,7 @@ watershed-separation = { path = "crates/separation" }
 watershed-storage = { path = "crates/storage" }
 
 anyhow = "1"
+cmake = "0.1"
 cpal = "0.18"
 directories = "6"
 eframe = "0.36"

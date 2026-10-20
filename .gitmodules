@@ -1,0 +1,8 @@
+[submodule "crates/separation/vendor/BSRoformer.cpp"]
+	path = crates/separation/vendor/BSRoformer.cpp
+	url = https://github.com/chenmozhijin/BSRoformer.cpp
+	shallow = true
+[submodule "crates/separation/vendor/ggml"]
+	path = crates/separation/vendor/ggml
+	url = https://github.com/ggml-org/ggml
+	shallow = true
