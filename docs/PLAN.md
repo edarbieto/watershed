@@ -263,7 +263,7 @@ In this order:
 - [x] Library of recent folders.
 
 ### Phase 3: Separation with a temporary backend
-- [ ] BSRoformer.cpp + ggml (pinned commit) built by `build.rs` with the `cmake`
+- [x] BSRoformer.cpp + ggml (pinned commit) built by `build.rs` with the `cmake`
   crate behind a small `extern "C"` wrapper; Vulkan SDK + `glslc` in CI (Windows,
   Linux), Metal on macOS.
 - [ ] `trait Separator` + GGUF backend.

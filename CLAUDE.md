@@ -30,13 +30,26 @@ models and plays them in a multitrack player for practice. Read these first:
   before working, or CI may fail on lints that pass locally.
 - CI: `.github/workflows/ci.yml` (fmt, clippy, tests, release build on Windows, Linux,
   macOS; binaries uploaded as artifacts).
+- BSRoformer.cpp and ggml are **git submodules** in `crates/separation/vendor/`
+  (pinned commits). Clone with `--recursive` or run `git submodule update --init`.
+  Building them needs **CMake**, plus the **Vulkan SDK** on Windows (`VULKAN_SDK`
+  set) or `libvulkan-dev glslc spirv-headers` on Linux. The first build of the
+  crate takes ~2 min (ggml compiles its Vulkan shaders).
+
+### Windows setup
+
+LLVM (`winget install LLVM.LLVM`, `LIBCLANG_PATH=C:\Program Files\LLVM\bin`) for
+Signalsmith's bindings, CMake, the Vulkan SDK from vulkan.lunarg.com, and the Visual
+Studio Build Tools. Open a new terminal after installing so it sees the new variables.
 
 ### macOS setup
 
 ```sh
 xcode-select --install          # compiler and SDK
 curl https://sh.rustup.rs -sSf | sh
+brew install cmake
 brew install uv                 # only for tools/reference
+git submodule update --init
 cargo run --release -- path/to/stems-folder
 ```
 
@@ -63,7 +76,7 @@ machine or regenerate them with the reference tool from any mp3s.
 | `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `mixer.rs` (pure, tested) |
 | `crates/dsp` | `decode_file` (symphonia), `resample` (rubato FFT), `Peaks` |
 | `crates/storage` | `Config` (TOML in the OS config dir) |
-| `crates/separation` | empty, Phase 3 |
+| `crates/separation` | `bsroformer::Model` (safe wrapper over BSRoformer.cpp + ggml); `cpp/` C wrapper and CMake project; `build.rs`; `vendor/` submodules; `examples/separate.rs` |
 | `tools/reference` | dev-only PyTorch reference separation (uv project) |
 
 Real-time rule: the cpal callback never allocates, frees, locks or does I/O. Songs go
@@ -83,5 +96,14 @@ dropped on the UI thread. Mixer parameters are atomics.
   like FLAC clip them: scale all stems of a song by one common factor.
 - The BS-RoFormer SW `.yaml` has `audio.hop_length: 441` marked "don't work"; the model
   really uses `model.stft_hop_length: 512`. Always read parameters from the config.
+- **C++ build (`crates/separation`)**: the `cmake` crate fills
+  `CMAKE_<LANG>_FLAGS_RELEASE` with flags that carry no optimization level, so
+  `build.rs` sets them itself (without that, separation ran 2.3× slower). MSVC tools
+  still enforce the 260-character path limit, and ggml's nested Vulkan shader
+  generator build under cargo's deep `OUT_DIR` hit it; `cpp/CMakeLists.txt` shortens
+  it with `EP_BASE`. BSRoformer.cpp is not modified: CMake compiles a patched copy of
+  its `model.cpp` that calls `watershed_bsr_init_backend()` in `cpp/wrapper.cpp` (backend
+  choice and CPU thread count). If a submodule bump breaks the patch anchors, CMake
+  stops with a clear error.
 - To screenshot the app on Windows, capture only its window with `PrintWindow`
   (`PW_RENDERFULLCONTENT`); screen-region captures can grab whatever window is on top.

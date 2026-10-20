@@ -28,41 +28,38 @@ Last updated: 2026-10-19.
   see "Resume after changing the mix while paused" below.
 - **Spikes** done on macOS (Signalsmith Stretch and BSRoformer.cpp, see below). Their
   Windows measurements moved to the "Before Phase 3" list in `PLAN.md`.
+- **Phase 3.1, BSRoformer.cpp in the build: done on Windows**, CI pending (see
+  "BSRoformer.cpp in the build" below). Separating from Rust gives output
+  bit-identical to the spike's CLI, at the same speed.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps
 
-**Phase 2 is done on macOS and Windows, and so are the measurements before Phase 3.
-Next: Phase 3**, starting with the BSRoformer.cpp build (see `PLAN.md` section 10).
-Windows GPU backend decided with the user: **Vulkan**.
+**Phase 3 under way.** Step 1 (BSRoformer.cpp + ggml in the build) is done on
+Windows; see `PLAN.md` section 10 for the rest.
 
-1. **On the Windows machine:**
-   1. ~~Setup~~ done. Signalsmith's bindings need **libclang** at build time:
-      installed LLVM (`winget install LLVM.LLVM`) and set `LIBCLANG_PATH` to
-      `C:\Program Files\LLVM\bin` as a user environment variable (only terminals
-      opened afterwards see it). The first release build takes ~5 min on Windows
-      (MSVC linker, Defender scanning `target\`); later ones ~40 s. Excluding the
-      project from Defender or using a Dev Drive should help. The Windows CI job is
-      also the slowest; it builds three times (clippy, tests, release).
-   2. ~~Phase 2 checklists~~ done: the user tried everything new, works well.
-      `.watershed.toml` is now hidden on Windows too (see "Session file").
-   3. ~~Maximized window~~ not slow on Windows (see "Observations to investigate").
-   4. ~~Practice session~~ mostly done: Reaper's metronome and Watershed played
-      together on headphones, both on shared WASAPI, with no problems. Still to try
-      with the AG03 and Reaper on ASIO (open question below).
-   5. Before Phase 3: ~~Signalsmith benchmark~~ done (see "Spike: Signalsmith
-      Stretch") and ~~BSRoformer.cpp on the RTX 3050~~ done (see "Spike:
-      BSRoformer.cpp + GGUF"). Decided: **Vulkan** on Windows. Vulkan SDK and
-      `glslc` in CI and pinning ggml moved to the first Phase 3 step.
-      The spike lives outside the repo (BSRoformer.cpp and ggml cloned side by
-      side, the thread-count patch in `src/model.cpp`); the Vulkan SDK 1.4.363,
-      CMake 4.4 and CUDA 13.4 are installed on the Windows machine.
-2. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+1. **Push and check CI** on the three platforms. Linux (apt Vulkan packages) and
+   macOS (Metal) have not been built locally yet.
+2. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then
+   `cargo run --release -p watershed-separation --example separate -- model.gguf
+   song.wav out-dir` and compare with the spike's Metal numbers (79 s for the 4:39
+   song).
+3. **Phase 3.2:** `trait Separator` + the GGUF backend on top of
+   `bsroformer::Model` (stem names, writing the stems with one common gain).
+4. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
+   (open question below).
+5. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
-3. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
+6. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
    optimization (design principles), portable builds (section 9).
+
+Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
+bindings), CMake 4.4, the Vulkan SDK 1.4.363 and the Visual Studio 2026 Build
+Tools. The first release build takes ~5 min (MSVC linker, Defender scanning
+`target\`), later ones ~40 s; excluding the project from Defender or using a Dev
+Drive should help.
 
 ## Open questions for the user
 
@@ -457,6 +454,50 @@ WAV), same model and defaults, ggml commit `a05c992` (2026-10-15):
 - Open points for Phase 3: pin a ggml commit; CI build cost (Metal is free, Vulkan on
   Windows/Linux needs the Vulkan SDK and `glslc` at build time); how backends are
   chosen (ggml picks the best available, `BSR_FORCE_CPU=1` forces CPU).
+
+## BSRoformer.cpp in the build
+
+`crates/separation` builds BSRoformer.cpp and ggml from git submodules in `vendor/`,
+pinned to the commits the spike measured: BSRoformer.cpp `a7b9625` (upstream has
+nothing newer) and ggml `a05c992` (v0.27.0). `build.rs` runs CMake on `cpp/`, which
+builds everything as static libraries (Release, even in debug builds) plus
+`cpp/wrapper.cpp`, a C interface that catches every C++ exception. Rust side:
+`bsroformer::Model` (`load`, `info`, `backend_name`, `process` with progress and
+cancel callbacks). GPU backend: Vulkan on Windows and Linux, Metal on macOS.
+
+- **Thread count without forking BSRoformer.cpp:** CMake compiles a copy of its
+  `model.cpp` where both `ggml_backend_init_*` calls become
+  `watershed_bsr_init_backend()`, defined in the wrapper. It picks the backend (auto
+  or forced CPU) and sets the CPU threads, by default the number of physical cores.
+- **Portable binaries:** `GGML_NATIVE=OFF` (the default tunes for the build
+  machine's CPU); on x86-64, AVX2/FMA/F16C are enabled explicitly (CPUs from 2013 on),
+  otherwise ggml falls back to SSE2.
+- **Three build problems found and fixed:**
+  - The `cmake` crate fills `CMAKE_CXX_FLAGS_RELEASE` with flags that have no `/O2`:
+    all C++ was unoptimized and the song took 300 s instead of 129 s. `build.rs`
+    now sets CMake's usual release flags.
+  - Windows' 260-character path limit: ggml builds its Vulkan shader generator as a
+    nested CMake project; under cargo's `target\release\build\<crate>-<hash>\out`
+    the MSVC tools failed (`FTK1011`, `C1041`). Fixed with CMake's `EP_BASE`, which
+    shortens the nested path by ~50 characters. A checkout in a much deeper folder
+    could still hit it.
+  - MSBuild left worker processes running that kept `target\` locked; disabled
+    with `MSBUILDDISABLENODEREUSE=1`.
+- **Results on Windows** (RTX 3050, the same 5:06 song as the spike):
+  `examples/separate.rs` on Vulkan: model load 0.3 s, separation **129 s** (the
+  spike's CLI: 128 s). The stems are **bit-identical** to the spike's Vulkan output
+  and 24–39 dB SDR against PyTorch, as before. CPU only (`--cpu`, 8 threads by
+  default), the 60 s clip: **315 s** (the spike: 288 s with 8 threads, 456 s with
+  ggml's default of 4), so the thread count applies; the ~9 % gap is likely the
+  portable build against the spike's `-march=native`.
+- **Build cost:** the first build of the crate takes ~1 min 40 s on this machine
+  (most of it the Vulkan shaders), then it is cached in `target/`. CI rebuilds it in
+  every job because rust-cache does not keep workspace crates; if that gets slow,
+  cache the CMake build with sccache.
+- **Open points:** the app binary now needs `vulkan-1.dll` on Windows (installed by
+  every GPU driver, but missing on machines with no GPU driver at all); the library
+  prints its progress logs to stdout; Linux and macOS builds are untested until CI
+  runs.
 
 ## Observations to investigate
 
