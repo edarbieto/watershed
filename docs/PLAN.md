@@ -13,7 +13,7 @@
 | Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
 | Reference speed | PyTorch + CUDA on the RTX 3050 separates a ~5 min song in 73–100 s. The native `wgpu` backend is measured against this. |
 | Clipping | Stems can exceed full scale because the model works in float; they add back up to about the original mix. Not an error (MVSEP mp3s do it too). Only integer formats and the device output clip: FLAC uses the common factor above, and the master gets a light **limiter** (or default headroom) so a hot stem soloed at full volume never clips at the output. 32-bit float WAV was considered and rejected (~2× the size). |
-| Temporary separation backend | BSRoformer.cpp (MIT, ggml) + q8_0 GGUF, validated by the spike: faster than PyTorch on the GPU, inaudible quantization. Same C++ source on all platforms, compiled by `build.rs`; GPU backend per platform: **Metal** on macOS, **Vulkan** on Windows/Linux. No CUDA in the distribution. Our wrapper sets the CPU thread count (ggml defaults to 4). Its progress and cancel callbacks drive the progress bar. |
+| Temporary separation backend | BSRoformer.cpp (MIT, ggml) + q8_0 GGUF, validated by the spikes: inaudible quantization; on macOS (Metal) faster than PyTorch MPS, on Windows (Vulkan, RTX 3050) a 5 min song in ~2 min, 1.6× slower than CUDA but on any GPU and with nothing extra to ship. Same C++ source on all platforms, compiled by `build.rs`; GPU backend per platform: **Metal** on macOS, **Vulkan** on Windows/Linux. No CUDA in the distribution (could become an optional NVIDIA build later if speed matters). CPU only as a fallback (~4× slower than real time on the 5700G), with one thread per physical core. Our wrapper sets the CPU thread count (ggml defaults to 4). Its progress and cancel callbacks drive the progress bar. |
 | Reference dev machine | RTX 3050 6 GB, Ryzen 7 5000, 64 GB RAM, Yamaha AG03 (ASIO for Reaper and shared WASAPI for Watershed at the same time). |
 
 ## 1. Vision
@@ -247,7 +247,8 @@ separate step.
 - [x] Signalsmith benchmark on the Windows machine.
 - [x] BSRoformer.cpp on the RTX 3050: Vulkan vs CUDA vs PyTorch CUDA. Decides whether
   Vulkan is good enough as the Windows backend.
-- [ ] Vulkan SDK + `glslc` in CI (Windows, Linux); pin a ggml commit.
+- Moved to Phase 3, since it only makes sense once the wrapper is in the build:
+  Vulkan SDK + `glslc` in CI, pin a ggml commit.
 
 ### Phase 2: Practice tools
 In this order:
@@ -262,6 +263,9 @@ In this order:
 - [x] Library of recent folders.
 
 ### Phase 3: Separation with a temporary backend
+- [ ] BSRoformer.cpp + ggml (pinned commit) built by `build.rs` with the `cmake`
+  crate behind a small `extern "C"` wrapper; Vulkan SDK + `glslc` in CI (Windows,
+  Linux), Metal on macOS.
 - [ ] `trait Separator` + GGUF backend.
 - [ ] Model catalog + download + sha256.
 - [ ] Full flow: drop an mp3 → separate → open the session.

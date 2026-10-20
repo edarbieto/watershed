@@ -34,7 +34,9 @@ Last updated: 2026-10-19.
 
 ## Next steps
 
-**Phase 2 is feature-complete and works on macOS and Windows.** Then Phase 3.
+**Phase 2 is done on macOS and Windows, and so are the measurements before Phase 3.
+Next: Phase 3**, starting with the BSRoformer.cpp build (see `PLAN.md` section 10).
+Windows GPU backend decided with the user: **Vulkan**.
 
 1. **On the Windows machine:**
    1. ~~Setup~~ done. Signalsmith's bindings need **libclang** at build time:
@@ -52,8 +54,11 @@ Last updated: 2026-10-19.
       with the AG03 and Reaper on ASIO (open question below).
    5. Before Phase 3: ~~Signalsmith benchmark~~ done (see "Spike: Signalsmith
       Stretch") and ~~BSRoformer.cpp on the RTX 3050~~ done (see "Spike:
-      BSRoformer.cpp + GGUF"). **To decide:** the Phase 3 Windows backend, Vulkan
-      or CUDA. Still open: Vulkan SDK and `glslc` in CI, pin a ggml commit.
+      BSRoformer.cpp + GGUF"). Decided: **Vulkan** on Windows. Vulkan SDK and
+      `glslc` in CI and pinning ggml moved to the first Phase 3 step.
+      The spike lives outside the repo (BSRoformer.cpp and ggml cloned side by
+      side, the thread-count patch in `src/model.cpp`); the Vulkan SDK 1.4.363,
+      CMake 4.4 and CUDA 13.4 are installed on the Windows machine.
 2. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
 3. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
