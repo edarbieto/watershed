@@ -12,7 +12,7 @@ use watershed_storage::Session;
 
 use crate::stems::{StemKind, song_title};
 
-const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "ogg", "m4a", "aac", "aiff"];
+pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "ogg", "m4a", "aac", "aiff"];
 
 /// A song ready to play: the audio plus what the UI needs to draw it.
 pub struct LoadedSong {
@@ -66,7 +66,7 @@ pub fn collect_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     files
 }
 
-fn is_audio(path: &Path) -> bool {
+pub fn is_audio(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| AUDIO_EXTENSIONS.contains(&e.to_lowercase().as_str()))

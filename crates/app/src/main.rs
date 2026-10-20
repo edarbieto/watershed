@@ -6,6 +6,7 @@ mod loader;
 mod loops;
 mod markers;
 mod playhead;
+mod separate;
 mod stems;
 mod usage;
 mod view;

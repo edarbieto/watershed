@@ -4578,6 +4578,7 @@ dependencies = [
  "sysinfo",
  "watershed-audio",
  "watershed-dsp",
+ "watershed-separation",
  "watershed-storage",
 ]
 

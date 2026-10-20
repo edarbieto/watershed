@@ -11,6 +11,7 @@ use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
 use crate::markers::Markers;
 use crate::playhead::Playhead;
+use crate::separate::{self, Job, Target};
 use crate::stems::song_title;
 use crate::usage::{self, Usage};
 use crate::view::View;
@@ -34,6 +35,8 @@ const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 /// How far the skip buttons and arrow keys move, in seconds.
 const SKIP_SECS: f64 = 5.0;
 const SIDE_PANEL_WIDTH: f32 = 280.0;
+/// Below this, the song title is left out of the top bar (it is in the window title).
+const MIN_TITLE_WIDTH: f32 = 100.0;
 /// Number keys jump to markers 1 to 9, like Reaper.
 const MARKER_KEYS: [Key; 9] = [
     Key::Num1,
@@ -85,6 +88,10 @@ pub struct WatershedApp {
     devices: Vec<OutputDevice>,
     loaded: Option<LoadedSong>,
     loading: Option<Loading>,
+    /// Song being separated.
+    separating: Option<Job>,
+    /// A separated song not opened yet because another one was playing.
+    ready: Option<PathBuf>,
     restore: Option<Restore>,
     error: Option<String>,
     /// Engine underrun count already logged.
@@ -126,6 +133,8 @@ impl WatershedApp {
             devices: output_devices(),
             loaded: None,
             loading: None,
+            separating: None,
+            ready: None,
             restore: None,
             error,
             xruns_logged: 0,
@@ -149,7 +158,15 @@ impl WatershedApp {
             .map_or(FALLBACK_SAMPLE_RATE, Engine::sample_rate)
     }
 
+    /// Opens a folder of stems or stem files, or separates a single song file.
     pub fn open(&mut self, paths: &[PathBuf], ctx: &egui::Context) {
+        if let [path] = paths
+            && path.is_file()
+            && loader::is_audio(path)
+        {
+            self.separate(path.clone(), ctx);
+            return;
+        }
         let files = loader::collect_files(paths);
         if files.is_empty() {
             self.error = Some("No audio files found there.".into());
@@ -164,6 +181,137 @@ impl WatershedApp {
         self.loading = Some(loader::start(files, self.sample_rate(), ctx.clone()));
     }
 
+    /// Separates `song` into a new folder in the library, or opens the folder of an
+    /// earlier separation of it.
+    fn separate(&mut self, song: PathBuf, ctx: &egui::Context) {
+        if let Some(job) = &self.separating {
+            self.error = Some(format!(
+                "Already separating {}. Wait for it or cancel it first.",
+                job.title
+            ));
+            return;
+        }
+        let (Some(library), Some(models_dir)) = (
+            self.config.library_folder(),
+            watershed_storage::models_dir(),
+        ) else {
+            self.error = Some("No folder to keep separated songs or models in.".into());
+            return;
+        };
+        if let Some(folder) = song.parent() {
+            self.config.last_folder = Some(folder.to_owned());
+            self.config.save();
+        }
+        self.error = None;
+        match separate::target_folder(&library, &song) {
+            Target::Existing(folder) => self.open(&[folder], ctx),
+            Target::New(folder) => {
+                self.separating = Some(separate::start(song, folder, models_dir, ctx.clone()));
+            }
+        }
+    }
+
+    fn pick_song(&mut self, ctx: &egui::Context) {
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Separate a song")
+            .add_filter("Audio", loader::AUDIO_EXTENSIONS);
+        if let Some(dir) = &self.config.last_folder {
+            dialog = dialog.set_directory(dir);
+        }
+        if let Some(song) = dialog.pick_file() {
+            self.separate(song, ctx);
+        }
+    }
+
+    fn pick_library(&mut self) {
+        let mut dialog = rfd::FileDialog::new().set_title("Folder for separated songs");
+        if let Some(dir) = self.config.library_folder().filter(|d| d.is_dir()) {
+            dialog = dialog.set_directory(dir);
+        }
+        if let Some(folder) = dialog.pick_folder() {
+            self.config.library_folder = Some(folder);
+            self.config.save();
+        }
+    }
+
+    /// Opens a finished separation, unless another song is playing: then it waits
+    /// in [`Self::ready`] for the user.
+    fn poll_separation(&mut self, ctx: &egui::Context) {
+        let Some(job) = &self.separating else {
+            return;
+        };
+        let Some(result) = job.poll() else {
+            return;
+        };
+        let cancelled = job.is_cancelling();
+        self.separating = None;
+        match result {
+            Ok(folder) => {
+                self.config.remember(&folder, unix_now());
+                self.config.save();
+                if self.engine.as_ref().is_some_and(Engine::is_playing) {
+                    self.ready = Some(folder);
+                } else {
+                    self.open(&[folder], ctx);
+                }
+            }
+            Err(_) if cancelled => {}
+            Err(e) => self.error = Some(e),
+        }
+    }
+
+    /// Progress of the separation, or the separated song waiting to be opened.
+    fn separation_status(&mut self, ui: &mut egui::Ui) {
+        if let Some(job) = &self.separating {
+            let step = job.step();
+            let mut text = step.label();
+            if let Some(left) = job.remaining() {
+                text.push_str(&format!(" ({} left)", separate::format_eta(left)));
+            }
+            let mut cancel = false;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("Separating {}", job.title)).strong());
+                let bar = match step.fraction() {
+                    Some(fraction) => egui::ProgressBar::new(fraction),
+                    None => egui::ProgressBar::new(0.0).animate(true),
+                };
+                let response = ui.add(bar.desired_width(360.0).text(text));
+                if let Some(device) = step.device() {
+                    response.on_hover_text(format!("Running on {device}"));
+                }
+                if job.is_cancelling() {
+                    ui.label(RichText::new("Cancelling…").weak());
+                } else {
+                    cancel = ui.button("Cancel").clicked();
+                }
+            });
+            if cancel {
+                job.cancel();
+            }
+            ui.ctx().request_repaint_after(Duration::from_millis(100));
+            ui.add_space(4.0);
+        } else if let Some(folder) = &self.ready {
+            let mut open = false;
+            let mut dismiss = false;
+            ui.horizontal(|ui| {
+                ui.label(format!("✔ {} is separated.", song_title(folder)));
+                open = ui.button("Open").clicked();
+                dismiss = ui
+                    .small_button("✕")
+                    .on_hover_text("Open it later from Recent")
+                    .clicked();
+            });
+            if open {
+                let folder = folder.clone();
+                self.ready = None;
+                self.open(&[folder], ui.ctx());
+            } else if dismiss {
+                self.ready = None;
+            }
+            ui.add_space(4.0);
+        }
+    }
+
     fn pick_folder(&mut self, ctx: &egui::Context) {
         let mut dialog = rfd::FileDialog::new().set_title("Open a folder of stems");
         if let Some(dir) = &self.config.last_folder {
@@ -174,7 +322,7 @@ impl WatershedApp {
         }
     }
 
-    fn poll_loading(&mut self) {
+    fn poll_loading(&mut self, ctx: &egui::Context) {
         let Some(result) = self.loading.as_ref().and_then(Loading::poll) else {
             return;
         };
@@ -207,6 +355,10 @@ impl WatershedApp {
                     // Write the session of the song being replaced before switching.
                     self.save_session();
                     self.apply_session(&loaded);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                        "Watershed — {}",
+                        loaded.title
+                    )));
                     self.loaded = Some(loaded);
                     self.saved_session = self.session().map(|(_, session)| session);
                     self.changed_at = None;
@@ -554,10 +706,14 @@ impl WatershedApp {
             if ui.button("Open folder…").clicked() {
                 self.pick_folder(ui.ctx());
             }
-            self.recent_menu(ui);
-            if let Some(loaded) = &self.loaded {
-                ui.label(RichText::new(&loaded.title).strong());
+            if ui
+                .button("Separate song…")
+                .on_hover_text("Split a song file into stems (vocals, drums, bass, …)")
+                .clicked()
+            {
+                self.pick_song(ui.ctx());
             }
+            self.recent_menu(ui);
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if let Some(engine) = &self.engine {
@@ -573,6 +729,17 @@ impl WatershedApp {
                 }
                 self.device_picker(ui);
                 self.usage_label(ui);
+                // Last, so a long title gets what is left and is cut short instead
+                // of overlapping the controls on the right. The window title has it
+                // too, for when there is no room here.
+                if let Some(loaded) = &self.loaded
+                    && ui.available_width() > MIN_TITLE_WIDTH
+                {
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.add(egui::Label::new(RichText::new(&loaded.title).strong()).truncate())
+                            .on_hover_text(&loaded.title);
+                    });
+                }
             });
         });
     }
@@ -643,13 +810,24 @@ impl WatershedApp {
     fn welcome(&mut self, ui: &mut egui::Ui) {
         let mut open = None;
         let mut forget = None;
+        let mut change_library = false;
         ui.vertical_centered(|ui| {
             ui.add_space(48.0);
             ui.label(
-                RichText::new("Drop a folder of stems here, or click “Open folder…”")
+                RichText::new("Drop a song here to separate it, or a folder of stems to open it")
                     .weak()
                     .size(18.0),
             );
+            ui.add_space(8.0);
+            let library = self.config.library_folder();
+            let shown = library.as_deref().map_or("nowhere".into(), short_path);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("Separated songs go to {shown}")).weak())
+                    .on_hover_text(library.map(|l| l.display().to_string()).unwrap_or_default());
+                if ui.small_button("Change…").clicked() {
+                    change_library = true;
+                }
+            });
             if self.config.recent.is_empty() {
                 return;
             }
@@ -657,6 +835,9 @@ impl WatershedApp {
             ui.heading("Recent songs");
             ui.add_space(8.0);
         });
+        if change_library {
+            self.pick_library();
+        }
         if self.config.recent.is_empty() {
             return;
         }
@@ -1250,7 +1431,8 @@ impl WatershedApp {
 
 impl eframe::App for WatershedApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.poll_loading();
+        self.poll_loading(ui.ctx());
+        self.poll_separation(ui.ctx());
         self.handle_input(ui);
         if let Some(engine) = &mut self.engine {
             engine.collect_garbage();
@@ -1294,6 +1476,7 @@ impl eframe::App for WatershedApp {
                 .show(ui, |ui| self.side_panel(ui));
         }
         egui::CentralPanel::default_margins().show(ui, |ui| {
+            self.separation_status(ui);
             if let Some(loading) = &self.loading {
                 ui.horizontal(|ui| {
                     ui.spinner();
