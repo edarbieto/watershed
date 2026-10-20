@@ -45,11 +45,13 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 ## 3. Features
 
 ### Separation
-- [ ] Import files (mp3, flac, wav, ogg, m4a) by drag & drop or a file dialog.
-- [ ] Model catalog with automatic download and sha256 verification. Default model: **BS-RoFormer SW** (6 stems).
-- [ ] Progress bar and cancel (backend progress and cancel callbacks).
-- [ ] Chunked separation (overlapping chunks) to fit GPUs with ~4–6 GB of VRAM.
-- [ ] CPU fallback when no compatible GPU is found.
+- [x] Import files (mp3, flac, wav, ogg, m4a) by drag & drop or a file dialog. One file is
+  separated into a new folder in the library (`Music/Watershed` by default); a folder or
+  several files open as stems.
+- [x] Model catalog with automatic download and sha256 verification. Default model: **BS-RoFormer SW** (6 stems).
+- [x] Progress bar and cancel (backend progress and cancel callbacks).
+- [x] Chunked separation (overlapping chunks) to fit GPUs with ~4–6 GB of VRAM.
+- [x] CPU fallback when no compatible GPU is found (not yet tried on a machine without one).
 - [ ] (Later) Ensembles: run N models and average the results.
 - [ ] (Later) Optional "cloud" engine through the **MVSEP API** (https://mvsep.com/full_api) with the user's account, for premium models.
 
@@ -269,8 +271,9 @@ In this order:
 - [x] `trait Separator` + GGUF backend, `separate_song` (decode → separate → 24-bit
   FLAC stems with one common gain, stored in the session and undone on load).
 - [x] Model catalog + download + sha256 (resumable, mirrors; no UI yet).
-- [ ] Full flow: drop an mp3 → separate → open the session.
-- ✅ Milestone: replaces MVSEP + Reaper for the basic case.
+- [x] Full flow: drop an mp3 → separate → open the session.
+- ✅ Milestone: replaces MVSEP + Reaper for the basic case (to confirm in a practice
+  session).
 
 ### Phase 4: Native `burn` + `wgpu` backend
 - [ ] STFT/iSTFT + overlapping chunking in Rust.

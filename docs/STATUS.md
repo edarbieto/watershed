@@ -37,22 +37,26 @@ Last updated: 2026-10-19.
 - **Phase 3.3, model catalog + download: done** (see "Model catalog and downloads"
   below). The example downloads the default model on first use (188 MB in ~30 s,
   sha256 verified) and then separates with it.
+- **Phase 3.4, separating from the app: done** (see "Separating in the app" below).
+  Tried on Windows: dropping an mp3 separates it into `~/Music/Watershed/<title>`
+  and opens it; dropping it again opens the existing folder. Cancel has not been
+  clicked in the real app yet (tested in the library).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps
 
-**Phase 3 under way.** Steps 1 (BSRoformer.cpp + ggml in the build), 2 (`trait
-Separator`, writing stems) and 3 (model catalog + download) are done; see `PLAN.md`
-section 10 for the rest.
+**Phase 3 done** (pending the checks below). Next is Phase 4 (native `burn` +
+`wgpu` backend) or Phase 5 extras; see `PLAN.md` section 10.
 
-1. **Phase 3.4:** the full flow in the app: drop an mp3 → separate on a background
-   thread with a progress bar and Cancel → open the session.
+1. **User check (Windows):** separate a song from the app (drop an mp3 or "Separate
+   song…"), click Cancel once mid-way (nothing should stay in the library), separate
+   while practicing another song (it should wait with "✔ … is separated" instead of
+   switching), and a practice session to confirm the Phase 3 milestone.
 2. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then
-   `cargo run --release -p watershed-separation --example separate -- song.mp3
-   out-dir` (downloads the model the first time); compare with the spike's Metal
-   numbers (79 s for the 4:39 song).
+   `cargo run --release` and drop a song (the first time downloads the model);
+   compare with the spike's Metal numbers (79 s for the 4:39 song).
 3. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
    (open question below).
 4. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
@@ -564,6 +568,31 @@ cancel callbacks). GPU backend: Vulkan on Windows and Linux, Metal on macOS.
 - **New dependencies:** `ureq` 3 (MIT/Apache) with `rustls` + `ring`
   (Apache-2.0 AND ISC) + `webpki-roots` (CDLA-Permissive-2.0), and `sha2`. No GPL.
   The app does not link them yet (Phase 3.4).
+
+## Separating in the app
+
+- **What separates:** dropping or opening exactly one audio file. A folder, or several
+  files, still open as stems. "Separate song…" in the top bar picks a file.
+- **Where:** `<library>/<title>`, the library being `Music/Watershed` (home folder if
+  there is no music folder), changeable from the start screen ("Change…", stored as
+  `library_folder` in the config). The title is cleaned like folder names (MVSEP
+  prefixes dropped) and made safe for every OS. If that folder holds a session, it is
+  an earlier separation and is opened instead; if it is some other folder,
+  `<title> (2)` and so on.
+- **Job** (`crates/app/src/separate.rs`): one background thread per song, one song at a
+  time. Downloads the model if needed, loads it (and drops it when done, freeing
+  VRAM), then `separate_song`. The bar shows the step, percent and time left
+  (estimated per step after 3 s); decoding and model loading animate since they
+  have no percent. The device (e.g. `Vulkan0 (NVIDIA GeForce RTX 3050)`) is in the
+  bar's tooltip.
+- **When it finishes:** added to Recent; opened right away unless another song is
+  playing, in which case "✔ <title> is separated" waits with an Open button.
+- **Times in the app** (RTX 3050): a 4:03 song in 127 s and a 7:18 song in 192 s from
+  drop to open.
+- **Top bar:** with the new button there is no room for the song title at the default
+  width (the right-hand controls take ~830 px), and long titles overlapped the CPU
+  label. The title now goes to the window title ("Watershed — <title>") and appears in
+  the bar only when there is room, cut short with "…".
 
 ## Observations to investigate
 

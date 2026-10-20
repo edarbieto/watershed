@@ -72,7 +72,7 @@ machine or regenerate them with the reference tool from any mp3s.
 
 | Path | What |
 |---|---|
-| `crates/app` | `watershed` binary. `app.rs` UI and state, `loader.rs` background loading, `stems.rs` stem names/colors, `waveform.rs` widget |
+| `crates/app` | `watershed` binary. `app.rs` UI and state, `loader.rs` background loading, `separate.rs` background separation job, `stems.rs` stem names/colors, `waveform.rs` widget |
 | `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `mixer.rs` (pure, tested) |
 | `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `resample` (rubato FFT), `Peaks` |
 | `crates/storage` | `Config` (TOML in the OS config dir), `Session` (`.watershed.toml`), `models_dir` |
