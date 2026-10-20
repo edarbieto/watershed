@@ -408,6 +408,25 @@ WAV), same model and defaults, ggml commit `a05c992` (2026-10-15):
   have to ship the CUDA runtime DLLs (cuBLAS alone is hundreds of MB). A 5 min
   song in ~2 min (Vulkan) vs ~1.3 min (CUDA). Phase 4 (`burn` + `wgpu`) runs on
   DX12/Vulkan anyway.
+- **CPU only** (`BSR_FORCE_CPU=1`, thread count set by a local patch through
+  `ggml_backend_set_n_threads`), a 60 s clip of the same song. The Ryzen 7 5700G
+  has 8 cores with 2 threads each:
+
+  | Threads | Time for 60 s of audio | A 5 min song (estimated) |
+  |---|---|---|
+  | 16 | 248 s | ~21 min |
+  | 12 | 267 s | ~22 min |
+  | 8 | 288 s | ~24 min |
+  | 6 | 332 s | ~28 min |
+  | 4 (ggml's default) | 456 s | ~38 min |
+
+  It scales with physical cores (4 → 8: 1.6× faster) but barely with the second
+  thread of each core (8 → 16: 1.16×), likely limited by memory bandwidth. Per
+  thread, the M5 Pro is ~1.8× faster (4 threads: 248 s on the same kind of clip),
+  so single-core speed matters too. With 16 threads the CPU is ~16× slower than
+  CUDA and ~9× slower than Vulkan. **For the wrapper:** default to the number of
+  physical cores, which leaves the machine usable for ~15 % more time. CPU only
+  makes sense as a fallback when there is no usable GPU.
 - **Build notes (Windows):** Vulkan builds with the default Visual Studio
   generator once the Vulkan SDK is installed (`VULKAN_SDK` set). CUDA 13.4 does not
   integrate with Visual Studio 2026 Build Tools: use the Ninja generator from a
