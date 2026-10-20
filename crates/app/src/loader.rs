@@ -8,6 +8,7 @@ use std::sync::mpsc::{Receiver, channel};
 use eframe::egui;
 use watershed_audio::Song;
 use watershed_dsp::Peaks;
+use watershed_storage::Session;
 
 use crate::stems::{StemKind, song_title};
 
@@ -21,6 +22,9 @@ pub struct LoadedSong {
     pub kinds: Vec<StemKind>,
     /// Left and right peaks of each track.
     pub peaks: Vec<[Peaks; 2]>,
+    /// The session's [`Session::stem_gain`], already undone in `song`; kept so the
+    /// session is saved with it.
+    pub stem_gain: f32,
 }
 
 /// A load in progress.
@@ -104,6 +108,11 @@ fn load(
     if files.is_empty() {
         return Err("no audio files found".into());
     }
+    let session = files[0]
+        .parent()
+        .and_then(|folder| Session::load_from(&Session::path_in(folder)))
+        .unwrap_or_default();
+    let compensation = session.stem_gain_compensation();
 
     let decoded: Vec<Result<Vec<f32>, String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
@@ -113,8 +122,11 @@ fn load(
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
                     let audio =
                         watershed_dsp::decode_file(path).map_err(|e| format!("{name}: {e}"))?;
-                    let audio = watershed_dsp::resample(audio, sample_rate)
+                    let mut audio = watershed_dsp::resample(audio, sample_rate)
                         .map_err(|e| format!("{name}: {e}"))?;
+                    if compensation != 1.0 {
+                        audio.samples.iter_mut().for_each(|s| *s *= compensation);
+                    }
                     done.fetch_add(1, Ordering::Relaxed);
                     Ok(audio.samples)
                 })
@@ -164,5 +176,6 @@ fn load(
         song,
         kinds,
         peaks,
+        stem_gain: session.stem_gain,
     })
 }

@@ -279,6 +279,7 @@ impl WatershedApp {
             tracks,
             loops: self.loops.saved.clone(),
             markers: self.markers.list.clone(),
+            stem_gain: loaded.stem_gain,
             ..Session::default()
         };
         Some((session_path(loaded), session))

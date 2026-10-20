@@ -28,6 +28,9 @@ pub struct Session {
     pub loops: Vec<SavedLoop>,
     /// In time order.
     pub markers: Vec<Marker>,
+    /// Gain applied to every stem when it was written, so that integer formats like
+    /// FLAC do not clip the hot ones (1.0: none). Loading undoes it.
+    pub stem_gain: f32,
 }
 
 impl Default for Session {
@@ -43,6 +46,7 @@ impl Default for Session {
             tracks: Vec::new(),
             loops: Vec::new(),
             markers: Vec::new(),
+            stem_gain: 1.0,
         }
     }
 }
@@ -115,6 +119,15 @@ impl Session {
     pub fn track(&self, file: &str) -> Option<&TrackState> {
         self.tracks.iter().find(|t| t.file == file)
     }
+
+    /// The factor to multiply loaded stems by to undo [`Self::stem_gain`].
+    pub fn stem_gain_compensation(&self) -> f32 {
+        if self.stem_gain.is_finite() && self.stem_gain > 0.0 {
+            1.0 / self.stem_gain
+        } else {
+            1.0
+        }
+    }
 }
 
 /// Writes a new file. On Windows it is marked hidden, since only macOS and Linux hide
@@ -174,6 +187,7 @@ mod tests {
                 name: "Verse".into(),
                 time: 12.5,
             }],
+            stem_gain: 0.5,
             ..Session::default()
         };
         session.save_to(&path).unwrap();
@@ -207,6 +221,7 @@ mod tests {
             .expect("valid session");
         assert_eq!(session.tempo, 0.5);
         assert_eq!(session.semitones, 0.0);
+        assert_eq!(session.stem_gain, 1.0);
         assert_eq!(
             session.track("bass.wav"),
             Some(&TrackState {
@@ -215,6 +230,17 @@ mod tests {
             })
         );
         assert_eq!(session.track("drums.wav"), None);
+    }
+
+    #[test]
+    fn stem_gain_compensation_ignores_bad_values() {
+        let with_gain = |stem_gain| Session {
+            stem_gain,
+            ..Session::default()
+        };
+        assert_eq!(with_gain(0.5).stem_gain_compensation(), 2.0);
+        assert_eq!(with_gain(0.0).stem_gain_compensation(), 1.0);
+        assert_eq!(with_gain(f32::NAN).stem_gain_compensation(), 1.0);
     }
 
     #[test]
