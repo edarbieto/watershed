@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use directories::ProjectDirs;
+use directories::{ProjectDirs, UserDirs};
 use serde::{Deserialize, Serialize};
 
 mod session;
@@ -29,6 +29,16 @@ pub struct Config {
     pub last_folder: Option<PathBuf>,
     /// Song folders opened recently, most recent first.
     pub recent: Vec<RecentFolder>,
+    /// Where separated songs are written. `None` uses [`default_library_folder`].
+    pub library_folder: Option<PathBuf>,
+}
+
+/// The default folder for separated songs: `Watershed` in the user's music folder,
+/// or in the home folder if there is none.
+pub fn default_library_folder() -> Option<PathBuf> {
+    let dirs = UserDirs::new()?;
+    let parent = dirs.audio_dir().unwrap_or(dirs.home_dir());
+    Some(parent.join("Watershed"))
 }
 
 /// How many recent folders are kept.
@@ -43,6 +53,11 @@ pub struct RecentFolder {
 }
 
 impl Config {
+    /// Where separated songs are written.
+    pub fn library_folder(&self) -> Option<PathBuf> {
+        self.library_folder.clone().or_else(default_library_folder)
+    }
+
     /// Puts `folder` first in the recent list, opened at `now` (Unix seconds).
     pub fn remember(&mut self, folder: &Path, now: u64) {
         self.forget(folder);
@@ -115,6 +130,7 @@ mod tests {
                 path: PathBuf::from("songs/one"),
                 opened: 1_700_000_000,
             }],
+            library_folder: Some(PathBuf::from("library")),
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), config);
