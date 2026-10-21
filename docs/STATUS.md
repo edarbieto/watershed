@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-19.
+Last updated: 2026-10-21.
 
 ## Where we are
 
@@ -39,21 +39,23 @@ Last updated: 2026-10-19.
   sha256 verified) and then separates with it.
 - **Phase 3.4, separating from the app: done** (see "Separating in the app" below).
   Tried on Windows: dropping an mp3 separates it into `~/Music/Watershed/<title>`
-  and opens it; dropping it again opens the existing folder. Cancel has not been
-  clicked in the real app yet (tested in the library).
+  and opens it; dropping it again opens the existing folder. Cancel and separating
+  while practicing another song also checked by the user. Peak RAM while separating:
+  ~2.5 GB (to reduce in Phase 3.5).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps
 
-**Phase 3 done** (pending the checks below). Next is Phase 4 (native `burn` +
-`wgpu` backend) or Phase 5 extras; see `PLAN.md` section 10.
+**Phase 3 done.** The user checked on Windows: Cancel, separating while practicing
+another song, and a practice session. Next is **Phase 3.5** (polish before Phase 4,
+`PLAN.md` section 10): quick fixes (Recent, Reload folder), RAM (top priority, then
+disk), stem names and colors, stem offsets with a lock, a compact lossy stem format by
+default (FLAC as an option), BPM, key detection.
 
-1. **User check (Windows):** separate a song from the app (drop an mp3 or "Separate
-   song…"), click Cancel once mid-way (nothing should stay in the library), separate
-   while practicing another song (it should wait with "✔ … is separated" instead of
-   switching), and a practice session to confirm the Phase 3 milestone.
+1. **Phase 3.5**, in the order of `PLAN.md`. Start with the quick fixes, then measure
+   RAM before changing anything.
 2. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then
    `cargo run --release` and drop a song (the first time downloads the model);
    compare with the spike's Metal numbers (79 s for the 4:39 song).
@@ -71,6 +73,9 @@ Tools. The first release build takes ~5 min (MSVC linker, Defender scanning
 Drive should help.
 
 ## Open questions for the user
+
+- **Compact stem codec:** the user asked for MP3 by default; proposed Ogg Vorbis
+  instead (MP3 encoders are LGPL, see `PLAN.md` Phase 3.5). Confirm before that item.
 
 - **Windows practice session** (nice to have, not blocking): Reaper on ASIO and
   Watershed on shared WASAPI, both on the Yamaha AG03. Any clicks or dropouts?

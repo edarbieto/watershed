@@ -7,7 +7,7 @@
 | Language | Code, docs, commits and UI in English. i18n in v0.2. |
 | License | `MIT OR Apache-2.0`. No GPL dependencies, so time-stretching uses Signalsmith Stretch (MIT). |
 | Tempo / pitch | Applied to the **stereo mix**, after the mixer, so the cost does not grow with the number of stems. Real-time first; offline pre-render as an option if CPU is not enough. |
-| Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). No lossy formats: separation artifacts plus lossy compression plus time-stretching add up. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
+| Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). Lossy formats were first rejected (separation artifacts plus lossy compression plus time-stretching add up); Phase 3.5 makes a compact lossy format the default and FLAC an option, because disk matters more and MVSEP mp3 stems sound fine in practice. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
 | Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, to be validated by a spike. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
 | Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
@@ -272,8 +272,53 @@ In this order:
   FLAC stems with one common gain, stored in the session and undone on load).
 - [x] Model catalog + download + sha256 (resumable, mirrors; no UI yet).
 - [x] Full flow: drop an mp3 → separate → open the session.
-- ✅ Milestone: replaces MVSEP + Reaper for the basic case (to confirm in a practice
+- [x] ✅ Milestone: replaces MVSEP + Reaper for the basic case (confirmed in a practice
   session).
+
+### Phase 3.5: Polish before Phase 4
+Improvements with daily value, decided after the Phase 3 practice session. Priorities:
+RAM first, then disk. In this order:
+- [ ] **Quick fixes.** Clicking the song that is already open in Recent does nothing.
+  A "Reload folder" button re-reads the open folder (new stems, renamed files),
+  keeping the mixer settings of tracks that are still there.
+- [ ] **RAM.** The user saw ~2.5 GB while separating. Measure first (peak and settled,
+  separating and loading), per stage, then cut. RAM does not depend on the file
+  format: a 6 MB mp3 stem and an 80 MB FLAC stem of the same song both decode to the
+  same f32 buffer (~85 MB for 4 min at 44.1 kHz). Likely costs: the separated stems
+  exist as several full copies at once (C++ output buffers, then `StereoBuffer`s,
+  then the scaled FLAC input) next to the song being played; the loader keeps the
+  decoded and the resampled copy at once and grows `Vec`s by doubling. Options,
+  cheapest first: drop each copy as soon as the next exists, write stems one at a
+  time, reserve exact capacity, a bounded decode pool, stems stored as `i16` in the
+  player (half the RAM; check that 16 bits are enough under the mixer gain). The big
+  lever, if still needed: stream stems from disk (audio RAM close to zero; needs a
+  reader thread that stays ahead of the callback, plus precomputed waveform peaks).
+- [ ] **Stem names and colors.** Recognize names in any position of the file name and
+  in Spanish too (`bateria`, `voz`, `bajo`, `guitarra`, `teclado`, …). Unknown or
+  duplicate stems get colors from an extra palette instead of all gray. Rename a
+  track from the UI (saved in the session).
+- [ ] **Stem offsets.** Stems from other tools can start at different moments. Each
+  track gets a lock icon (locked by default); unlocked, its waveform can be dragged
+  in time. The offset is stored in seconds in the session (independent of the device
+  rate). The mixer reads each track at `position - offset`; the song length is the
+  latest track end.
+- [ ] **Compact stem format by default.** Separated stems are written in a lossy
+  format by default ("Compact"), with 24-bit FLAC as an option ("Lossless /
+  DAW-optimized"), stored in the config. About 5× smaller on disk (~40 MB per 6-stem
+  song instead of ~190 MB); same RAM. Codec: the user asked for MP3. Its patents
+  expired, but the usable encoders (LAME, shine) are LGPL, awkward in a static binary
+  (LAME would have to ship as a separate dynamic library). Proposed instead: **Ogg
+  Vorbis**: BSD encoders, already decoded by symphonia, opened by Reaper and most
+  DAWs, as good or better than MP3 at the same size. To confirm with the user at the
+  start of this item. Lossy formats decode to float, so they need no common gain
+  against clipping.
+- [ ] **Approximate BPM** (section 3.1).
+- [ ] **Key detection** (e.g. "A major / F# minor"): chroma (energy per pitch class)
+  from the pitched stems, without drums, compared against major and minor key
+  profiles (Krumhansl–Schmuckler). Relative keys share the same notes, so the
+  major/minor choice is the weak point: show the best guess with its relative, and
+  let the user correct it (saved in the session). Shares the STFT with BPM. Pitch
+  shifting updates the displayed key.
 
 ### Phase 4: Native `burn` + `wgpu` backend
 - [ ] STFT/iSTFT + overlapping chunking in Rust.
