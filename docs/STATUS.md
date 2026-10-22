@@ -42,6 +42,14 @@ Last updated: 2026-10-21.
   and opens it; dropping it again opens the existing folder. Cancel and separating
   while practicing another song also checked by the user. Peak RAM while separating:
   ~2.5 GB (to reduce in Phase 3.5).
+- **Phase 3.5, quick fixes: done.** A Reload button (F5) re-reads the open folder:
+  the session is written first, so tracks whose file is still there keep their mixer
+  settings (a renamed file is a new track), and the position, loops, markers, zoom
+  (if the length did not change) and playback carry over. Tested by the user: works.
+  Clicking the open song in Recent now does nothing; before, it reopened the folder,
+  which paused playback.
+- **Compact stem codec decided:** Ogg Vorbis by default, FLAC as an option. MP3 later,
+  possibly through an encoder binary downloaded at runtime.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -54,8 +62,8 @@ another song, and a practice session. Next is **Phase 3.5** (polish before Phase
 disk), stem names and colors, stem offsets with a lock, a compact lossy stem format by
 default (FLAC as an option), BPM, key detection.
 
-1. **Phase 3.5**, in the order of `PLAN.md`. Start with the quick fixes, then measure
-   RAM before changing anything.
+1. **Phase 3.5**, in the order of `PLAN.md`. Quick fixes done; next is RAM: measure
+   before changing anything.
 2. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then
    `cargo run --release` and drop a song (the first time downloads the model);
    compare with the spike's Metal numbers (79 s for the 4:39 song).
@@ -73,9 +81,6 @@ Tools. The first release build takes ~5 min (MSVC linker, Defender scanning
 Drive should help.
 
 ## Open questions for the user
-
-- **Compact stem codec:** the user asked for MP3 by default; proposed Ogg Vorbis
-  instead (MP3 encoders are LGPL, see `PLAN.md` Phase 3.5). Confirm before that item.
 
 - **Windows practice session** (nice to have, not blocking): Reaper on ASIO and
   Watershed on shared WASAPI, both on the Yamaha AG03. Any clicks or dropouts?

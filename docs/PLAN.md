@@ -7,7 +7,7 @@
 | Language | Code, docs, commits and UI in English. i18n in v0.2. |
 | License | `MIT OR Apache-2.0`. No GPL dependencies, so time-stretching uses Signalsmith Stretch (MIT). |
 | Tempo / pitch | Applied to the **stereo mix**, after the mixer, so the cost does not grow with the number of stems. Real-time first; offline pre-render as an option if CPU is not enough. |
-| Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). Lossy formats were first rejected (separation artifacts plus lossy compression plus time-stretching add up); Phase 3.5 makes a compact lossy format the default and FLAC an option, because disk matters more and MVSEP mp3 stems sound fine in practice. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
+| Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). Lossy formats were first rejected (separation artifacts plus lossy compression plus time-stretching add up); Phase 3.5 makes a compact lossy format the default (**Ogg Vorbis**) and FLAC an option, because disk matters more and MVSEP mp3 stems sound fine in practice. MP3 is left for later, possibly through an encoder binary downloaded at runtime (for export or as a separation format), since the usable encoders are LGPL. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
 | Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, to be validated by a spike. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
 | Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
@@ -278,9 +278,10 @@ In this order:
 ### Phase 3.5: Polish before Phase 4
 Improvements with daily value, decided after the Phase 3 practice session. Priorities:
 RAM first, then disk. In this order:
-- [ ] **Quick fixes.** Clicking the song that is already open in Recent does nothing.
-  A "Reload folder" button re-reads the open folder (new stems, renamed files),
-  keeping the mixer settings of tracks that are still there.
+- [x] **Quick fixes.** Clicking the song that is already open in Recent does nothing
+  (it used to reopen it and pause playback). A "Reload" button (F5) re-reads the open
+  folder (new stems, renamed files), keeping the mixer settings of tracks that are
+  still there.
 - [ ] **RAM.** The user saw ~2.5 GB while separating. Measure first (peak and settled,
   separating and loading), per stage, then cut. RAM does not depend on the file
   format: a 6 MB mp3 stem and an 80 MB FLAC stem of the same song both decode to the
@@ -305,13 +306,12 @@ RAM first, then disk. In this order:
 - [ ] **Compact stem format by default.** Separated stems are written in a lossy
   format by default ("Compact"), with 24-bit FLAC as an option ("Lossless /
   DAW-optimized"), stored in the config. About 5× smaller on disk (~40 MB per 6-stem
-  song instead of ~190 MB); same RAM. Codec: the user asked for MP3. Its patents
-  expired, but the usable encoders (LAME, shine) are LGPL, awkward in a static binary
-  (LAME would have to ship as a separate dynamic library). Proposed instead: **Ogg
-  Vorbis**: BSD encoders, already decoded by symphonia, opened by Reaper and most
-  DAWs, as good or better than MP3 at the same size. To confirm with the user at the
-  start of this item. Lossy formats decode to float, so they need no common gain
-  against clipping.
+  song instead of ~190 MB); same RAM. Codec: **Ogg Vorbis** (decided with the user):
+  BSD encoders, already decoded by symphonia, opened by Reaper and most DAWs, as good
+  or better than MP3 at the same size. MP3 was the first wish, but its usable encoders
+  (LAME, shine) are LGPL, awkward in a static binary; it stays as a later option
+  through an encoder binary downloaded at runtime. Lossy formats decode to float, so
+  they need no common gain against clipping.
 - [ ] **Approximate BPM** (section 3.1).
 - [ ] **Key detection** (e.g. "A major / F# minor"): chroma (energy per pitch class)
   from the pitched stems, without drums, compared against major and minor key
