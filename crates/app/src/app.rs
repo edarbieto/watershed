@@ -93,6 +93,8 @@ pub struct WatershedApp {
     /// A separated song not opened yet because another one was playing.
     ready: Option<PathBuf>,
     restore: Option<Restore>,
+    /// Set while the open folder is read again: whether the song was playing.
+    reloading: Option<bool>,
     error: Option<String>,
     /// Engine underrun count already logged.
     xruns_logged: u64,
@@ -136,6 +138,7 @@ impl WatershedApp {
             separating: None,
             ready: None,
             restore: None,
+            reloading: None,
             error,
             xruns_logged: 0,
             notify,
@@ -178,7 +181,28 @@ impl WatershedApp {
         }
         self.error = None;
         self.restore = None;
+        self.reloading = None;
         self.loading = Some(loader::start(files, self.sample_rate(), ctx.clone()));
+    }
+
+    /// Reads the open folder again, to pick up new, removed or renamed stems. The
+    /// session is written first, so tracks whose file is still there keep their
+    /// mixer settings; the position, the zoom and playback carry over too.
+    fn reload(&mut self, ctx: &egui::Context) {
+        let Some(folder) = self
+            .loaded
+            .as_ref()
+            .and_then(|loaded| loaded.files[0].parent())
+            .map(PathBuf::from)
+        else {
+            return;
+        };
+        self.save_session();
+        let playing = self.engine.as_ref().is_some_and(Engine::is_playing);
+        self.open(&[folder], ctx);
+        if self.loading.is_some() {
+            self.reloading = Some(playing);
+        }
     }
 
     /// Separates `song` into a new folder in the library, or opens the folder of an
@@ -354,7 +378,16 @@ impl WatershedApp {
                     }
                     // Write the session of the song being replaced before switching.
                     self.save_session();
+                    let view = self.view;
                     self.apply_session(&loaded);
+                    if let Some(playing) = self.reloading.take() {
+                        if view.duration() == loaded.song.duration_secs() {
+                            self.view = view;
+                        }
+                        if playing && let Some(engine) = &mut self.engine {
+                            engine.play();
+                        }
+                    }
                     ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
                         "Watershed — {}",
                         loaded.title
@@ -364,7 +397,10 @@ impl WatershedApp {
                     self.changed_at = None;
                 }
             }
-            Err(e) => self.error = Some(e),
+            Err(e) => {
+                self.reloading = None;
+                self.error = Some(e);
+            }
         }
     }
 
@@ -558,6 +594,9 @@ impl WatershedApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
+        if ui.input(|i| i.key_pressed(Key::F5)) {
+            self.reload(ui.ctx());
+        }
         if ui.input(|i| i.key_pressed(Key::Space))
             && let Some(engine) = &mut self.engine
         {
@@ -714,6 +753,15 @@ impl WatershedApp {
                 self.pick_song(ui.ctx());
             }
             self.recent_menu(ui);
+            if ui
+                .add_enabled(self.loaded.is_some(), egui::Button::new("Reload"))
+                .on_hover_text(
+                    "Read the song folder again, for added, removed or renamed stems                      (F5). Tracks that are still there keep their settings.",
+                )
+                .clicked()
+            {
+                self.reload(ui.ctx());
+            }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if let Some(engine) = &self.engine {
@@ -781,11 +829,14 @@ impl WatershedApp {
                     let exists = recent.path.is_dir();
                     let is_current = current == Some(recent.path.as_path());
                     let item = egui::RadioButton::new(is_current, song_title(&recent.path));
+                    // The open song is already there: clicking it does nothing (the
+                    // Reload button reads its folder again).
                     if ui
                         .add_enabled(exists, item)
                         .on_hover_text(recent.path.display().to_string())
                         .on_disabled_hover_text(format!("Not found: {}", recent.path.display()))
                         .clicked()
+                        && !is_current
                     {
                         open = Some(recent.path.clone());
                     }
