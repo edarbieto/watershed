@@ -18,7 +18,7 @@ models and plays them in a multitrack player for practice. Read these first:
 - Never put personal data in the repo: no usernames, home paths, emails or machine
   names in files.
 - Commit in semantic groups (one feature / sub-phase per commit), Conventional
-  Commits style (`feat(audio): ...`, `fix(tools): ...`, `docs: ...`). Push to `main`
+  Commits style (`feat(audio): ...`, `fix(tools): ...`, `docs: ...`). Push to `master`
   on `origin` when asked or when finishing a block of work the user approved.
 - Before committing: `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo test --workspace`. Do not chain `git commit` after a failing check.
