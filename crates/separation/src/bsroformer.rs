@@ -152,15 +152,20 @@ impl Model {
         if !input.len().is_multiple_of(2) {
             return Err(BsrError::NotStereo);
         }
-        let mut stems = vec![vec![0.0f32; input.len()]; self.info.num_stems];
         if input.is_empty() {
-            return Ok(stems);
+            return Ok(vec![Vec::new(); self.info.num_stems]);
         }
+        // Left uninitialized: zeroed buffers would take their full size in RAM for
+        // the whole separation, and C++ fills them only once it is done.
+        let mut stems: Vec<Vec<f32>> = (0..self.info.num_stems)
+            .map(|_| Vec::with_capacity(input.len()))
+            .collect();
         let outputs: Vec<*mut f32> = stems.iter_mut().map(|s| s.as_mut_ptr()).collect();
         let callbacks = Callbacks { progress, cancel };
         let mut err = [0 as c_char; ERR_LEN];
 
-        // SAFETY: `outputs` holds `num_stems` buffers of `input.len()` floats each;
+        // SAFETY: `outputs` holds `num_stems` buffers with room for `input.len()`
+        // floats each;
         // `callbacks` outlives the call and its closures are `Sync`, as the progress
         // trampoline runs on a worker thread.
         let status = unsafe {
@@ -179,7 +184,14 @@ impl Model {
             )
         };
         match status {
-            ffi::WS_BSR_OK => Ok(stems),
+            ffi::WS_BSR_OK => {
+                for stem in &mut stems {
+                    // SAFETY: on success the wrapper has written all `input.len()`
+                    // floats of every output.
+                    unsafe { stem.set_len(input.len()) };
+                }
+                Ok(stems)
+            }
             ffi::WS_BSR_CANCELLED => Err(BsrError::Cancelled),
             _ => Err(BsrError::Process(message(&err))),
         }

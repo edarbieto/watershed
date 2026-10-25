@@ -45,8 +45,9 @@ const char *ws_bsr_backend_name(const WsBsrModel *model);
 const char *ws_bsr_device_description(const WsBsrModel *model);
 
 /* Separates interleaved stereo input (num_frames * 2 samples at the model's
- * sample rate). outputs holds num_stems pointers, each to num_frames * 2 floats.
- * chunk_size / num_overlap <= 0 use the model defaults. */
+ * sample rate). outputs holds num_stems pointers, each to room for num_frames * 2
+ * floats, all of which are written when it returns WS_BSR_OK (and only once the
+ * model is done). chunk_size / num_overlap <= 0 use the model defaults. */
 int ws_bsr_process(WsBsrModel *model, const float *input, size_t num_frames,
                    int chunk_size, int num_overlap, float *const *outputs,
                    WsBsrProgressFn progress, WsBsrCancelFn cancel, void *user,
