@@ -62,6 +62,8 @@ Last updated: 2026-10-24.
   colors" below).
 - **Phase 3.5, pitch lock per track: done, to be tested by the user** (see "Pitch
   lock" below).
+- **Phase 3.5, stem offsets: done, to be tested by the user** (see "Stem offsets"
+  below).
 - **Stem output format decided:** a settings window with Lossy (default, **Ogg Vorbis
   q8, ~256 kbps**) or Lossless (FLAC). Vorbis over AAC and Opus for DAW compatibility
   (see "Lossy stem codec" below).
@@ -73,10 +75,10 @@ Last updated: 2026-10-24.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes and RAM done.
 
-1. **User:** test pitch lock (checklist in "Pitch lock"), on headphones or the
-   interface.
-2. **Phase 3.5, next items** in the order of `PLAN.md`: stem offsets with a lock, the settings window, the stem
-   output format (Lossy / Lossless), BPM, count-in, key detection.
+1. **User:** test pitch lock and stem offsets (checklists in "Pitch lock" and "Stem
+   offsets"), on headphones or the interface. Their commits are not pushed yet.
+2. **Phase 3.5, next items** in the order of `PLAN.md`: the settings window, the
+   stem output format (Lossy / Lossless), BPM, count-in, key detection.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
@@ -798,6 +800,44 @@ default; the user can toggle any track. Saved as `pitch_lock` in the session's
    click.
 3. Loops and seeking behave as before (no click at the loop jump).
 4. Close and reopen: the locks are kept; an older song opens with drums locked.
+
+## Stem offsets
+
+Stems from different tools can start at different moments; each track can now be
+moved in time.
+
+- **UI:** a ↔ button per track (not a lock icon: 🔒 is pitch lock). Off by default
+  and again on every load, so a stray drag never moves a track. On, the waveform
+  gets an outline and a hand cursor, and dragging it moves the track (a click still
+  seeks); off, a drag selects a loop as before. A non-zero offset shows next to the
+  name (`+0.250 s`); double-click it to reset.
+- **Engine:** `TrackParams::offset` (atomic, frames at the song rate; positive starts
+  the track later, negative cuts its beginning). The mixer reads each track at
+  `position - offset`. `Song::frames()` is now the end of the track that ends last
+  (offsets included), computed from the atomics, so the song grows when a track is
+  moved past the end; `track_frames()` is the length every track holds.
+- **Waveforms** are drawn shifted by the offset. The view follows the new length,
+  but only once the mouse button is released, so the scale does not change under
+  the pointer mid-drag. The drag is measured from where it started, so rounding
+  never adds up.
+- **Session:** `offset` in seconds in `[[tracks]]` (written only when non-zero), so it
+  survives a device with another sample rate. The device-switch restore and the
+  session now share one `TrackState` path (`track_states` / `apply_track_states` in
+  `app.rs`), which also carries the names and pitch locks.
+- Tests: mixing with positive and negative offsets and the song length
+  (`offsets_move_tracks_in_time`), the view following a longer or shorter song.
+- Checked in the release build on Windows with a session giving bass +20 s and
+  vocals −10 s: both drawn shifted, labels shown, length 4:03.8 → 4:23.8. Dragging
+  not tried (it would have moved the mouse on the user's desktop).
+
+**Test checklist** (for the user):
+1. Press ↔ on a track and drag its waveform: it moves smoothly, and plays shifted
+   against the others.
+2. Drag a track past the end: the song gets longer once the button is released, and
+   plays to the new end.
+3. With ↔ off, dragging still selects a loop; with it on, a click still seeks.
+4. Double-click the offset label: the track goes back to 0.
+5. Close and reopen: the offset is kept and ↔ is off again.
 
 ## Observations to investigate
 

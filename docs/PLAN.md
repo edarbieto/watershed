@@ -305,9 +305,9 @@ RAM first, then disk. In this order:
   through a second stretcher with the same tempo and no transposition, then both are
   summed before the master. Both stretchers share the same configuration, so their
   latency matches and they stay aligned; the second one costs another ~1 % of a core.
-- [ ] **Stem offsets.** Stems from other tools can start at different moments. Each
-  track gets a lock icon (locked by default); unlocked, its waveform can be dragged
-  in time. The offset is stored in seconds in the session (independent of the device
+- [x] **Stem offsets.** Stems from other tools can start at different moments. Each
+  track gets a lock icon (locked by default; a ↔ button, since 🔒 is pitch lock);
+  unlocked, its waveform can be dragged in time. The offset is stored in seconds in the session (independent of the device
   rate). The mixer reads each track at `position - offset`; the song length is the
   latest track end.
 - [ ] **Settings window.** The app has no settings page yet: options live in the top
