@@ -60,10 +60,9 @@ Last updated: 2026-10-24.
   compile-checked.
 - **Phase 3.5, stem names and colors: done.** Tested by the user (see "Stem names and
   colors" below).
-- **Phase 3.5, pitch lock per track: done, to be tested by the user** (see "Pitch
-  lock" below).
-- **Phase 3.5, stem offsets: done, to be tested by the user** (see "Stem offsets"
-  below).
+- **Phase 3.5, pitch lock per track and stem offsets: done.** Tested by the user:
+  work well (see "Pitch lock" and "Stem offsets" below). Not pushed yet: the user
+  wants to push when Phase 3.5 is finished.
 - **Stem output format decided:** a settings window with Lossy (default, **Ogg Vorbis
   q8, ~256 kbps**) or Lossless (FLAC). Vorbis over AAC and Opus for DAW compatibility
   (see "Lossy stem codec" below).
@@ -75,8 +74,7 @@ Last updated: 2026-10-24.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes and RAM done.
 
-1. **User:** test pitch lock and stem offsets (checklists in "Pitch lock" and "Stem
-   offsets"), on headphones or the interface. Their commits are not pushed yet.
+1. **Push** when Phase 3.5 is finished (the user's request).
 2. **Phase 3.5, next items** in the order of `PLAN.md`: the settings window, the
    stem output format (Lossy / Lossless), BPM, count-in, key detection.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
@@ -791,9 +789,8 @@ default; the user can toggle any track. Saved as `pitch_lock` in the session's
   to 880 Hz (`pitch_locked_tracks_keep_their_pitch`), and toggling ramps a track out
   of a bus (`pitch_locked_tracks_go_to_the_locked_bus`).
 - Checked in the release build on Windows: the button shows, on for Drums only.
-  Not listened to yet.
 
-**Test checklist** (for the user):
+**Test checklist** (passed):
 1. Transpose ±2 st while playing: the drums keep their pitch, the rest moves; drums
    and the rest stay in time with each other, also at 50–75 % tempo.
 2. Toggle 🔒 on a pitched track while playing at +2 st: it changes pitch without a
@@ -828,9 +825,9 @@ moved in time.
   (`offsets_move_tracks_in_time`), the view following a longer or shorter song.
 - Checked in the release build on Windows with a session giving bass +20 s and
   vocals −10 s: both drawn shifted, labels shown, length 4:03.8 → 4:23.8. Dragging
-  not tried (it would have moved the mouse on the user's desktop).
+  not tried by Claude (it would have moved the mouse on the user's desktop).
 
-**Test checklist** (for the user):
+**Test checklist** (passed):
 1. Press ↔ on a track and drag its waveform: it moves smoothly, and plays shifted
    against the others.
 2. Drag a track past the end: the song gets longer once the button is released, and
