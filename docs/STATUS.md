@@ -56,9 +56,14 @@ Last updated: 2026-10-24.
   same example in Phase 3.2), process peak 1.4 GB, GPU memory 1.2 GB of the RTX
   3050's 6 GB with nothing spilled to shared memory.
 - **GPU usage in the top bar: done** (see "CPU, GPU and RAM display" below). Tested
-  by the user on macOS; Windows and Linux only compile-checked.
-- **Compact stem codec decided:** Ogg Vorbis by default, FLAC as an option. MP3 later,
-  possibly through an encoder binary downloaded at runtime.
+  by the user on macOS and Windows (matches Task Manager's GPU column); Linux only
+  compile-checked.
+- **Phase 3.5, stem names and colors: done, to be tested by the user** (see "Stem
+  names and colors" below).
+- **Stem output format:** the app gets a settings window with two choices, Lossy
+  (default) and Lossless (FLAC). The lossy codec is **open again**: the user prefers
+  AAC 256 kbps to Ogg Vorbis and asked for a comparison with Opus (see "Lossy stem
+  codec" below).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -67,13 +72,11 @@ Last updated: 2026-10-24.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes and RAM done.
 
-1. **On Windows, left to check by the user:** the GPU number in the top bar should
-   match Task Manager's GPU column for Watershed, and RAM its "Memory" column (the
-   user saw RAM stay under 2 GB while separating). Speed and memory while separating
-   are measured (see "RAM").
-2. **Phase 3.5, next items** in the order of `PLAN.md`: stem names and colors, pitch
-   lock per track (drums skip the transposition), stem offsets with a lock, the
-   compact stem format (Ogg Vorbis by default), BPM, count-in, key detection.
+1. **User:** test the stem names and colors (checklist in "Stem names and colors")
+   and choose the lossy codec ("Lossy stem codec").
+2. **Phase 3.5, next items** in the order of `PLAN.md`: pitch lock per track (drums
+   skip the transposition), stem offsets with a lock, the settings window, the stem
+   output format (Lossy / Lossless), BPM, count-in, key detection.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
@@ -176,7 +179,7 @@ runs at 16 kHz mono):
 `.watershed.toml` in the song folder (next to the first stem), read and written by
 `watershed_storage::Session`. It stores `version`, `position`, `tempo`, `semitones`,
 the current loop (`loop_a`, `loop_b`, `looping`), one `[[tracks]]` per stem (`file`,
-linear `gain`, `pan`, `mute`, `solo`) and the saved `[[loops]]`.
+`name` when the user renamed it, linear `gain`, `pan`, `mute`, `solo`) and the saved `[[loops]]`.
 
 - Tracks are matched by **file name**, so adding or removing a stem keeps the others'
   settings; a stem missing from the file keeps its defaults (instrumental muted).
@@ -708,6 +711,58 @@ cancel callbacks). GPU backend: Vulkan on Windows and Linux, Metal on macOS.
   label. The title now goes to the window title ("Watershed — <title>") and appears in
   the bar only when there is room, cut short with "…".
 
+## Stem names and colors
+
+- **Recognized by any word** of the file name (`stems.rs`, `StemKind::from_path`):
+  words are the runs of letters, lowercased and without accents, so `guitar2`,
+  `Guitar 2 - take`, `Batería` and `voz principal` all match. When several words
+  match the last one wins (song titles come first: `Bajo la lluvia - guitarra` is a
+  guitar). Spanish words: `voz`/`voces`, `guitarra`, `bajo`, `bateria`/`percusion`,
+  `teclado`/`teclas`, `otro`/`resto`, `acompañamiento`. `no_vocals` (Demucs) and
+  `sin voz` are the instrumental.
+- **Colors** (`track_colors`): the first stem of each kind keeps its color; unknown
+  stems and repeated kinds take six extra colors (yellow, pink, indigo, mint, tan,
+  olive) in track order, then repeat. The instrumental stays gray (it starts muted).
+- **Default names** (`default_names`): the kind ("Guitar"), or the file name for
+  unknown stems and for kinds that appear more than once, so two guitars from two
+  models can be told apart.
+- **Rename:** double-click a track name, Enter or click elsewhere to confirm, Escape
+  to cancel; an empty name goes back to the default. Saved as `name` in the
+  session's `[[tracks]]` (only when it differs from the default) and kept across a
+  device switch and Reload. Names live in `LoadedSong`; `Track::name` in the audio
+  crate stays the default name.
+- Checked in the release build on Windows with a folder of `guitarra`,
+  `Guitar 2 - take`, `Batería`, `voz principal`, `teclados` and `click`: Drums,
+  Vocals and Piano recognized, the two guitars orange and yellow with their file
+  names, `click` pink. Renaming not tried yet.
+
+**Test checklist** (for the user):
+1. Open a folder with Spanish or unusual stem names: kinds and colors as above.
+2. Double-click a name, type a new one, Enter: it stays after closing and reopening
+   the folder, and after Reload (F5).
+3. Escape while renaming keeps the old name; clearing the name restores the default.
+4. While typing a name, keys like Space, M or A do not trigger shortcuts.
+
+## Lossy stem codec
+
+Open decision (Phase 3.5, "Stem output format"). The goal is a lossy format the ear
+cannot tell from the WAV. At 256 kbps all three candidates are transparent in blind
+tests; Opus already is at about 128–160 kbps. The differences are in tooling:
+
+| | AAC 256 kbps | Opus 160 kbps | Vorbis q8 (~256 kbps) |
+|---|---|---|---|
+| Size, 6 stems of 4 min | ~46 MB | ~29 MB | ~46 MB |
+| Encoder | No free one in Rust. fdk-aac (Fraunhofer license: not GPL, but not free per FSF/Debian, with a patent clause) or the OS encoder: macOS AudioToolbox (excellent), Windows Media Foundation (max 192 kbps), none on Linux | libopus, BSD, built with CMake like ggml, same on all OSes | libvorbis (aoTuV), BSD, `vorbis_rs` bundles it, same on all OSes |
+| Decoding in the app | symphonia, already enabled (`.m4a`) | symphonia has no Opus decoder: libopus through an adapter (`symphonia-adapter-libopus`) or our own | symphonia, pure Rust |
+| Opens in | everything: Reaper, Logic, Ableton, iPhone, Finder, Windows | Reaper, Audacity, VLC, browsers; fewer DAWs | Reaper, Audacity, VLC, most DAWs; not Apple apps |
+| Sample rate | 44.1 kHz as separated | always 48 kHz: stems resampled when written (most interfaces run at 48 kHz anyway) | 44.1 kHz as separated |
+| Start offset | encoder delay (~1024–2112 samples) removed only if the decoder reads the gapless info: to check with symphonia | 312-sample pre-skip, in the header, always removed | sample-exact |
+
+Claude's recommendation: **Opus at 160 kbps**: transparent, the smallest, one free
+encoder on every OS; Lossless (FLAC) covers taking stems into a DAW that does not
+read Opus. AAC is only worth its cost if the lossy stems themselves must open in
+Apple apps or any DAW.
+
 ## Observations to investigate
 
 ### Resume after changing the mix while paused (fixed)
@@ -802,21 +857,11 @@ segments, retessellated every frame while playing); or the resize itself (wgpu
 surface reconfiguration). Next step: measure the frame time at both sizes, then
 consider drawing each waveform as one mesh or caching it while the view is unchanged.
 
-### Track colors
+### Track colors (fixed)
 
-Not random. They are **fixed per stem type** (`StemKind::color` in
-`crates/app/src/stems.rs`): vocals red, guitar orange, bass green, drums blue,
-piano purple, other cyan. Instrumental and unrecognized names are gray.
-
-There is **no limit on the number of tracks**, but:
-- All unrecognized stems share the same gray, so a folder of arbitrary names
-  (e.g. `click.wav`, `keys2.wav`) looks monochrome.
-- Two stems of the same type (e.g. two guitar stems from different models) get the
-  same color.
-
-Possible fix: keep the fixed colors for known types and give unknown or duplicate
-stems colors from an extra palette, cycling if needed; later let the user pick a color
-per track (saved in the session).
+All unknown stems used to share one gray and repeated kinds one color. Fixed in
+Phase 3.5: see "Stem names and colors". Still possible later: a color picker per
+track, saved in the session.
 
 ### Other pending items
 
