@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use signalsmith_stretch::Stretch;
 
-use crate::mixer::{MAX_BLOCK, Voice};
+use crate::mixer::{Bus, MAX_BLOCK, Voice};
 
 /// Tempo range the engine accepts, as a playback speed factor.
 pub const MIN_TEMPO: f32 = 0.25;
@@ -16,12 +16,17 @@ const LOOP_CROSSFADE_SECS: f32 = 0.01;
 
 /// Tempo and pitch change on the stereo mix, with Signalsmith Stretch.
 ///
+/// Two stretchers with the same configuration, one per [`Bus`]: the pitched bus
+/// gets the transposition, the pitch-locked one only the tempo. Same configuration
+/// means same latency, so the buses stay aligned and are summed at the output.
+///
 /// It reads the song through a [`Voice`] at `tempo` song frames per output frame,
 /// jumping back at the end of a loop, and tracks which song frame is being heard,
 /// since the stretcher delays the audio by about 120 ms. Nothing here allocates
 /// after [`Stretcher::new`].
 pub(crate) struct Stretcher {
-    stretch: Stretch,
+    /// Indexed by [`Bus`].
+    stretch: [Stretch; 2],
     /// Input fed before the seek point after a seek, so the output starts right away:
     /// one block plus one interval, as the library recommends.
     preroll: usize,
@@ -43,11 +48,13 @@ pub(crate) struct Stretcher {
     crossfade: usize,
     /// Lowest position to report after a seek, while the latency is filling up.
     floor: usize,
-    /// Transposition currently applied.
+    /// Transposition currently applied to the pitched bus.
     semitones: f32,
-    /// Stereo scratch buffers for the mixed input and the crossfade tail.
-    input: Vec<f32>,
+    /// Stereo scratch buffers: the mixed input of each bus, the crossfade tail and
+    /// the locked bus's output.
+    input: [Vec<f32>; 2],
     tail_input: Vec<f32>,
+    locked_output: Vec<f32>,
 }
 
 impl Stretcher {
@@ -56,12 +63,12 @@ impl Stretcher {
         let rate = sample_rate as f32;
         let block = (rate * 0.12) as usize;
         let interval = (rate * 0.03) as usize;
-        let stretch = Stretch::new(2, block, interval);
+        let stretch = [0; 2].map(|_| Stretch::new(2, block, interval));
         let preroll = block + interval;
         let max_input = (MAX_BLOCK as f32 * MAX_TEMPO).ceil() as usize + 1;
         Self {
-            input_latency: stretch.input_latency(),
-            output_latency: stretch.output_latency(),
+            input_latency: stretch[0].input_latency(),
+            output_latency: stretch[0].output_latency(),
             stretch,
             preroll,
             fed: 0.0,
@@ -72,25 +79,29 @@ impl Stretcher {
             crossfade: ((rate * LOOP_CROSSFADE_SECS) as usize).max(1),
             floor: 0,
             semitones: 0.0,
-            input: vec![0.0; preroll.max(max_input) * 2],
+            input: [0; 2].map(|_| vec![0.0; preroll.max(max_input) * 2]),
             tail_input: vec![0.0; max_input * 2],
+            locked_output: vec![0.0; MAX_BLOCK * 2],
         }
     }
 
     /// Clears the stretcher and positions it so that `frame` is heard next.
     pub fn seek(&mut self, voice: &mut Voice, frame: usize, tempo: f32) {
-        self.stretch.reset();
         // The stretcher works on input from `input_latency` frames ago, so feeding up
         // to `frame + input_latency` centers its first output on `frame`.
         let end = frame + self.input_latency;
         let start = end.saturating_sub(self.preroll);
         let pad = self.preroll - (end - start);
-        let input = &mut self.input[..self.preroll * 2];
-        input.fill(0.0);
         // Otherwise a mute or solo changed while paused would ramp in across the pre-roll.
         voice.snap_gains();
-        voice.mix_into(start, &mut input[pad * 2..]);
-        self.stretch.seek(&*input, f64::from(tempo));
+        for bus in Bus::ALL {
+            let stretch = &mut self.stretch[bus as usize];
+            stretch.reset();
+            let input = &mut self.input[bus as usize][..self.preroll * 2];
+            input.fill(0.0);
+            voice.mix_into(start, bus, &mut input[pad * 2..]);
+            stretch.seek(&*input, f64::from(tempo));
+        }
         self.fed = end as f64;
         self.next = end;
         self.pass = (0, 0);
@@ -111,14 +122,15 @@ impl Stretcher {
         out: &mut [f32],
     ) {
         if semitones != self.semitones {
-            self.stretch.set_transpose_factor_semitones(semitones, None);
+            self.stretch[Bus::Pitched as usize].set_transpose_factor_semitones(semitones, None);
             self.semitones = semitones;
         }
         let before = self.fed as usize;
         self.fed += (out.len() / 2) as f64 * f64::from(tempo);
         let frames = self.fed as usize - before;
-        let input = &mut self.input[..frames * 2];
-        input.fill(0.0);
+        for input in &mut self.input {
+            input[..frames * 2].fill(0.0);
+        }
 
         let mut done = 0;
         while done < frames {
@@ -126,15 +138,20 @@ impl Stretcher {
             // playing after the loop simply goes on.
             let loop_end = looped.as_ref().filter(|r| self.next < r.end).map(|r| r.end);
             let len = loop_end.map_or(frames - done, |end| (frames - done).min(end - self.next));
-            let chunk = &mut input[done * 2..(done + len) * 2];
-            voice.mix_into(self.next, chunk);
-            fade_tail(
-                &mut self.tail,
-                &mut self.tail_input,
-                self.crossfade,
-                voice,
-                chunk,
-            );
+            let mut tail = self.tail;
+            for bus in Bus::ALL {
+                let chunk = &mut self.input[bus as usize][done * 2..(done + len) * 2];
+                voice.mix_into(self.next, bus, chunk);
+                tail = fade_tail(
+                    self.tail,
+                    &mut self.tail_input,
+                    self.crossfade,
+                    voice,
+                    bus,
+                    chunk,
+                );
+            }
+            self.tail = tail;
             self.next += len;
             done += len;
 
@@ -148,7 +165,16 @@ impl Stretcher {
                 self.floor = 0;
             }
         }
-        self.stretch.process(&*input, out);
+        let [pitched, locked] = &mut self.stretch;
+        pitched.process(&self.input[Bus::Pitched as usize][..frames * 2], &mut *out);
+        let locked_output = &mut self.locked_output[..out.len()];
+        locked.process(
+            &self.input[Bus::Locked as usize][..frames * 2],
+            &mut *locked_output,
+        );
+        for (o, l) in out.iter_mut().zip(locked_output.iter()) {
+            *o += l;
+        }
     }
 
     /// The song frame being heard, given `extra` frames of output latency added after
@@ -168,21 +194,21 @@ impl Stretcher {
 }
 
 /// Crossfades the start of a loop pass with what followed the loop end, so the jump
-/// does not click. `tail` is `(song frame, crossfade frames done)`.
+/// does not click. `tail` is `(song frame, crossfade frames done)`; returns it
+/// advanced past `chunk`.
 fn fade_tail(
-    tail: &mut Option<(usize, usize)>,
+    tail: Option<(usize, usize)>,
     scratch: &mut [f32],
     crossfade: usize,
     voice: &mut Voice,
+    bus: Bus,
     chunk: &mut [f32],
-) {
-    let Some((from, done)) = tail else {
-        return;
-    };
-    let frames = (chunk.len() / 2).min(crossfade - *done);
+) -> Option<(usize, usize)> {
+    let (from, done) = tail?;
+    let frames = (chunk.len() / 2).min(crossfade - done);
     let old_audio = &mut scratch[..frames * 2];
     old_audio.fill(0.0);
-    voice.mix_into(*from, old_audio);
+    voice.mix_into(from, bus, old_audio);
     for (i, (new, old)) in chunk
         .as_chunks_mut::<2>()
         .0
@@ -191,17 +217,13 @@ fn fade_tail(
         .enumerate()
     {
         // Equal power: the two sides are unrelated audio.
-        let t = (*done + i) as f32 + 0.5;
+        let t = (done + i) as f32 + 0.5;
         let angle = t / crossfade as f32 * FRAC_PI_2;
         let (fade_in, fade_out) = (angle.sin(), angle.cos());
         new[0] = new[0] * fade_in + old[0] * fade_out;
         new[1] = new[1] * fade_in + old[1] * fade_out;
     }
-    *from += frames;
-    *done += frames;
-    if *done >= crossfade {
-        *tail = None;
-    }
+    (done + frames < crossfade).then_some((from + frames, done + frames))
 }
 
 #[cfg(test)]
@@ -333,15 +355,53 @@ mod tests {
             RATE,
             vec![("step".into(), samples.collect::<Vec<f32>>())],
         )));
-        let mut tail = Some((1000, 0));
         let mut scratch = vec![0.0; 100 * 2];
         let mut chunk = vec![0.0; 60 * 2];
-        fade_tail(&mut tail, &mut scratch, 50, &mut voice, &mut chunk);
+        let tail = fade_tail(
+            Some((1000, 0)),
+            &mut scratch,
+            50,
+            &mut voice,
+            Bus::Pitched,
+            &mut chunk,
+        );
         let left: Vec<f32> = chunk.iter().step_by(2).copied().collect();
         assert!(left[0] > 0.99 && left[49] < 0.05, "{left:?}");
         assert!(left[..50].windows(2).all(|w| w[1] < w[0]), "{left:?}");
         assert!(left[50..].iter().all(|&s| s == 0.0));
         assert_eq!(tail, None);
+    }
+
+    /// Frequency of a steady stereo signal, from its zero crossings.
+    fn frequency(samples: &[f32]) -> f32 {
+        let left: Vec<f32> = samples.iter().step_by(2).copied().collect();
+        let crossings = left
+            .windows(2)
+            .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+            .count();
+        crossings as f32 * RATE as f32 / left.len() as f32
+    }
+
+    #[test]
+    fn pitch_locked_tracks_keep_their_pitch() {
+        for (locked, expected) in [(false, 880.0), (true, 440.0)] {
+            let mut voice = voice(RATE as usize * 4, 0);
+            voice.song.tracks[0].params.set_pitch_lock(locked);
+            let mut stretcher = Stretcher::new(RATE);
+            stretcher.seek(&mut voice, 0, 1.0);
+            let mut out = vec![0.0; 512 * 2];
+            // Past the latency, then one second.
+            for _ in 0..20 {
+                stretcher.render(&mut voice, 0.8, 12.0, None, &mut out);
+            }
+            let mut heard = Vec::new();
+            for _ in 0..94 {
+                stretcher.render(&mut voice, 0.8, 12.0, None, &mut out);
+                heard.extend_from_slice(&out);
+            }
+            let f = frequency(&heard);
+            assert!((f - expected).abs() < 10.0, "locked {locked}: {f} Hz");
+        }
     }
 
     #[test]

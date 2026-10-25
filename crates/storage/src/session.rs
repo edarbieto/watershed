@@ -66,6 +66,10 @@ pub struct TrackState {
     pub pan: f32,
     pub mute: bool,
     pub solo: bool,
+    /// Whether the track skips the transposition; `None` (sessions from before
+    /// pitch lock) uses the default for its kind: locked for drums.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pitch_lock: Option<bool>,
 }
 
 impl Default for TrackState {
@@ -77,6 +81,7 @@ impl Default for TrackState {
             pan: 0.0,
             mute: false,
             solo: false,
+            pitch_lock: None,
         }
     }
 }
@@ -177,6 +182,7 @@ mod tests {
                     pan: -0.3,
                     mute: true,
                     solo: false,
+                    pitch_lock: Some(true),
                 },
                 TrackState {
                     file: "drums.flac".into(),

@@ -6,12 +6,34 @@ use crate::Song;
 /// processed in several blocks.
 pub(crate) const MAX_BLOCK: usize = 2048;
 
+/// The two stereo buses after the mixer. Each goes through its own stretcher:
+/// pitch-locked tracks get the tempo change but not the transposition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Bus {
+    Pitched,
+    Locked,
+}
+
+impl Bus {
+    pub const ALL: [Bus; 2] = [Bus::Pitched, Bus::Locked];
+
+    fn of(params: &crate::TrackParams) -> Self {
+        if params.pitch_lock() {
+            Bus::Locked
+        } else {
+            Bus::Pitched
+        }
+    }
+}
+
 /// A song plus the mixer state that belongs to the audio thread. Built on the UI
 /// thread so that every allocation happens there.
 pub(crate) struct Voice {
     pub song: Arc<Song>,
-    /// Per-track left/right gains applied at the end of the previous block.
-    gains: Vec<[f32; 2]>,
+    /// Per-track left/right gains on each bus, applied at the end of the previous
+    /// block. A track sends to one bus; ramping both lets it move between them
+    /// without a click when its pitch lock changes.
+    gains: Vec<[[f32; 2]; 2]>,
 }
 
 impl Voice {
@@ -20,7 +42,7 @@ impl Voice {
         let gains = song
             .tracks
             .iter()
-            .map(|t| t.params.channel_gains(any_solo))
+            .map(|t| Bus::ALL.map(|bus| target(&t.params, bus, any_solo)))
             .collect();
         Self { song, gains }
     }
@@ -30,15 +52,15 @@ impl Voice {
     pub fn snap_gains(&mut self) {
         let any_solo = self.song.tracks.iter().any(|t| t.params.solo());
         for (track, current) in self.song.tracks.iter().zip(self.gains.iter_mut()) {
-            *current = track.params.channel_gains(any_solo);
+            *current = Bus::ALL.map(|bus| target(&track.params, bus, any_solo));
         }
     }
 
-    /// Adds `out.len() / 2` stereo frames starting at `position` into `out`.
+    /// Adds `out.len() / 2` stereo frames of `bus` starting at `position` into `out`.
     ///
     /// Gain changes are ramped linearly across the block to avoid clicks. Frames past
     /// the end of the song are left untouched.
-    pub fn mix_into(&mut self, position: usize, out: &mut [f32]) {
+    pub fn mix_into(&mut self, position: usize, bus: Bus, out: &mut [f32]) {
         let frames = out.len() / 2;
         let available = self.song.frames().saturating_sub(position).min(frames);
         if available == 0 {
@@ -47,7 +69,8 @@ impl Voice {
         let any_solo = self.song.tracks.iter().any(|t| t.params.solo());
 
         for (track, current) in self.song.tracks.iter().zip(self.gains.iter_mut()) {
-            let target = track.params.channel_gains(any_solo);
+            let current = &mut current[bus as usize];
+            let target = target(&track.params, bus, any_solo);
             let start = *current;
             *current = target;
             if start == [0.0, 0.0] && target == [0.0, 0.0] {
@@ -69,6 +92,15 @@ impl Voice {
     }
 }
 
+/// Left/right gains of a track on `bus`: zero unless the track sends to it.
+fn target(params: &crate::TrackParams, bus: Bus, any_solo: bool) -> [f32; 2] {
+    if Bus::of(params) == bus {
+        params.channel_gains(any_solo)
+    } else {
+        [0.0, 0.0]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,9 +118,9 @@ mod tests {
     /// Mixes one block to settle the gain ramps, then returns the next block.
     fn render(voice: &mut Voice, position: usize, frames: usize) -> Vec<f32> {
         let mut out = vec![0.0; frames * 2];
-        voice.mix_into(position, &mut out);
+        voice.mix_into(position, Bus::Pitched, &mut out);
         out.fill(0.0);
-        voice.mix_into(position, &mut out);
+        voice.mix_into(position, Bus::Pitched, &mut out);
         out
     }
 
@@ -136,10 +168,27 @@ mod tests {
         song.tracks[0].params.set_gain(0.0);
 
         let mut out = vec![0.0; 8 * 2];
-        voice.mix_into(0, &mut out);
+        voice.mix_into(0, Bus::Pitched, &mut out);
         let left: Vec<f32> = out.iter().step_by(2).copied().collect();
         assert!(left.windows(2).all(|w| w[1] < w[0]), "{left:?}");
         assert!(left[0] > 0.8 && left[7] == 0.0, "{left:?}");
+    }
+
+    #[test]
+    fn pitch_locked_tracks_go_to_the_locked_bus() {
+        let song = song(&[0.25, 0.5], 64);
+        song.tracks[1].params.set_pitch_lock(true);
+        let mut voice = Voice::new(song.clone());
+        let mut locked = vec![0.0; 16 * 2];
+        voice.mix_into(0, Bus::Locked, &mut locked);
+        assert!((render(&mut voice, 0, 16)[0] - 0.25).abs() < 1e-6);
+        assert!((locked[0] - 0.5).abs() < 1e-6);
+
+        // Unlocking ramps the track out of the locked bus instead of cutting it.
+        song.tracks[1].params.set_pitch_lock(false);
+        let mut out = vec![0.0; 8 * 2];
+        voice.mix_into(0, Bus::Locked, &mut out);
+        assert!(out[0] > 0.4 && out[14] == 0.0, "{out:?}");
     }
 
     #[test]

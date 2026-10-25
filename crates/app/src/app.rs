@@ -80,7 +80,7 @@ enum Action {
 struct Restore {
     position_secs: f64,
     playing: bool,
-    params: Vec<(f32, f32, bool, bool)>,
+    params: Vec<(f32, f32, bool, bool, bool)>,
     names: Vec<String>,
 }
 
@@ -362,13 +362,14 @@ impl WatershedApp {
                     if restore.names.len() == loaded.names.len() {
                         loaded.names = restore.names;
                     }
-                    for (track, &(gain, pan, mute, solo)) in
+                    for (track, &(gain, pan, mute, solo, pitch_lock)) in
                         loaded.song.tracks.iter().zip(&restore.params)
                     {
                         track.params.set_gain(gain);
                         track.params.set_pan(pan);
                         track.params.set_mute(mute);
                         track.params.set_solo(solo);
+                        track.params.set_pitch_lock(pitch_lock);
                     }
                     if let Some(engine) = &mut self.engine {
                         engine.load(loaded.song.clone());
@@ -423,6 +424,9 @@ impl WatershedApp {
                 params.set_pan(state.pan.clamp(-1.0, 1.0));
                 params.set_mute(state.mute);
                 params.set_solo(state.solo);
+                if let Some(locked) = state.pitch_lock {
+                    params.set_pitch_lock(locked);
+                }
             }
         }
         self.loops = Loops::from_session(&session);
@@ -464,6 +468,7 @@ impl WatershedApp {
                     pan: p.pan(),
                     mute: p.mute(),
                     solo: p.solo(),
+                    pitch_lock: Some(p.pitch_lock()),
                 }
             })
             .collect();
@@ -579,7 +584,7 @@ impl WatershedApp {
                     .iter()
                     .map(|t| {
                         let p = &t.params;
-                        (p.gain(), p.pan(), p.mute(), p.solo())
+                        (p.gain(), p.pan(), p.mute(), p.solo(), p.pitch_lock())
                     })
                     .collect(),
                 names: loaded.names.clone(),
@@ -1407,6 +1412,13 @@ impl WatershedApp {
                                     {
                                         params.set_mute(!params.mute());
                                     }
+                                    if ui
+                                        .selectable_label(params.pitch_lock(), "🔒")
+                                        .on_hover_text(PITCH_LOCK_HINT)
+                                        .clicked()
+                                    {
+                                        params.set_pitch_lock(!params.pitch_lock());
+                                    }
                                 });
                             });
                             ui.horizontal(|ui| {
@@ -1614,6 +1626,8 @@ fn file_name(path: &std::path::Path) -> String {
 }
 
 const VOLUME_HINT: &str = "Double-click to reset to 0 dB";
+const PITCH_LOCK_HINT: &str =
+    "Pitch lock: the track follows the tempo but not the transposition (drums by default)";
 
 /// A track's name, which a double-click turns into a text field. Returns the new
 /// name when the edit is confirmed (Enter or clicking elsewhere); Escape cancels.

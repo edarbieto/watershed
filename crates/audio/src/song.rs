@@ -11,6 +11,8 @@ pub struct TrackParams {
     pan: AtomicF32,
     mute: AtomicBool,
     solo: AtomicBool,
+    /// Follows the tempo but not the transposition, e.g. drums.
+    pitch_lock: AtomicBool,
 }
 
 impl Default for TrackParams {
@@ -20,6 +22,7 @@ impl Default for TrackParams {
             pan: AtomicF32::new(0.0),
             mute: AtomicBool::new(false),
             solo: AtomicBool::new(false),
+            pitch_lock: AtomicBool::new(false),
         }
     }
 }
@@ -48,6 +51,12 @@ impl TrackParams {
     }
     pub fn set_solo(&self, solo: bool) {
         self.solo.store(solo, Ordering::Relaxed);
+    }
+    pub fn pitch_lock(&self) -> bool {
+        self.pitch_lock.load(Ordering::Relaxed)
+    }
+    pub fn set_pitch_lock(&self, locked: bool) {
+        self.pitch_lock.store(locked, Ordering::Relaxed);
     }
 
     /// Left/right gains, given whether any track in the song is soloed.

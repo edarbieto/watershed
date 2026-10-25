@@ -166,6 +166,10 @@ fn load(
 
     let song = Arc::new(Song::new(sample_rate, tracks));
 
+    // Transposed drums sound wrong and gain nothing.
+    for (track, kind) in song.tracks.iter().zip(&kinds) {
+        track.params.set_pitch_lock(kind.pitch_locked_by_default());
+    }
     // The instrumental stem is the sum of the others; start it muted when they are present.
     if kinds.len() > 1 {
         for (track, kind) in song.tracks.iter().zip(&kinds) {

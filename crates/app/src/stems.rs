@@ -74,6 +74,11 @@ impl StemKind {
         })
     }
 
+    /// Whether the track skips the transposition unless the user says otherwise.
+    pub fn pitch_locked_by_default(self) -> bool {
+        self == Self::Drums
+    }
+
     /// The color of the first stem of this kind; see [`track_colors`].
     pub fn color(self) -> Color32 {
         match self {
