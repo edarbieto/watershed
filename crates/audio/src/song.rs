@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::AtomicF32;
+use crate::{AtomicF32, Samples};
 
 /// Live mixer settings for one track. The UI writes them, the audio thread reads them.
 #[derive(Debug)]
@@ -67,7 +67,7 @@ impl TrackParams {
 #[derive(Debug)]
 pub struct Track {
     pub name: String,
-    pub samples: Vec<f32>,
+    pub samples: Samples,
     pub params: TrackParams,
 }
 
@@ -82,12 +82,16 @@ pub struct Song {
 impl Song {
     /// Builds a song from `(name, interleaved stereo samples)` pairs. Shorter tracks
     /// are padded with silence to the longest one.
-    pub fn new(sample_rate: u32, tracks: Vec<(String, Vec<f32>)>) -> Self {
+    pub fn new<S: Into<Samples>>(sample_rate: u32, tracks: Vec<(String, S)>) -> Self {
+        let tracks: Vec<(String, Samples)> = tracks
+            .into_iter()
+            .map(|(name, samples)| (name, samples.into()))
+            .collect();
         let frames = tracks.iter().map(|(_, s)| s.len() / 2).max().unwrap_or(0);
         let tracks = tracks
             .into_iter()
             .map(|(name, mut samples)| {
-                samples.resize(frames * 2, 0.0);
+                samples.resize(frames * 2);
                 Track {
                     name,
                     samples,

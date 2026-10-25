@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 
 use eframe::egui;
-use watershed_audio::Song;
+use watershed_audio::{Samples, Song};
 use watershed_dsp::Peaks;
 use watershed_storage::Session;
 
@@ -114,7 +114,10 @@ fn load(
         .unwrap_or_default();
     let compensation = session.stem_gain_compensation();
 
-    let decoded: Vec<Result<Vec<f32>, String>> = std::thread::scope(|scope| {
+    // Each stem is packed and its peaks computed in its own thread, so the
+    // full-size f32 copies never all exist at once.
+    type Decoded = (Samples, [Peaks; 2]);
+    let decoded: Vec<Result<Decoded, String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
             .iter()
             .map(|path| {
@@ -127,8 +130,10 @@ fn load(
                     if compensation != 1.0 {
                         audio.samples.iter_mut().for_each(|s| *s *= compensation);
                     }
+                    let peaks = Peaks::stereo(&audio.samples, Peaks::DEFAULT_FRAMES_PER_BUCKET);
+                    let samples = Samples::from_f32(&audio.samples);
                     done.fetch_add(1, Ordering::Relaxed);
-                    Ok(audio.samples)
+                    Ok((samples, peaks))
                 })
             })
             .collect();
@@ -138,11 +143,13 @@ fn load(
             .collect()
     });
 
+    let decoded = decoded.into_iter().collect::<Result<Vec<_>, _>>()?;
+    let (samples, peaks): (Vec<_>, Vec<_>) = decoded.into_iter().unzip();
     let kinds: Vec<StemKind> = files.iter().map(|f| StemKind::from_path(f)).collect();
     let tracks = files
         .iter()
         .zip(&kinds)
-        .zip(decoded)
+        .zip(samples)
         .map(|((path, kind), samples)| {
             let name = kind.label().map(str::to_owned).unwrap_or_else(|| {
                 path.file_stem()
@@ -150,16 +157,11 @@ fn load(
                     .to_string_lossy()
                     .into_owned()
             });
-            samples.map(|s| (name, s))
+            (name, samples)
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect();
 
     let song = Arc::new(Song::new(sample_rate, tracks));
-    let peaks = song
-        .tracks
-        .iter()
-        .map(|t| Peaks::stereo(&t.samples, Peaks::DEFAULT_FRAMES_PER_BUCKET))
-        .collect();
 
     // The instrumental stem is the sum of the others; start it muted when they are present.
     if kinds.len() > 1 {

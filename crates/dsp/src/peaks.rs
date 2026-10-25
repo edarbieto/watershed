@@ -44,9 +44,9 @@ impl Peaks {
         self.max.iter().chain(&self.min).all(|s| s.abs() < 1e-4)
     }
 
-    /// Min and max over the frame range `[start, end)`.
+    /// Min and max over the frame range `[start, end)`; silence past the end.
     pub fn range(&self, start: usize, end: usize) -> (f32, f32) {
-        if self.min.is_empty() || end <= start {
+        if self.min.is_empty() || end <= start || start >= self.total_frames {
             return (0.0, 0.0);
         }
         let first = (start / self.frames_per_bucket).min(self.min.len() - 1);
@@ -79,6 +79,14 @@ mod tests {
         assert_eq!(right.range(5, 6), (-0.5, 0.0));
         assert!(!right.is_silent());
         assert!(Peaks::compute(&samples[..8], 1, 4).is_silent());
+    }
+
+    #[test]
+    fn silent_past_the_end() {
+        // A track shorter than the song: its last bucket must not repeat.
+        let peaks = Peaks::compute(&[0.5; 8], 0, 4);
+        assert_eq!(peaks.range(2, 3), (0.0, 0.5));
+        assert_eq!(peaks.range(4, 8), (0.0, 0.0));
     }
 
     #[test]

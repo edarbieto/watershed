@@ -215,7 +215,7 @@ mod tests {
 
     /// A song with one track: silence until `onset`, then a 440 Hz sine.
     fn voice(frames: usize, onset: usize) -> Voice {
-        let samples = (0..frames)
+        let samples: Vec<f32> = (0..frames)
             .flat_map(|i| {
                 let phase = i as f32 * 440.0 * std::f32::consts::TAU / RATE as f32;
                 let s = if i < onset { 0.0 } else { 0.5 * phase.sin() };
@@ -331,7 +331,7 @@ mod tests {
         let samples = (0..2000).flat_map(|i| [f32::from(u8::from(i >= 1000)); 2]);
         let mut voice = Voice::new(Arc::new(Song::new(
             RATE,
-            vec![("step".into(), samples.collect())],
+            vec![("step".into(), samples.collect::<Vec<f32>>())],
         )));
         let mut tail = Some((1000, 0));
         let mut scratch = vec![0.0; 100 * 2];

@@ -11,10 +11,12 @@ mod atomic;
 mod engine;
 mod limiter;
 mod mixer;
+mod samples;
 mod song;
 mod stretch;
 
 pub use atomic::AtomicF32;
 pub use engine::{Engine, EngineError, MIN_LOOP_SECS, Notify, OutputDevice, output_devices};
+pub use samples::Samples;
 pub use song::{Song, Track, TrackParams};
 pub use stretch::{MAX_SEMITONES, MAX_TEMPO, MIN_TEMPO};
