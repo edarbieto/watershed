@@ -123,9 +123,10 @@ separate step.
 
 - **Lean on memory and disk.** Measure before optimizing, but keep it in mind in
   every phase. Current and planned measures:
-  - RAM: stems are f32 stereo at the device rate (~82 MB per 3:35 stem, ~580 MB for
-    seven). Options: store as `i16` (half), drop decoded copies as soon as they are
-    resampled, reserve exact capacity, decode with a bounded thread pool.
+  - RAM: stems are packed 24-bit stereo at the device rate (~62 MB per 3:35 stem,
+    ~435 MB for seven). Further options: drop decoded copies as soon as they are
+    resampled, reserve exact capacity, decode with a bounded thread pool, stream
+    from disk.
   - Disk: models are the heaviest files. Download only on demand into the cache
     folder, prefer quantized weights (q8_0 GGUF is 188 MB vs ~700 MB for the fp32
     checkpoint, with inaudible difference), keep one default model, and show in
@@ -282,18 +283,12 @@ RAM first, then disk. In this order:
   (it used to reopen it and pause playback). A "Reload" button (F5) re-reads the open
   folder (new stems, renamed files), keeping the mixer settings of tracks that are
   still there.
-- [ ] **RAM.** The user saw ~2.5 GB while separating. Measure first (peak and settled,
-  separating and loading), per stage, then cut. RAM does not depend on the file
-  format: a 6 MB mp3 stem and an 80 MB FLAC stem of the same song both decode to the
-  same f32 buffer (~85 MB for 4 min at 44.1 kHz). Likely costs: the separated stems
-  exist as several full copies at once (C++ output buffers, then `StereoBuffer`s,
-  then the scaled FLAC input) next to the song being played; the loader keeps the
-  decoded and the resampled copy at once and grows `Vec`s by doubling. Options,
-  cheapest first: drop each copy as soon as the next exists, write stems one at a
-  time, reserve exact capacity, a bounded decode pool, stems stored as `i16` in the
-  player (half the RAM; check that 16 bits are enough under the mixer gain). The big
-  lever, if still needed: stream stems from disk (audio RAM close to zero; needs a
-  reader thread that stays ahead of the callback, plus precomputed waveform peaks).
+- [x] **RAM.** The user saw ~2.5 GB while separating. Measured per stage, then cut
+  (details in `STATUS.md`, "RAM"): ggml-metal's unused flash-attention buffers (GPU
+  memory 6.8 → 1.5 GB on Apple Silicon, and faster), shorter pipeline queues and
+  earlier frees in the C++ inference, stems stored as packed 24-bit in the player
+  (−25 % per stem), and on macOS an allocator that returns large blocks at once.
+  Still open: streaming stems from disk, if ever needed.
 - [ ] **Stem names and colors.** Recognize names in any position of the file name and
   in Spanish too (`bateria`, `voz`, `bajo`, `guitarra`, `teclado`, …). Unknown or
   duplicate stems get colors from an extra palette instead of all gray. Rename a

@@ -72,8 +72,8 @@ machine or regenerate them with the reference tool from any mp3s.
 
 | Path | What |
 |---|---|
-| `crates/app` | `watershed` binary. `app.rs` UI and state, `loader.rs` background loading, `separate.rs` background separation job, `stems.rs` stem names/colors, `waveform.rs` widget |
-| `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `mixer.rs` (pure, tested) |
+| `crates/app` | `watershed` binary. `app.rs` UI and state, `loader.rs` background loading, `separate.rs` background separation job, `stems.rs` stem names/colors, `waveform.rs` widget, `usage.rs` CPU/GPU/RAM display, `alloc.rs` macOS allocator |
+| `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `Samples` (packed 24-bit), `mixer.rs` (pure, tested) |
 | `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `resample` (rubato FFT), `Peaks` |
 | `crates/storage` | `Config` (TOML in the OS config dir), `Session` (`.watershed.toml`), `models_dir` |
 | `crates/separation` | `trait Separator`, `GgufSeparator`, `separate_song` (song file → folder of FLAC stems + session); `catalog` (`models.toml`: downloadable models, `install` with sha256 check); `bsroformer::Model` (safe wrapper over BSRoformer.cpp + ggml); `cpp/` C wrapper and CMake project; `build.rs`; `vendor/` submodules; `examples/separate.rs` |
@@ -103,7 +103,13 @@ dropped on the UI thread. Mixer parameters are atomics.
   generator build under cargo's deep `OUT_DIR` hit it; `cpp/CMakeLists.txt` shortens
   it with `EP_BASE`. BSRoformer.cpp is not modified: CMake compiles a patched copy of
   its `model.cpp` that calls `watershed_bsr_init_backend()` in `cpp/wrapper.cpp` (backend
-  choice and CPU thread count). If a submodule bump breaks the patch anchors, CMake
-  stops with a clear error.
+  choice and CPU thread count, plus contiguous K/V before flash attention), of its
+  `inference.cpp` (smaller pipeline queues, earlier frees) and of ggml's
+  `ggml-metal-ops.cpp` (no unused flash-attention buffers). If a submodule bump breaks
+  the patch anchors, CMake stops with a clear error.
+- **macOS memory numbers:** malloc keeps freed large blocks, and they count in RSS and
+  the footprint. The app's global allocator (`alloc.rs`) maps blocks ≥ 4 MiB directly;
+  C++ allocations still go through malloc. To measure in-use memory only, run with
+  `MallocLargeCache=0` (undocumented, for measuring only).
 - To screenshot the app on Windows, capture only its window with `PrintWindow`
   (`PW_RENDERFULLCONTENT`); screen-region captures can grab whatever window is on top.

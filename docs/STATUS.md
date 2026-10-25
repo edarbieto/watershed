@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-21.
+Last updated: 2026-10-24.
 
 ## Where we are
 
@@ -48,6 +48,13 @@ Last updated: 2026-10-21.
   (if the length did not change) and playback carry over. Tested by the user: works.
   Clicking the open song in Recent now does nothing; before, it reopened the folder,
   which paused playback.
+- **Phase 3.5, RAM: done on macOS** (see "RAM" below). Separating the 4:39 test
+  song: GPU memory 6.8 → 1.5 GB, process peak 2.7 → 1.7 GB, 77–79 → 72 s, stems
+  bit-identical. Playing: −20 % (stems stored as 24-bit). Tested by the user in the
+  app: sounds the same, stays fluid, and the fans no longer spin up while separating.
+  Windows still to check (speed with Vulkan, Task Manager numbers).
+- **GPU usage in the top bar: done** (see "CPU, GPU and RAM display" below). Tested
+  by the user on macOS; Windows and Linux only compile-checked.
 - **Compact stem codec decided:** Ogg Vorbis by default, FLAC as an option. MP3 later,
   possibly through an encoder binary downloaded at runtime.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
@@ -56,23 +63,29 @@ Last updated: 2026-10-21.
 
 ## Next steps
 
-**Phase 3 done.** The user checked on Windows: Cancel, separating while practicing
-another song, and a practice session. Next is **Phase 3.5** (polish before Phase 4,
-`PLAN.md` section 10): quick fixes (Recent, Reload folder), RAM (top priority, then
-disk), stem names and colors, stem offsets with a lock, a compact lossy stem format by
-default (FLAC as an option), BPM, key detection.
+**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes and RAM done.
 
-1. **Phase 3.5**, in the order of `PLAN.md`. Quick fixes done; next is RAM: measure
-   before changing anything.
-2. **On the MacBook:** `brew install cmake`, `git submodule update --init`, then
-   `cargo run --release` and drop a song (the first time downloads the model);
-   compare with the spike's Metal numbers (79 s for the 4:39 song).
-3. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
+1. **On Windows** (checks of this session's work):
+   - Separate a song and compare its time with Phase 3.4 (4:03 song in 127 s from
+     drop to open on the RTX 3050). The patch that makes K and V contiguous before
+     flash attention runs on Vulkan too; on Metal it made separation faster, on
+     Vulkan it is unmeasured. If slower, limit it to Metal.
+   - The GPU number in the top bar should match Task Manager's GPU column for
+     Watershed; RAM should match its "Memory" column.
+   - Peak and settled RAM while separating and after opening the stems.
+2. **Phase 3.5, next items** in the order of `PLAN.md`: stem names and colors, stem
+   offsets with a lock, the compact stem format (Ogg Vorbis by default), BPM, key
+   detection.
+3. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
+   separated stems to disk instead of holding all six (fits with the Ogg Vorbis
+   work), fewer input copies in the C++ wrapper (~190 MiB), a computed overlap
+   counter instead of a buffer (~95 MiB), separating in a child process.
+4. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
    (open question below).
-4. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+5. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
-5. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), memory and disk
-   optimization (design principles), portable builds (section 9).
+6. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), disk optimization
+   (design principles), portable builds (section 9).
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
 bindings), CMake 4.4, the Vulkan SDK 1.4.363 and the Visual Studio 2026 Build
@@ -305,20 +318,27 @@ end; each has ▶ and loop, like playing a section in Ableton.
   going back to the start screen; the open song has a filled radio circle, as in
   macOS menus. It has "Clear list".
 
-## CPU and RAM display
+## CPU, GPU and RAM display
 
-Always visible in the top bar, left of the output device: `CPU 0.1 %   RAM 836 MiB
-(3.4 %)`, refreshed every second (`usage.rs`, `sysinfo` crate with only its `system`
-feature).
+Always visible in the top bar, left of the output device: `CPU 0.1 %   GPU  12 %
+RAM 836 MiB (3.4 %)`, refreshed every second (`usage.rs`, `sysinfo` crate with only
+its `system` feature; GPU in `usage/gpu.rs`).
 - Measured **per process**, which is what the OS can measure: one process may own
   several windows and threads (UI, audio, loading), and they all count. Watershed has
   one window, so per process and per window are the same here.
 - CPU is a share of the whole machine (all cores), like Windows Task Manager; macOS
   Activity Monitor instead shows a share of one core (up to 100 % per core).
-- RAM is the resident memory (what `ps` reports as RSS). Activity Monitor's "Memory"
-  column is a different measure (memory footprint) and can differ.
-- With the 7 MVSEP stems loaded: ~840 MiB, consistent with the f32 stem storage
-  noted under "Load spike when opening stems".
+- GPU is the busiest engine's share of time (GPUs have separate 3D, compute, copy
+  and video engines). Windows: per process, from the "GPU Engine" performance
+  counters (PDH, what Task Manager uses), any vendor. Linux: per process, from the
+  DRM fdinfo files in `/proc` (what `nvtop` reads): amdgpu, i915, xe and others;
+  NVIDIA's proprietary driver has none, shown as `GPU — %` (NVML could be added).
+  macOS: **the whole GPU**, other apps included, from IOKit's `PerformanceStatistics`
+  (no per-app number exists; no admin rights needed; ~0.1 ms per sample). The
+  tooltip says so. Separating shows it near 100 %.
+- RAM on macOS is the **memory footprint** (`proc_pid_rusage`), what Activity
+  Monitor's "Memory" column shows; elsewhere the resident memory, like Task Manager.
+  Both include memory the allocator holds for reuse (see "RAM" below).
 
 **Test checklist** (passed):
 1. Open two or three songs: they appear in Recent, latest first, and on the start
@@ -327,7 +347,69 @@ feature).
 3. Rename or move a song folder: it shows dimmed and cannot be opened; 🗑 removes it.
 4. Clear list empties the menu.
 5. The open song has the filled circle in the Recent menu.
-6. CPU and RAM update every second, also while paused.
+6. CPU, GPU and RAM update every second, also while paused.
+
+## RAM
+
+Phase 3.5's first big item. Measured before changing anything, with
+`cargo run --release --example separate -- --memory out.csv ...` (`examples/separate.rs`
+samples RSS and the macOS footprint every 10 ms and prints peak and end per phase:
+loading, decoding, separating, writing, freed). For in-use memory only, run it with
+`MallocLargeCache=0` (undocumented macOS variable, for measuring only: see the
+allocator note below).
+
+**Separating** (MacBook M5 Pro, the 4:39 test song, `MallocLargeCache=0`):
+
+| | Before | After |
+|---|---|---|
+| GPU compute buffer | 6682 MiB | 1282 MiB |
+| System wired memory while separating | +6.8 GB | +1.5 GB |
+| Process footprint, peak | 2698 MiB | ~1690 MiB |
+| Time | 77–79 s | 72 s |
+
+Stems bit-identical (md5) after every step. What changed:
+- **GPU memory, the big one.** On Apple Silicon GPU buffers are system RAM. ggml-metal
+  reserves extra buffers for flash attention "to avoid graph reallocations": ~2.4 GB
+  for the vector kernel and an f16 copy of K/V, which our graph never uses (the vector
+  kernel needs fewer than 20 query rows), and a padding buffer sized by the K/V row
+  stride, which the frequency attention made huge by passing strided views. Fixes:
+  `model.cpp` makes K and V contiguous (`ggml_cont`) before `ggml_flash_attn_ext`
+  (smaller padding, and faster), and a patched `ggml-metal-ops.cpp` reserves the
+  vector and f16 buffers only when they will be used. Likely why the fans no longer
+  spin up: the Mac had to compress memory before.
+- **Rust outputs not zeroed:** `bsroformer::Model::process` hands C++ uninitialized
+  buffers with capacity, sets the length once it returns OK (`wrapper.h` documents
+  that every sample is written).
+- **Patched `inference.cpp`:** pipeline queues of 1 chunk instead of 3 (−217 MiB, same
+  speed: the GPU is the bottleneck), each chunk's STFT input and model output freed
+  as soon as they are used, and the final normalization done in place instead of into
+  a second set of six stems.
+- Same mechanism as before: CMake compiles patched copies, the submodules stay
+  untouched, and a missing anchor stops the build.
+
+**Playing** (6:55 song, 6 stems, footprint): 1061 → 850 MiB.
+- Stems stored as **packed 24-bit** (`watershed_audio::Samples`): 3 bytes per sample
+  instead of 4, each track scaled to its own peak, so the error stays 144 dB under the
+  peak (the FLAC stems' own resolution) and stems over full scale are fine. Waveform
+  peaks are computed from the f32 samples before packing; a shorter track now shows
+  silence past its end instead of its last peak repeated.
+- **macOS allocator** (`crates/app/src/alloc.rs`): macOS malloc keeps freed large
+  blocks for reuse, and they keep counting in the footprint and RSS until the system
+  is short of memory (or for about a minute). Packing the stems freed full f32 copies
+  and made the number worse (1579 MiB) until blocks of 4 MiB or more went straight to
+  `mmap`/`munmap`. `malloc_zone_pressure_relief` released nothing on macOS 27.
+
+**In the app** (user, MacBook, "Karaoke"): 0.2 GB idle; 0.9 GB with the model loaded;
+1.7 GB separating, 2.1 GB peak while writing the stems; then down to 0.9 and about
+0.6 GB over a few minutes with the stems open; 0.5 GB when reopening them.
+
+**Left:** right after separating, ~900 MiB of C++ buffers (the wrapper's input copy,
+the padded input, the overlap counter, the result) stay in malloc's cache: the C++
+side does not use our allocator. macOS trims them after about a minute or under
+memory pressure, and the next separation reuses them. Options if it matters: separate
+in a child process (frees everything at once, isolates C++ crashes; needs IPC),
+accumulate the C++ output straight into Rust buffers, fewer input copies (~190 MiB),
+a computed overlap counter (~95 MiB), stream stems to disk.
 
 ## Spike: Signalsmith Stretch
 
@@ -665,8 +747,8 @@ Remaining costs, from the code (worth improving, not urgent):
 - `loader.rs` spawns **one thread per file**, all decoding and resampling at the same
   time. With many stems this saturates the CPU and can starve the audio thread or the
   UI. Fix: a bounded pool (e.g. `available_parallelism() / 2`) or decode sequentially.
-- Every stem is kept in memory as **f32 stereo at the device rate**:
-  3:35 × 48 kHz × 2 ch × 4 bytes ≈ 82 MB per stem, ×7 ≈ 580 MB.
+- Every stem is kept in memory as stereo at the device rate, now packed 24-bit (see
+  "RAM"): 3:35 × 48 kHz × 2 ch × 3 bytes ≈ 62 MB per stem, ×7 ≈ 435 MB (f32 was 580).
 - The peak is higher because, per stem, the decoded 44.1 kHz copy and the resampled
   copy exist at the same time, and the decode `Vec` grows by doubling. Fixes: reserve
   the exact capacity from the codec's frame count; drop the decoded copy as soon as
