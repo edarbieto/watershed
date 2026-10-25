@@ -56,14 +56,15 @@ Last updated: 2026-10-24.
   same example in Phase 3.2), process peak 1.4 GB, GPU memory 1.2 GB of the RTX
   3050's 6 GB with nothing spilled to shared memory.
 - **GPU usage in the top bar: done** (see "CPU, GPU and RAM display" below). Tested
-  by the user on macOS and Windows (matches Task Manager's GPU column); Linux only
+  by the user on macOS and Windows (GPU and RAM match Task Manager); Linux only
   compile-checked.
-- **Phase 3.5, stem names and colors: done, to be tested by the user** (see "Stem
-  names and colors" below).
-- **Stem output format:** the app gets a settings window with two choices, Lossy
-  (default) and Lossless (FLAC). The lossy codec is **open again**: the user prefers
-  AAC 256 kbps to Ogg Vorbis and asked for a comparison with Opus (see "Lossy stem
-  codec" below).
+- **Phase 3.5, stem names and colors: done.** Tested by the user (see "Stem names and
+  colors" below).
+- **Phase 3.5, pitch lock per track: done, to be tested by the user** (see "Pitch
+  lock" below).
+- **Stem output format decided:** a settings window with Lossy (default, **Ogg Vorbis
+  q8, ~256 kbps**) or Lossless (FLAC). Vorbis over AAC and Opus for DAW compatibility
+  (see "Lossy stem codec" below).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -72,10 +73,9 @@ Last updated: 2026-10-24.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes and RAM done.
 
-1. **User:** test the stem names and colors (checklist in "Stem names and colors")
-   and choose the lossy codec ("Lossy stem codec").
-2. **Phase 3.5, next items** in the order of `PLAN.md`: pitch lock per track (drums
-   skip the transposition), stem offsets with a lock, the settings window, the stem
+1. **User:** test pitch lock (checklist in "Pitch lock"), on headphones or the
+   interface.
+2. **Phase 3.5, next items** in the order of `PLAN.md`: stem offsets with a lock, the settings window, the stem
    output format (Lossy / Lossless), BPM, count-in, key detection.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
@@ -734,9 +734,9 @@ cancel callbacks). GPU backend: Vulkan on Windows and Linux, Metal on macOS.
 - Checked in the release build on Windows with a folder of `guitarra`,
   `Guitar 2 - take`, `Batería`, `voz principal`, `teclados` and `click`: Drums,
   Vocals and Piano recognized, the two guitars orange and yellow with their file
-  names, `click` pink. Renaming not tried yet.
+  names, `click` pink.
 
-**Test checklist** (for the user):
+**Test checklist** (passed):
 1. Open a folder with Spanish or unusual stem names: kinds and colors as above.
 2. Double-click a name, type a new one, Enter: it stays after closing and reopening
    the folder, and after Reload (F5).
@@ -758,10 +758,46 @@ tests; Opus already is at about 128–160 kbps. The differences are in tooling:
 | Sample rate | 44.1 kHz as separated | always 48 kHz: stems resampled when written (most interfaces run at 48 kHz anyway) | 44.1 kHz as separated |
 | Start offset | encoder delay (~1024–2112 samples) removed only if the decoder reads the gapless info: to check with symphonia | 312-sample pre-skip, in the header, always removed | sample-exact |
 
-Claude's recommendation: **Opus at 160 kbps**: transparent, the smallest, one free
-encoder on every OS; Lossless (FLAC) covers taking stems into a DAW that does not
-read Opus. AAC is only worth its cost if the lossy stems themselves must open in
-Apple apps or any DAW.
+**Decided: Ogg Vorbis, q8 (~256 kbps).** The user's priorities were DAW
+compatibility first, then disk and quality. Opus is smaller (~29 vs ~46 MB per song)
+but fewer DAWs import it; Vorbis opens in Reaper, Cubase, Ableton, FL Studio and
+Bitwig, and at ~256 kbps it is transparent. AAC would open everywhere (Logic too) but
+has no free encoder for all three OSes. Logic and Pro Tools users can pick Lossless.
+q6 (~192 kbps, ~35 MB) is still transparent for most listeners, if disk matters more
+later.
+
+## Pitch lock
+
+Each track has a 🔒 button next to M and S. A locked track follows the tempo but
+not the transposition. Drums (including `percussion`, `bateria`) are locked by
+default; the user can toggle any track. Saved as `pitch_lock` in the session's
+`[[tracks]]`; sessions from before have no value and use the default for the kind.
+
+- **Two buses** (`mixer.rs`, `Bus`): the mixer renders the unlocked tracks into the
+  pitched bus and the locked ones into the locked bus. Each track keeps a gain ramp
+  per bus, so toggling the lock while playing fades it from one bus to the other
+  within one block instead of clicking.
+- **Two stretchers** (`stretch.rs`): two Signalsmith instances with the same
+  configuration, so the same latency; only the pitched one gets the transposition.
+  Both outputs are summed before the master gain and limiter. Seeking, loop jumps and
+  the loop crossfade apply to both buses the same way; the position tracking is
+  shared.
+- **Cost:** twice the stretcher CPU (measured earlier at ~1–1.5 % of one core on the
+  Ryzen, so ~2–3 %). A bus with no tracks still runs: ramps skip silent tracks, but
+  Signalsmith processes the silence. Fine at this cost; could be skipped later.
+- Tests: a locked 440 Hz sine stays at 440 Hz at +12 st while an unlocked one goes
+  to 880 Hz (`pitch_locked_tracks_keep_their_pitch`), and toggling ramps a track out
+  of a bus (`pitch_locked_tracks_go_to_the_locked_bus`).
+- Checked in the release build on Windows: the button shows, on for Drums only.
+  Not listened to yet.
+
+**Test checklist** (for the user):
+1. Transpose ±2 st while playing: the drums keep their pitch, the rest moves; drums
+   and the rest stay in time with each other, also at 50–75 % tempo.
+2. Toggle 🔒 on a pitched track while playing at +2 st: it changes pitch without a
+   click.
+3. Loops and seeking behave as before (no click at the loop jump).
+4. Close and reopen: the locks are kept; an older song opens with drums locked.
 
 ## Observations to investigate
 

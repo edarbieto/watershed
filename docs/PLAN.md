@@ -7,7 +7,7 @@
 | Language | Code, docs, commits and UI in English. i18n in v0.2. |
 | License | `MIT OR Apache-2.0`. No GPL dependencies, so time-stretching uses Signalsmith Stretch (MIT). |
 | Tempo / pitch | Applied to the **stereo mix**, after the mixer, so the cost does not grow with the number of stems. Real-time first; offline pre-render as an option if CPU is not enough. |
-| Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). Lossy formats were first rejected (separation artifacts plus lossy compression plus time-stretching add up); Phase 3.5 adds a choice in the app settings: **Lossy** (the default, about 5× smaller) or **Lossless** (FLAC). The lossy codec is **not decided yet**: AAC 256 kbps (the user's first idea), Opus or Vorbis; comparison in `STATUS.md`, "Lossy stem codec". Ogg Vorbis was the earlier pick. MP3 is out: its usable encoders are LGPL. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
+| Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). Lossy formats were first rejected (separation artifacts plus lossy compression plus time-stretching add up); Phase 3.5 adds a choice in the app settings: **Lossy** (the default, about 5× smaller) or **Lossless** (FLAC). The lossy codec is **Ogg Vorbis at ~256 kbps** (q8), chosen with the user over AAC and Opus for DAW compatibility (comparison in `STATUS.md`, "Lossy stem codec"). MP3 is out: its usable encoders are LGPL. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
 | Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, to be validated by a spike. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
 | Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
@@ -297,7 +297,7 @@ RAM first, then disk. In this order:
   in Spanish too (`bateria`, `voz`, `bajo`, `guitarra`, `teclado`, …). Unknown or
   duplicate stems get colors from an extra palette instead of all gray. Rename a
   track from the UI (saved in the session).
-- [ ] **Pitch lock per track.** Each track gets a pitch-lock icon; a locked track gets
+- [x] **Pitch lock per track.** Each track gets a pitch-lock icon; a locked track gets
   the tempo change but not the transposition. Locked by default for drum tracks,
   recognized by name like the stem colors (`drums`, `bateria`, …); the user can toggle
   it on any track (saved in the session). Needs two stereo buses after the mixer: the
@@ -316,10 +316,10 @@ RAM first, then disk. In this order:
   the **stem output format** (next item), the library folder and the output device.
   Later ones (separation speed, model choice, portable mode) go there too.
 - [ ] **Stem output format: Lossy or Lossless.** Two choices in the settings window:
-  **Lossy** (default, ~30–46 MB per 6-stem song instead of ~190 MB; same RAM, since
-  stems are decoded on load) and **Lossless (FLAC)**, for taking the stems into a DAW.
-  The lossy codec is still to be decided with the user (AAC 256 kbps, Opus or Vorbis,
-  see `STATUS.md`); the aim is a quality the ear cannot tell from the WAV. Lossy
+  **Lossy** (default: Ogg Vorbis q8, ~256 kbps, ~46 MB per 6-stem song instead of
+  ~190 MB; same RAM, since stems are decoded on load) and **Lossless (FLAC)**. The aim
+  is a quality the ear cannot tell from the WAV. Encoder: libvorbis (BSD, through
+  `vorbis_rs`, which bundles it); symphonia already decodes it. Lossy
   formats decode to float, so they need no common gain against clipping. Only new
   separations use the setting; existing folders are not converted.
 - [ ] **Approximate BPM** (section 3.1).
