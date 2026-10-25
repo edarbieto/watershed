@@ -1,9 +1,9 @@
-//! Separates one song with the catalog's default model into a new folder of FLAC
-//! stems plus a session, ready to open in the app. The model is downloaded into
+//! Separates one song with the catalog's default model into a new folder of stems
+//! (Ogg Vorbis, or FLAC with `--flac`) plus a session, ready to open in the app. The model is downloaded into
 //! the models cache folder on first use, unless `--model` points to a local copy.
 //!
 //! ```sh
-//! cargo run --release -p watershed-separation --example separate -- song.mp3 out-dir [--model file.gguf] [--cpu] [--memory rss.csv]
+//! cargo run --release -p watershed-separation --example separate -- song.mp3 out-dir [--model file.gguf] [--cpu] [--flac] [--memory rss.csv]
 //! ```
 //!
 //! `--memory` samples the process's resident memory every 10 ms, prints its peak
@@ -20,13 +20,16 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use watershed_separation::bsroformer::{Device, LoadOptions};
 use watershed_separation::{GgufSeparator, Separator, Stage, catalog};
+use watershed_storage::StemFormat;
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
-    let (mut cpu, mut model_file, mut memory_csv, mut paths) = (false, None, None, Vec::new());
+    let (mut cpu, mut flac, mut model_file, mut memory_csv, mut paths) =
+        (false, false, None, None, Vec::new());
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--cpu" => cpu = true,
+            "--flac" => flac = true,
             "--model" => {
                 model_file = Some(PathBuf::from(args.next().context("--model needs a file")?))
             }
@@ -37,7 +40,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
     let [song_path, out_dir] = &paths[..] else {
-        bail!("usage: separate <song> <out-dir> [--model file.gguf] [--cpu]");
+        bail!("usage: separate <song> <out-dir> [--model file.gguf] [--cpu] [--flac]");
     };
 
     let entry = catalog::default_model();
@@ -82,6 +85,11 @@ fn main() -> anyhow::Result<()> {
         &mut separator,
         Path::new(song_path),
         Path::new(out_dir),
+        if flac {
+            StemFormat::Lossless
+        } else {
+            StemFormat::Lossy
+        },
         &|stage, f| {
             if let Some(memory) = &memory {
                 memory.set_phase(stage as u8 + 1);

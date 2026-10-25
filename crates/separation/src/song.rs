@@ -1,9 +1,10 @@
-//! Separates a song file into a folder of FLAC stems that the player opens.
+//! Separates a song file into a folder of stems (Ogg Vorbis or FLAC) that the
+//! player opens.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use watershed_storage::Session;
+use watershed_storage::{Session, StemFormat};
 
 use crate::{SeparationError, Separator};
 
@@ -21,16 +22,17 @@ pub enum Stage {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SeparatedSong {
     pub folder: PathBuf,
-    /// One FLAC file per stem, in the separator's order.
+    /// One file per stem, in the separator's order.
     pub files: Vec<PathBuf>,
     /// The common gain applied to all stems to keep them under full scale, also
-    /// stored in the folder's session.
+    /// stored in the folder's session. Always 1.0 for Ogg Vorbis, which stores
+    /// floating point.
     pub stem_gain: f32,
 }
 
-/// Decodes `song`, separates it and writes one 24-bit FLAC per stem
-/// (`vocals.flac`, ...) plus a session with the common stem gain into `folder`,
-/// which must not exist yet.
+/// Decodes `song`, separates it and writes one file per stem in `format`
+/// (`vocals.ogg` or `vocals.flac`, ...) plus a session with the common stem gain
+/// into `folder`, which must not exist yet.
 ///
 /// Everything is written to a `.partial` folder next to it first and renamed at
 /// the end, so a cancelled or failed run never leaves a half-written song folder.
@@ -38,6 +40,7 @@ pub fn separate_song(
     separator: &mut dyn Separator,
     song: &Path,
     folder: &Path,
+    format: StemFormat,
     progress: &(dyn Fn(Stage, f32) + Sync),
     cancel: &(dyn Fn() -> bool + Sync),
 ) -> Result<SeparatedSong, SeparationError> {
@@ -45,13 +48,14 @@ pub fn separate_song(
         return Err(SeparationError::OutputExists(folder.to_path_buf()));
     }
     let partial = partial_folder(folder);
-    let result = write_partial(separator, song, &partial, progress, cancel).and_then(|gain| {
-        std::fs::rename(&partial, folder).map_err(|source| SeparationError::Io {
-            path: folder.to_path_buf(),
-            source,
-        })?;
-        Ok(gain)
-    });
+    let result =
+        write_partial(separator, song, &partial, format, progress, cancel).and_then(|gain| {
+            std::fs::rename(&partial, folder).map_err(|source| SeparationError::Io {
+                path: folder.to_path_buf(),
+                source,
+            })?;
+            Ok(gain)
+        });
     let stem_gain = match result {
         Ok(gain) => gain,
         Err(e) => {
@@ -68,7 +72,7 @@ pub fn separate_song(
         files: separator
             .stem_names()
             .iter()
-            .map(|name| folder.join(stem_file_name(name)))
+            .map(|name| folder.join(stem_file_name(name, format)))
             .collect(),
         stem_gain,
     })
@@ -79,6 +83,7 @@ fn write_partial(
     separator: &mut dyn Separator,
     song: &Path,
     partial: &Path,
+    format: StemFormat,
     progress: &(dyn Fn(Stage, f32) + Sync),
     cancel: &(dyn Fn() -> bool + Sync),
 ) -> Result<f32, SeparationError> {
@@ -112,9 +117,12 @@ fn write_partial(
         });
     }
 
-    let gain = watershed_dsp::gain_to_fit(&stems);
+    let gain = match format {
+        StemFormat::Lossy => 1.0,
+        StemFormat::Lossless => watershed_dsp::gain_to_fit(&stems),
+    };
     progress(Stage::Writing, 0.0);
-    // One thread per stem: the encoder is single-threaded.
+    // One thread per stem: the encoders are single-threaded.
     let written = AtomicUsize::new(0);
     std::thread::scope(|scope| {
         let handles: Vec<_> = stems
@@ -126,7 +134,11 @@ fn write_partial(
                     if cancel() {
                         return Err(SeparationError::Cancelled);
                     }
-                    watershed_dsp::write_flac(&partial.join(stem_file_name(name)), stem, gain)?;
+                    let path = partial.join(stem_file_name(name, format));
+                    match format {
+                        StemFormat::Lossy => watershed_dsp::write_vorbis(&path, stem)?,
+                        StemFormat::Lossless => watershed_dsp::write_flac(&path, stem, gain)?,
+                    }
                     let done = written.fetch_add(1, Ordering::Relaxed) + 1;
                     progress(Stage::Writing, done as f32 / names.len() as f32);
                     Ok(())
@@ -135,7 +147,7 @@ fn write_partial(
             .collect();
         handles
             .into_iter()
-            .try_for_each(|h| h.join().expect("FLAC writer panicked"))
+            .try_for_each(|h| h.join().expect("stem writer panicked"))
     })?;
     // The threads may report out of order.
     progress(Stage::Writing, 1.0);
@@ -150,8 +162,8 @@ fn write_partial(
     Ok(gain)
 }
 
-fn stem_file_name(name: &str) -> String {
-    format!("{name}.flac")
+fn stem_file_name(name: &str, format: StemFormat) -> String {
+    format!("{name}.{}", format.extension())
 }
 
 fn partial_folder(folder: &Path) -> PathBuf {
@@ -257,6 +269,7 @@ mod tests {
             &mut FakeSeparator::new(),
             &song,
             &folder,
+            StemFormat::Lossless,
             &|stage, f| stages.lock().unwrap().push((stage, f)),
             &|| false,
         )
@@ -292,6 +305,35 @@ mod tests {
     }
 
     #[test]
+    fn writes_ogg_vorbis_stems_without_a_gain() {
+        let dir = TestDir::new("ogg");
+        let song = dir.song();
+        let folder = dir.0.join("Song");
+        let separated = separate_song(
+            &mut FakeSeparator::new(),
+            &song,
+            &folder,
+            StemFormat::Lossy,
+            &|_, _| {},
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(
+            separated.files,
+            [folder.join("left.ogg"), folder.join("right.ogg")]
+        );
+        assert_eq!(separated.stem_gain, 1.0);
+        let session = Session::load_from(&Session::path_in(&folder)).unwrap();
+        assert_eq!(session.stem_gain, 1.0);
+
+        // Floating point: the left stem keeps its peak above full scale.
+        let left = watershed_dsp::decode_file(&separated.files[0]).unwrap();
+        assert_eq!(left.frames(), 44_100);
+        let peak = left.samples.iter().fold(0.0f32, |p, s| p.max(s.abs()));
+        assert!((peak - 1.5).abs() < 0.05, "{peak}");
+    }
+
+    #[test]
     fn cancelling_leaves_no_folder() {
         let dir = TestDir::new("cancel");
         let song = dir.song();
@@ -302,6 +344,7 @@ mod tests {
             &mut FakeSeparator::new(),
             &song,
             &folder,
+            StemFormat::Lossless,
             &|_, _| {},
             &|| polls.fetch_add(1, Ordering::Relaxed) >= 3,
         );
@@ -321,6 +364,7 @@ mod tests {
             &mut FakeSeparator::new(),
             &song,
             &dir.0,
+            StemFormat::Lossless,
             &|_, _| {},
             &|| false,
         );

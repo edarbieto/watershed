@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use watershed_separation::bsroformer::LoadOptions;
 use watershed_separation::{SeparationError, Separator, Stage, catalog, separate_song};
-use watershed_storage::Session;
+use watershed_storage::{Session, StemFormat};
 
 use crate::stems::song_title;
 
@@ -187,8 +187,14 @@ fn folder_name(title: &str) -> String {
 }
 
 /// Starts separating `song` into `folder` with the default model, downloading it
-/// into `models_dir` first if needed.
-pub fn start(song: PathBuf, folder: PathBuf, models_dir: PathBuf, ctx: egui::Context) -> Job {
+/// into `models_dir` first if needed, and writing the stems in `format`.
+pub fn start(
+    song: PathBuf,
+    folder: PathBuf,
+    models_dir: PathBuf,
+    format: StemFormat,
+    ctx: egui::Context,
+) -> Job {
     let title = song_title(&song);
     let progress = Arc::new(Mutex::new(Progress {
         step: Step::LoadingModel,
@@ -208,7 +214,7 @@ pub fn start(song: PathBuf, folder: PathBuf, models_dir: PathBuf, ctx: egui::Con
             progress.step = step;
         };
         let cancelled = || thread_cancel.load(Ordering::Relaxed);
-        let outcome = run(&song, &folder, &models_dir, &set, &cancelled);
+        let outcome = run(&song, &folder, &models_dir, format, &set, &cancelled);
         let _ = tx.send(outcome.map(|()| folder));
         ctx.request_repaint();
     });
@@ -225,6 +231,7 @@ fn run(
     song: &Path,
     folder: &Path,
     models_dir: &Path,
+    format: StemFormat,
     set: &(dyn Fn(Step) + Sync),
     cancel: &(dyn Fn() -> bool + Sync),
 ) -> Result<(), String> {
@@ -254,6 +261,7 @@ fn run(
         &mut separator,
         song,
         folder,
+        format,
         &|stage, fraction| {
             set(Step::Running {
                 stage,

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText};
 use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
 use watershed_dsp::Peaks;
-use watershed_storage::{Config, Session, TrackState};
+use watershed_storage::{Config, Session, StemFormat, TrackState};
 
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
@@ -123,6 +123,7 @@ pub struct WatershedApp {
     renaming: Option<(usize, String)>,
     /// Per track: whether it can be dragged in time. Locked again on every load.
     movable: Vec<bool>,
+    settings_open: bool,
 }
 
 impl WatershedApp {
@@ -159,6 +160,7 @@ impl WatershedApp {
             changed_at: None,
             renaming: None,
             movable: Vec::new(),
+            settings_open: false,
         }
     }
 
@@ -237,7 +239,13 @@ impl WatershedApp {
         match separate::target_folder(&library, &song) {
             Target::Existing(folder) => self.open(&[folder], ctx),
             Target::New(folder) => {
-                self.separating = Some(separate::start(song, folder, models_dir, ctx.clone()));
+                self.separating = Some(separate::start(
+                    song,
+                    folder,
+                    models_dir,
+                    self.config.stem_format,
+                    ctx.clone(),
+                ));
             }
         }
     }
@@ -561,6 +569,9 @@ impl WatershedApp {
             self.open(&dropped, ui.ctx());
         }
 
+        if ui.input_mut(|i| i.consume_shortcut(&SETTINGS_SHORTCUT)) {
+            self.settings_open = !self.settings_open;
+        }
         if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
@@ -734,6 +745,16 @@ impl WatershedApp {
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui
+                    .selectable_label(self.settings_open, "⚙")
+                    .on_hover_text(format!(
+                        "Settings ({})",
+                        ui.ctx().format_shortcut(&SETTINGS_SHORTCUT)
+                    ))
+                    .clicked()
+                {
+                    self.settings_open = !self.settings_open;
+                }
                 if let Some(engine) = &self.engine {
                     let mut db = gain_to_db(engine.master_gain());
                     let response = ui.add(volume_slider(&mut db)).on_hover_text(VOLUME_HINT);
@@ -746,6 +767,7 @@ impl WatershedApp {
                     ui.separator();
                 }
                 self.device_picker(ui);
+                ui.label("Output");
                 self.usage_label(ui);
                 // Last, so a long title gets what is left and is cut short instead
                 // of overlapping the controls on the right. The window title has it
@@ -943,10 +965,64 @@ impl WatershedApp {
         if response.response.clicked() {
             self.devices = output_devices();
         }
-        ui.label("Output");
         if let Some(id) = selected {
             self.switch_device(&id, ui.ctx());
         }
+    }
+
+    /// The settings window, stored in `config.toml`.
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.settings_open;
+        egui::Window::new("Settings")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(460.0)
+            .show(ctx, |ui| {
+                egui::Grid::new("settings")
+                    .num_columns(2)
+                    .spacing([16.0, 12.0])
+                    .show(ui, |ui| {
+                        ui.label("Output device");
+                        self.device_picker(ui);
+                        ui.end_row();
+
+                        ui.label("Separated songs");
+                        ui.horizontal(|ui| {
+                            let library = self.config.library_folder();
+                            let shown = library.as_deref().map_or("nowhere".into(), short_path);
+                            ui.label(shown).on_hover_text(
+                                library.map(|l| l.display().to_string()).unwrap_or_default(),
+                            );
+                            if ui.small_button("Change…").clicked() {
+                                self.pick_library();
+                            }
+                        });
+                        ui.end_row();
+
+                        ui.label("Stem format");
+                        ui.vertical(|ui| {
+                            let mut format = self.config.stem_format;
+                            ui.radio_value(
+                                &mut format,
+                                StemFormat::Lossy,
+                                "Compact: Ogg Vorbis, about 25–45 MB per song",
+                            );
+                            ui.radio_value(
+                                &mut format,
+                                StemFormat::Lossless,
+                                "Lossless: 24-bit FLAC, about 150–200 MB per song",
+                            );
+                            ui.label(RichText::new(STEM_FORMAT_NOTE).weak().small());
+                            if format != self.config.stem_format {
+                                self.config.stem_format = format;
+                                self.config.save();
+                            }
+                        });
+                        ui.end_row();
+                    });
+            });
+        self.settings_open = open;
     }
 
     fn transport(&mut self, ui: &mut egui::Ui) {
@@ -1553,6 +1629,7 @@ impl eframe::App for WatershedApp {
 
         self.update_playhead();
 
+        self.settings_window(ui.ctx());
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.add_space(4.0);
             self.top_bar(ui);
@@ -1673,6 +1750,11 @@ fn file_name(path: &std::path::Path) -> String {
 }
 
 const VOLUME_HINT: &str = "Double-click to reset to 0 dB";
+const SETTINGS_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Comma);
+const STEM_FORMAT_NOTE: &str = "For new separations. Both sound the same as the \
+    original to the ear. Ogg Vorbis opens in Reaper, Cubase, Ableton, FL Studio and \
+    Bitwig; FLAC in any DAW, Logic and Pro Tools included.";
 const MOVE_HINT: &str = "Unlock to drag this track in time, e.g. to line up stems \
     from different tools";
 const PITCH_LOCK_HINT: &str =

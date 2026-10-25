@@ -31,6 +31,28 @@ pub struct Config {
     pub recent: Vec<RecentFolder>,
     /// Where separated songs are written. `None` uses [`default_library_folder`].
     pub library_folder: Option<PathBuf>,
+    /// Format of the stems of new separations.
+    pub stem_format: StemFormat,
+}
+
+/// The format separated stems are written in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StemFormat {
+    /// Ogg Vorbis at about 256 kbps: about 4× smaller than FLAC and transparent.
+    #[default]
+    Lossy,
+    /// 24-bit FLAC, for taking the stems into any DAW.
+    Lossless,
+}
+
+impl StemFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Lossy => "ogg",
+            Self::Lossless => "flac",
+        }
+    }
 }
 
 /// The default folder for separated songs: `Watershed` in the user's music folder,
@@ -131,6 +153,7 @@ mod tests {
                 opened: 1_700_000_000,
             }],
             library_folder: Some(PathBuf::from("library")),
+            stem_format: StemFormat::Lossless,
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), config);

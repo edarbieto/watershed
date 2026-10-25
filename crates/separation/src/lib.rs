@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use watershed_dsp::{DecodeError, FlacError, ResampleError, StereoBuffer};
+use watershed_dsp::{DecodeError, FlacError, ResampleError, StereoBuffer, VorbisWriteError};
 
 pub mod bsroformer;
 pub mod catalog;
@@ -56,6 +56,8 @@ pub enum SeparationError {
     Resample(#[from] ResampleError),
     #[error("cannot write a stem: {0}")]
     Write(#[from] FlacError),
+    #[error("cannot write a stem: {0}")]
+    WriteVorbis(#[from] VorbisWriteError),
     #[error("{}: {source}", path.display())]
     Io {
         path: PathBuf,
