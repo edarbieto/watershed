@@ -1,6 +1,8 @@
 // Hide the console window on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(target_os = "macos")]
+mod alloc;
 mod app;
 mod loader;
 mod loops;
@@ -13,6 +15,10 @@ mod view;
 mod waveform;
 
 use eframe::egui;
+
+#[cfg(target_os = "macos")]
+#[global_allocator]
+static ALLOCATOR: alloc::Allocator = alloc::Allocator;
 
 fn main() -> eframe::Result {
     env_logger::init();
