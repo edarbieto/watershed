@@ -63,9 +63,9 @@ Last updated: 2026-10-24.
 - **Phase 3.5, pitch lock per track and stem offsets: done.** Tested by the user:
   work well (see "Pitch lock" and "Stem offsets" below). Not pushed yet: the user
   wants to push when Phase 3.5 is finished.
-- **Stem output format decided:** a settings window with Lossy (default, **Ogg Vorbis
-  q8, ~256 kbps**) or Lossless (FLAC). Vorbis over AAC and Opus for DAW compatibility
-  (see "Lossy stem codec" below).
+- **Phase 3.5, settings window and stem format: done, to be tested by the user**
+  (see "Settings and stem format" below). New separations write Ogg Vorbis by
+  default: 24 MB instead of 149 MB for the 4:03 test song.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -75,8 +75,9 @@ Last updated: 2026-10-24.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes and RAM done.
 
 1. **Push** when Phase 3.5 is finished (the user's request).
-2. **Phase 3.5, next items** in the order of `PLAN.md`: the settings window, the
-   stem output format (Lossy / Lossless), BPM, count-in, key detection.
+2. **User:** test the settings window (checklist in "Settings and stem format").
+3. **Phase 3.5, next items** in the order of `PLAN.md`: BPM, count-in, key
+   detection.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
@@ -765,6 +766,41 @@ Bitwig, and at ~256 kbps it is transparent. AAC would open everywhere (Logic too
 has no free encoder for all three OSes. Logic and Pro Tools users can pick Lossless.
 q6 (~192 kbps, ~35 MB) is still transparent for most listeners, if disk matters more
 later.
+
+## Settings and stem format
+
+- **Settings window** (`settings_window` in `app.rs`): the ⚙ button at the right of
+  the top bar, or Ctrl+, (Cmd+, on macOS). Output device (the top bar keeps its own
+  picker, used daily), the library folder with "Change…", and the stem format. Stored
+  in `config.toml` (`stem_format = "lossy"` or `"lossless"`).
+- **Stem format** (`StemFormat` in `watershed-storage`): Compact (Ogg Vorbis, the
+  default) or Lossless (24-bit FLAC). Only new separations use it; existing folders
+  stay as they are, and the player opens both.
+- **Ogg Vorbis writer** (`watershed_dsp::write_vorbis`): `vorbis_rs` 0.5 (BSD-3,
+  bundles libvorbis with the aoTuV tuning and libogg, both BSD-3, compiled with `cc`;
+  no bindgen; default features off, so no `getrandom`), quality 0.8 ("q8", nominally
+  ~256 kbps), blocks of 1024 frames, a fixed stream serial. Vorbis stores floating
+  point, so no common gain: `stem_gain` is 1.0 and hot stems keep their peaks
+  (test: a 1.5 peak decodes as 1.5, and the length is exact).
+- `separate_song` takes the format; `examples/separate.rs` writes Ogg Vorbis unless
+  `--flac`.
+- **Measured** on Windows (RTX 3050), the 4:03 test song: 109.9 s in all (same as
+  FLAC); **24 MB** for the six stems vs **149 MB** as FLAC. Average ~130 kbps: q8
+  is VBR, and quiet or sparse stems (piano 1.4 MB, bass 2.5 MB) take much less than
+  dense ones (drums 7.1 MB). Against the FLAC stems of the same song: same length to
+  the sample, peaks above full scale kept (guitar 1.26, drums 1.34), SNR 23–38 dB,
+  which is normal for a perceptual codec (the noise sits under the music; SNR does
+  not measure what is heard). Opened in the app: loads and plays.
+- Not tried by Claude: the settings window on screen (a synthetic click did not
+  reach egui).
+
+**Test checklist** (for the user):
+1. ⚙ and Ctrl+, open and close the window; the X closes it.
+2. Switch the output device from the window: playback moves to it.
+3. Change the library folder from the window.
+4. With Compact selected, separate a song: `.ogg` stems, about 25–45 MB. Listen
+   against the FLAC version of a song (solo a stem in each) for any difference.
+5. Choose Lossless, restart the app: still selected; a new separation writes FLAC.
 
 ## Pitch lock
 

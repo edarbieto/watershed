@@ -10,7 +10,7 @@
 | Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). Lossy formats were first rejected (separation artifacts plus lossy compression plus time-stretching add up); Phase 3.5 adds a choice in the app settings: **Lossy** (the default, about 5× smaller) or **Lossless** (FLAC). The lossy codec is **Ogg Vorbis at ~256 kbps** (q8), chosen with the user over AAC and Opus for DAW compatibility (comparison in `STATUS.md`, "Lossy stem codec"). MP3 is out: its usable encoders are LGPL. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
 | Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, to be validated by a spike. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
-| Stem storage cost | Measured with the reference tool: 24-bit FLAC takes ~170–200 MB per 6-stem song. |
+| Stem storage cost | 24-bit FLAC takes ~150–200 MB per 6-stem song; Ogg Vorbis q8 (the default) ~25 MB for the same 4 min song (measured: 24 MB vs 149 MB). |
 | Reference speed | PyTorch + CUDA on the RTX 3050 separates a ~5 min song in 73–100 s. The native `wgpu` backend is measured against this. |
 | Clipping | Stems can exceed full scale because the model works in float; they add back up to about the original mix. Not an error (MVSEP mp3s do it too). Only integer formats and the device output clip: FLAC uses the common factor above, and the master gets a light **limiter** (or default headroom) so a hot stem soloed at full volume never clips at the output. 32-bit float WAV was considered and rejected (~2× the size). |
 | Temporary separation backend | BSRoformer.cpp (MIT, ggml) + q8_0 GGUF, validated by the spikes: inaudible quantization; on macOS (Metal) faster than PyTorch MPS, on Windows (Vulkan, RTX 3050) a 5 min song in ~2 min, 1.6× slower than CUDA but on any GPU and with nothing extra to ship. Same C++ source on all platforms, compiled by `build.rs`; GPU backend per platform: **Metal** on macOS, **Vulkan** on Windows/Linux. No CUDA in the distribution (could become an optional NVIDIA build later if speed matters). CPU only as a fallback (~4× slower than real time on the 5700G), with one thread per physical core. Our wrapper sets the CPU thread count (ggml defaults to 4). Its progress and cancel callbacks drive the progress bar. |
@@ -135,8 +135,9 @@ separate step.
     folder, prefer quantized weights (q8_0 GGUF is 188 MB vs ~700 MB for the fp32
     checkpoint, with inaudible difference), keep one default model, and show in
     settings what is installed and how much it takes, with a delete button.
-  - Stems: FLAC (~170–200 MB per 6-stem song, section 0); silent stems (e.g. `other`
-    in many songs) could be skipped instead of written.
+  - Stems: Ogg Vorbis by default (~25 MB per 6-stem song), FLAC as an option
+    (~150–200 MB); silent stems (e.g. `other` in many songs) could be skipped
+    instead of written.
   - Binary: 14 MB release build today; check `opt-level`, LTO, `strip` and
     `codegen-units = 1` for distribution.
 
@@ -310,12 +311,12 @@ RAM first, then disk. In this order:
   unlocked, its waveform can be dragged in time. The offset is stored in seconds in the session (independent of the device
   rate). The mixer reads each track at `position - offset`; the song length is the
   latest track end.
-- [ ] **Settings window.** The app has no settings page yet: options live in the top
+- [x] **Settings window.** The app has no settings page yet: options live in the top
   bar (output device) or the start screen (library folder). A "Settings" button (and
   Cmd/Ctrl+,) opens a window that groups them, stored in `config.toml`. First options:
   the **stem output format** (next item), the library folder and the output device.
   Later ones (separation speed, model choice, portable mode) go there too.
-- [ ] **Stem output format: Lossy or Lossless.** Two choices in the settings window:
+- [x] **Stem output format: Lossy or Lossless.** Two choices in the settings window:
   **Lossy** (default: Ogg Vorbis q8, ~256 kbps, ~46 MB per 6-stem song instead of
   ~190 MB; same RAM, since stems are decoded on load) and **Lossless (FLAC)**. The aim
   is a quality the ear cannot tell from the WAV. Encoder: libvorbis (BSD, through
