@@ -11,6 +11,8 @@ pub enum WaveformAction {
     Seek(usize),
     /// Dragged: select these frames as a loop. Updates while the drag goes on.
     Select(usize, usize),
+    /// Dragged while the track is movable: its new offset in frames.
+    Move(i64),
 }
 
 /// What the user did on the ruler.
@@ -97,20 +99,36 @@ fn marker_color(ui: &egui::Ui) -> Color32 {
     ui.visuals().warn_fg_color
 }
 
-/// Draws a stereo waveform (left channel on top, right below) with the overlay.
-/// Returns the rect it used, so the ruler can line up with it, and what the user did
-/// on it.
+/// Draws a stereo waveform (left channel on top, right below) with the overlay,
+/// moved in time by `offset` frames. Returns the rect it used, so the ruler can line
+/// up with it, and what the user did on it. When `movable`, a drag moves the track
+/// instead of selecting a loop.
 pub fn waveform(
     ui: &mut egui::Ui,
     peaks: &[Peaks; 2],
     color: Color32,
     height: f32,
     overlay: &Overlay,
+    offset: i64,
+    movable: bool,
 ) -> (Rect, Option<WaveformAction>) {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
+    if movable {
+        painter.rect_stroke(
+            rect.shrink(0.5),
+            2.0,
+            Stroke::new(1.0, color.gamma_multiply(0.6)),
+            egui::StrokeKind::Inside,
+        );
+        if response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
+    }
 
     let timeline = Timeline::new(rect.x_range(), &overlay.visible);
     paint_loop(ui, &painter, rect, timeline, overlay.loop_region);
@@ -122,9 +140,10 @@ pub fn waveform(
     for (channel, peaks) in peaks.iter().enumerate() {
         let mid = rect.top() + rect.height() * (0.25 + 0.5 * channel as f32);
         for x in 0..columns {
-            let start = first + x * len / columns;
-            let end = first + (x + 1) * len / columns;
-            let (lo, hi) = peaks.range(start, end);
+            // Song frames of this column, then the track's frames under them.
+            let start = (first + x * len / columns) as i64 - offset;
+            let end = (first + (x + 1) * len / columns) as i64 - offset;
+            let (lo, hi) = peaks.range(start.max(0) as usize, end.max(0) as usize);
             let px = rect.left() + x as f32 + 0.5;
             let top = mid - hi.min(1.0) * half;
             let bottom = mid - lo.max(-1.0) * half;
@@ -149,7 +168,17 @@ pub fn waveform(
     );
 
     let action = response.interact_pointer_pos().and_then(|pointer| {
-        if response.dragged() {
+        if movable && response.dragged() {
+            // Measured from where the drag started, so rounding never accumulates.
+            if response.drag_started() {
+                ui.data_mut(|d| d.insert_temp(response.id, offset));
+            }
+            let start_offset = ui.data(|d| d.get_temp::<i64>(response.id))?;
+            let origin = ui.input(|i| i.pointer.press_origin())?;
+            let frames_per_point = timeline.len as f64 / f64::from(rect.width().max(1.0));
+            let delta = f64::from(pointer.x - origin.x) * frames_per_point;
+            Some(WaveformAction::Move(start_offset + delta.round() as i64))
+        } else if response.dragged() {
             let origin = ui.input(|i| i.pointer.press_origin())?;
             let (a, b) = (timeline.frame_at(origin.x), timeline.frame_at(pointer.x));
             Some(WaveformAction::Select(a.min(b), a.max(b)))

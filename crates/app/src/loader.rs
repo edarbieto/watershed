@@ -20,7 +20,8 @@ pub struct LoadedSong {
     pub files: Vec<PathBuf>,
     pub song: Arc<Song>,
     pub colors: Vec<Color32>,
-    /// Names shown for the tracks: the user's, or else the default ones.
+    /// Names shown for the tracks: the user's (set from the session by the app),
+    /// or else the default ones.
     pub names: Vec<String>,
     /// Names from the file names, used when the user clears a name.
     pub default_names: Vec<String>,
@@ -151,17 +152,6 @@ fn load(
     let (samples, peaks): (Vec<_>, Vec<_>) = decoded.into_iter().unzip();
     let kinds: Vec<StemKind> = files.iter().map(|f| StemKind::from_path(f)).collect();
     let default_names = default_names(&files, &kinds);
-    let names: Vec<String> = files
-        .iter()
-        .zip(&default_names)
-        .map(|(file, default)| {
-            let file = file.file_name().unwrap_or_default().to_string_lossy();
-            session
-                .track(&file)
-                .and_then(|t| t.name.clone())
-                .unwrap_or_else(|| default.clone())
-        })
-        .collect();
     let tracks = default_names.iter().cloned().zip(samples).collect();
 
     let song = Arc::new(Song::new(sample_rate, tracks));
@@ -184,7 +174,7 @@ fn load(
         files,
         song,
         colors: track_colors(&kinds),
-        names,
+        names: default_names.clone(),
         default_names,
         peaks,
         stem_gain: session.stem_gain,

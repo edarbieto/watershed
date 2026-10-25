@@ -30,6 +30,24 @@ impl View {
         self.duration
     }
 
+    /// Follows a change in the song's length (a track moved past the end). A view
+    /// of the whole song stays whole; a zoomed one keeps its place.
+    pub fn set_duration(&mut self, duration: f64) {
+        let duration = duration.max(0.0);
+        if duration == self.duration {
+            return;
+        }
+        let full = self.is_full();
+        self.duration = duration;
+        if full {
+            self.start = 0.0;
+            self.span = duration;
+        } else {
+            self.span = self.span.min(duration);
+            self.clamp();
+        }
+    }
+
     pub fn end(&self) -> f64 {
         self.start + self.span
     }
@@ -94,6 +112,21 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_longer_song_keeps_a_full_view_full() {
+        let mut view = View::new(100.0);
+        view.set_duration(110.0);
+        assert_eq!((view.start, view.span), (0.0, 110.0));
+
+        let mut view = View::new(100.0);
+        view.zoom(4.0, 90.0);
+        let before = (view.start, view.span);
+        view.set_duration(110.0);
+        assert_eq!((view.start, view.span), before);
+        view.set_duration(20.0);
+        assert!(view.end() <= 20.0 && view.span <= 20.0);
+    }
 
     #[test]
     fn zoom_keeps_the_anchor_in_place() {

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use crate::{AtomicF32, Samples};
 
@@ -13,6 +13,9 @@ pub struct TrackParams {
     solo: AtomicBool,
     /// Follows the tempo but not the transposition, e.g. drums.
     pitch_lock: AtomicBool,
+    /// Song frame where the track starts: positive starts it later, negative cuts
+    /// its beginning.
+    offset: AtomicI64,
 }
 
 impl Default for TrackParams {
@@ -23,6 +26,7 @@ impl Default for TrackParams {
             mute: AtomicBool::new(false),
             solo: AtomicBool::new(false),
             pitch_lock: AtomicBool::new(false),
+            offset: AtomicI64::new(0),
         }
     }
 }
@@ -58,6 +62,12 @@ impl TrackParams {
     pub fn set_pitch_lock(&self, locked: bool) {
         self.pitch_lock.store(locked, Ordering::Relaxed);
     }
+    pub fn offset(&self) -> i64 {
+        self.offset.load(Ordering::Relaxed)
+    }
+    pub fn set_offset(&self, frames: i64) {
+        self.offset.store(frames, Ordering::Relaxed);
+    }
 
     /// Left/right gains, given whether any track in the song is soloed.
     pub(crate) fn channel_gains(&self, any_solo: bool) -> [f32; 2] {
@@ -80,12 +90,14 @@ pub struct Track {
     pub params: TrackParams,
 }
 
-/// A set of stems that play in sync. All tracks have the same length.
+/// A set of stems that play in sync. All tracks hold the same number of frames;
+/// each can be moved in time by its offset.
 #[derive(Debug)]
 pub struct Song {
     pub sample_rate: u32,
     pub tracks: Vec<Track>,
-    frames: usize,
+    /// Frames in every track.
+    track_frames: usize,
 }
 
 impl Song {
@@ -111,15 +123,26 @@ impl Song {
         Self {
             sample_rate,
             tracks,
-            frames,
+            track_frames: frames,
         }
     }
 
+    /// Frames in every track, before offsets.
+    pub fn track_frames(&self) -> usize {
+        self.track_frames
+    }
+
+    /// Length of the song: up to the end of the track that ends last, offsets
+    /// included.
     pub fn frames(&self) -> usize {
-        self.frames
+        self.tracks
+            .iter()
+            .map(|t| (self.track_frames as i64 + t.params.offset()).max(0) as usize)
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn duration_secs(&self) -> f64 {
-        self.frames as f64 / f64::from(self.sample_rate)
+        self.frames() as f64 / f64::from(self.sample_rate)
     }
 }

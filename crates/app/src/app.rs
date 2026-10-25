@@ -80,8 +80,7 @@ enum Action {
 struct Restore {
     position_secs: f64,
     playing: bool,
-    params: Vec<(f32, f32, bool, bool, bool)>,
-    names: Vec<String>,
+    tracks: Vec<TrackState>,
 }
 
 pub struct WatershedApp {
@@ -122,6 +121,8 @@ pub struct WatershedApp {
     changed_at: Option<Instant>,
     /// Track whose name is being edited, and the text typed so far.
     renaming: Option<(usize, String)>,
+    /// Per track: whether it can be dragged in time. Locked again on every load.
+    movable: Vec<bool>,
 }
 
 impl WatershedApp {
@@ -157,6 +158,7 @@ impl WatershedApp {
             saved_session: None,
             changed_at: None,
             renaming: None,
+            movable: Vec::new(),
         }
     }
 
@@ -358,19 +360,9 @@ impl WatershedApp {
         self.loading = None;
         match result {
             Ok(mut loaded) => {
+                self.movable = vec![false; loaded.song.tracks.len()];
                 if let Some(restore) = self.restore.take() {
-                    if restore.names.len() == loaded.names.len() {
-                        loaded.names = restore.names;
-                    }
-                    for (track, &(gain, pan, mute, solo, pitch_lock)) in
-                        loaded.song.tracks.iter().zip(&restore.params)
-                    {
-                        track.params.set_gain(gain);
-                        track.params.set_pan(pan);
-                        track.params.set_mute(mute);
-                        track.params.set_solo(solo);
-                        track.params.set_pitch_lock(pitch_lock);
-                    }
+                    apply_track_states(&mut loaded, &restore.tracks);
                     if let Some(engine) = &mut self.engine {
                         engine.load(loaded.song.clone());
                         let frame = restore.position_secs * f64::from(engine.sample_rate());
@@ -388,7 +380,7 @@ impl WatershedApp {
                     // Write the session of the song being replaced before switching.
                     self.save_session();
                     let view = self.view;
-                    self.apply_session(&loaded);
+                    self.apply_session(&mut loaded);
                     if let Some(playing) = self.reloading.take() {
                         if view.duration() == loaded.song.duration_secs() {
                             self.view = view;
@@ -415,20 +407,9 @@ impl WatershedApp {
 
     /// Restores a newly loaded song's session (mixer, tempo, pitch, loops and
     /// position) from its folder, and sends the song to the engine.
-    fn apply_session(&mut self, loaded: &LoadedSong) {
+    fn apply_session(&mut self, loaded: &mut LoadedSong) {
         let session = Session::load_from(&session_path(loaded)).unwrap_or_default();
-        for (track, file) in loaded.song.tracks.iter().zip(&loaded.files) {
-            if let Some(state) = session.track(&file_name(file)) {
-                let params = &track.params;
-                params.set_gain(state.gain.clamp(0.0, db_to_gain(MAX_DB)));
-                params.set_pan(state.pan.clamp(-1.0, 1.0));
-                params.set_mute(state.mute);
-                params.set_solo(state.solo);
-                if let Some(locked) = state.pitch_lock {
-                    params.set_pitch_lock(locked);
-                }
-            }
-        }
+        apply_track_states(loaded, &session.tracks);
         self.loops = Loops::from_session(&session);
         self.markers = Markers::from_session(&session.markers);
         self.view = View::new(loaded.song.duration_secs());
@@ -453,25 +434,7 @@ impl WatershedApp {
     fn session(&self) -> Option<(PathBuf, Session)> {
         let loaded = self.loaded.as_ref()?;
         let engine = self.engine.as_ref()?;
-        let tracks = loaded
-            .song
-            .tracks
-            .iter()
-            .zip(&loaded.files)
-            .zip(loaded.names.iter().zip(&loaded.default_names))
-            .map(|((track, file), (name, default))| {
-                let p = &track.params;
-                TrackState {
-                    file: file_name(file),
-                    name: (name != default).then(|| name.clone()),
-                    gain: p.gain(),
-                    pan: p.pan(),
-                    mute: p.mute(),
-                    solo: p.solo(),
-                    pitch_lock: Some(p.pitch_lock()),
-                }
-            })
-            .collect();
+        let tracks = track_states(loaded);
         let session = Session {
             position: engine.position() as f64 / f64::from(engine.sample_rate()),
             tempo: engine.tempo(),
@@ -578,16 +541,7 @@ impl WatershedApp {
             self.restore = Some(Restore {
                 position_secs,
                 playing,
-                params: loaded
-                    .song
-                    .tracks
-                    .iter()
-                    .map(|t| {
-                        let p = &t.params;
-                        (p.gain(), p.pan(), p.mute(), p.solo(), p.pitch_lock())
-                    })
-                    .collect(),
-                names: loaded.names.clone(),
+                tracks: track_states(loaded),
             });
             let files = loaded.files.clone();
             self.loading = Some(loader::start(files, engine.sample_rate(), ctx.clone()));
@@ -1299,6 +1253,11 @@ impl WatershedApp {
             self.welcome(ui);
             return;
         };
+        // Moving a track past the end makes the song longer. Not while dragging, so
+        // the scale under the pointer does not change mid-drag.
+        if !ui.input(|i| i.pointer.any_down()) {
+            self.view.set_duration(loaded.song.duration_secs());
+        }
 
         let rate = f64::from(loaded.song.sample_rate);
         let position = (self.playhead.secs() * rate) as usize;
@@ -1397,6 +1356,23 @@ impl WatershedApp {
                                 if silent {
                                     ui.label(RichText::new("silent").weak().small());
                                 }
+                                let offset = params.offset();
+                                if offset != 0 {
+                                    let secs = offset as f64 / rate;
+                                    let response = ui
+                                        .add(
+                                            egui::Label::new(
+                                                RichText::new(format!("{secs:+.3} s"))
+                                                    .weak()
+                                                    .small(),
+                                            )
+                                            .sense(egui::Sense::click()),
+                                        )
+                                        .on_hover_text("Offset. Double-click to reset");
+                                    if response.double_clicked() {
+                                        params.set_offset(0);
+                                    }
+                                }
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if ui
                                         .selectable_label(params.solo(), "S")
@@ -1418,6 +1394,14 @@ impl WatershedApp {
                                         .clicked()
                                     {
                                         params.set_pitch_lock(!params.pitch_lock());
+                                    }
+                                    if let Some(movable) = self.movable.get_mut(i)
+                                        && ui
+                                            .selectable_label(*movable, "↔")
+                                            .on_hover_text(MOVE_HINT)
+                                            .clicked()
+                                    {
+                                        *movable = !*movable;
                                     }
                                 });
                             });
@@ -1456,10 +1440,21 @@ impl WatershedApp {
                     } else {
                         color.gamma_multiply(0.3)
                     };
-                    let (rect, action) = waveform(ui, peaks, color, ROW_HEIGHT, &overlay);
+                    let movable = self.movable.get(i).copied().unwrap_or(false);
+                    let (rect, action) = waveform(
+                        ui,
+                        peaks,
+                        color,
+                        ROW_HEIGHT,
+                        &overlay,
+                        params.offset(),
+                        movable,
+                    );
                     wave_x.get_or_insert(rect.x_range());
-                    if action.is_some() {
-                        wave_action = action;
+                    match action {
+                        Some(WaveformAction::Move(offset)) => params.set_offset(offset),
+                        Some(action) => wave_action = Some(action),
+                        None => {}
                     }
                 });
                 ui.add_space(4.0);
@@ -1520,7 +1515,8 @@ impl WatershedApp {
             Some(WaveformAction::Select(start, end)) => {
                 self.loops.select(start as f64 / rate, end as f64 / rate);
             }
-            None => {}
+            // Applied to its track in the row.
+            Some(WaveformAction::Move(_)) | None => {}
         }
         if let Some((i, name)) = renamed
             && let Some(loaded) = &mut self.loaded
@@ -1610,6 +1606,57 @@ impl eframe::App for WatershedApp {
 }
 
 /// Where the session of a song lives: its folder, next to the first stem.
+/// The mixer state of each track, as stored in the session.
+fn track_states(loaded: &LoadedSong) -> Vec<TrackState> {
+    let rate = f64::from(loaded.song.sample_rate);
+    loaded
+        .song
+        .tracks
+        .iter()
+        .zip(&loaded.files)
+        .zip(loaded.names.iter().zip(&loaded.default_names))
+        .map(|((track, file), (name, default))| {
+            let p = &track.params;
+            TrackState {
+                file: file_name(file),
+                name: (name != default).then(|| name.clone()),
+                gain: p.gain(),
+                pan: p.pan(),
+                mute: p.mute(),
+                solo: p.solo(),
+                pitch_lock: Some(p.pitch_lock()),
+                offset: p.offset() as f64 / rate,
+            }
+        })
+        .collect()
+}
+
+/// Applies stored track states to a newly loaded song, matched by file name so
+/// that added or removed stems keep the others' settings.
+fn apply_track_states(loaded: &mut LoadedSong, states: &[TrackState]) {
+    let rate = f64::from(loaded.song.sample_rate);
+    for (i, (track, file)) in loaded.song.tracks.iter().zip(&loaded.files).enumerate() {
+        let file = file_name(file);
+        let Some(state) = states.iter().find(|s| s.file == file) else {
+            continue;
+        };
+        let params = &track.params;
+        params.set_gain(state.gain.clamp(0.0, db_to_gain(MAX_DB)));
+        params.set_pan(state.pan.clamp(-1.0, 1.0));
+        params.set_mute(state.mute);
+        params.set_solo(state.solo);
+        if let Some(locked) = state.pitch_lock {
+            params.set_pitch_lock(locked);
+        }
+        if state.offset.is_finite() {
+            params.set_offset((state.offset * rate).round() as i64);
+        }
+        if let Some(name) = &state.name {
+            loaded.names[i] = name.clone();
+        }
+    }
+}
+
 fn session_path(loaded: &LoadedSong) -> PathBuf {
     let folder = loaded.files[0]
         .parent()
@@ -1626,6 +1673,8 @@ fn file_name(path: &std::path::Path) -> String {
 }
 
 const VOLUME_HINT: &str = "Double-click to reset to 0 dB";
+const MOVE_HINT: &str = "Unlock to drag this track in time, e.g. to line up stems \
+    from different tools";
 const PITCH_LOCK_HINT: &str =
     "Pitch lock: the track follows the tempo but not the transposition (drums by default)";
 

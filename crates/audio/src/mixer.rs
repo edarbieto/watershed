@@ -58,14 +58,14 @@ impl Voice {
 
     /// Adds `out.len() / 2` stereo frames of `bus` starting at `position` into `out`.
     ///
-    /// Gain changes are ramped linearly across the block to avoid clicks. Frames past
-    /// the end of the song are left untouched.
+    /// Gain changes are ramped linearly across the block to avoid clicks. Each track
+    /// is read at `position - offset`; frames outside a track are left untouched.
     pub fn mix_into(&mut self, position: usize, bus: Bus, out: &mut [f32]) {
         let frames = out.len() / 2;
-        let available = self.song.frames().saturating_sub(position).min(frames);
-        if available == 0 {
+        if position >= self.song.frames() {
             return;
         }
+        let track_frames = self.song.track_frames() as i64;
         let any_solo = self.song.tracks.iter().any(|t| t.params.solo());
 
         for (track, current) in self.song.tracks.iter().zip(self.gains.iter_mut()) {
@@ -81,10 +81,19 @@ impl Voice {
                 (target[0] - start[0]) / frames as f32,
                 (target[1] - start[1]) / frames as f32,
             ];
-            let src = track.samples.frames(position..position + available);
-            for (i, (o, s)) in out.as_chunks_mut::<2>().0.iter_mut().zip(src).enumerate() {
+            // The block's frames that fall inside the track, and where they start in it.
+            let first = position as i64 - track.params.offset();
+            let begin = (-first).clamp(0, frames as i64) as usize;
+            let end = (track_frames - first).clamp(0, frames as i64) as usize;
+            if begin >= end {
+                continue;
+            }
+            let src_start = (first + begin as i64) as usize;
+            let src = track.samples.frames(src_start..src_start + (end - begin));
+            let dst = &mut out.as_chunks_mut::<2>().0[begin..end];
+            for (i, (o, s)) in dst.iter_mut().zip(src).enumerate() {
                 // Ends exactly on the target so the next block continues seamlessly.
-                let t = (i + 1) as f32;
+                let t = (begin + i + 1) as f32;
                 o[0] += s[0] * (start[0] + step[0] * t);
                 o[1] += s[1] * (start[1] + step[1] * t);
             }
@@ -189,6 +198,35 @@ mod tests {
         let mut out = vec![0.0; 8 * 2];
         voice.mix_into(0, Bus::Locked, &mut out);
         assert!(out[0] > 0.4 && out[14] == 0.0, "{out:?}");
+    }
+
+    #[test]
+    fn offsets_move_tracks_in_time() {
+        let song = Song::new(
+            48_000,
+            vec![("a".into(), vec![1.0; 20]), ("b".into(), vec![0.5; 20])],
+        );
+        let song = Arc::new(song);
+        // b starts 4 frames later, so the song is 4 frames longer.
+        song.tracks[1].params.set_offset(4);
+        assert_eq!(song.frames(), 14);
+        let mut voice = Voice::new(song.clone());
+        let left: Vec<f32> = render(&mut voice, 8, 6)
+            .iter()
+            .step_by(2)
+            .copied()
+            .collect();
+        assert_eq!(left, [1.5, 1.5, 0.5, 0.5, 0.5, 0.5]);
+
+        // A negative offset cuts the start of b.
+        song.tracks[1].params.set_offset(-3);
+        assert_eq!(song.frames(), 10);
+        let left: Vec<f32> = render(&mut voice, 5, 4)
+            .iter()
+            .step_by(2)
+            .copied()
+            .collect();
+        assert_eq!(left, [1.5, 1.5, 1.0, 1.0]);
     }
 
     #[test]

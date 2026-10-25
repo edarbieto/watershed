@@ -70,6 +70,13 @@ pub struct TrackState {
     /// pitch lock) uses the default for its kind: locked for drums.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pitch_lock: Option<bool>,
+    /// Seconds the track is moved by: positive starts it later.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub offset: f64,
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
 }
 
 impl Default for TrackState {
@@ -82,6 +89,7 @@ impl Default for TrackState {
             mute: false,
             solo: false,
             pitch_lock: None,
+            offset: 0.0,
         }
     }
 }
@@ -183,6 +191,7 @@ mod tests {
                     mute: true,
                     solo: false,
                     pitch_lock: Some(true),
+                    offset: -0.25,
                 },
                 TrackState {
                     file: "drums.flac".into(),
