@@ -52,7 +52,9 @@ Last updated: 2026-10-24.
   song: GPU memory 6.8 → 1.5 GB, process peak 2.7 → 1.7 GB, 77–79 → 72 s, stems
   bit-identical. Playing: −20 % (stems stored as 24-bit). Tested by the user in the
   app: sounds the same, stays fluid, and the fans no longer spin up while separating.
-  Windows still to check (speed with Vulkan, Task Manager numbers).
+  **Measured on Windows** (see "RAM"): the 4:03 test song in 109 s (was 145 s with the
+  same example in Phase 3.2), process peak 1.4 GB, GPU memory 1.2 GB of the RTX
+  3050's 6 GB with nothing spilled to shared memory.
 - **GPU usage in the top bar: done** (see "CPU, GPU and RAM display" below). Tested
   by the user on macOS; Windows and Linux only compile-checked.
 - **Compact stem codec decided:** Ogg Vorbis by default, FLAC as an option. MP3 later,
@@ -65,26 +67,28 @@ Last updated: 2026-10-24.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes and RAM done.
 
-1. **On Windows** (checks of this session's work):
-   - Separate a song and compare its time with Phase 3.4 (4:03 song in 127 s from
-     drop to open on the RTX 3050). The patch that makes K and V contiguous before
-     flash attention runs on Vulkan too; on Metal it made separation faster, on
-     Vulkan it is unmeasured. If slower, limit it to Metal.
-   - The GPU number in the top bar should match Task Manager's GPU column for
-     Watershed; RAM should match its "Memory" column.
-   - Peak and settled RAM while separating and after opening the stems.
-2. **Phase 3.5, next items** in the order of `PLAN.md`: stem names and colors, stem
-   offsets with a lock, the compact stem format (Ogg Vorbis by default), BPM, key
-   detection.
-3. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
+1. **On Windows, left to check by the user:** the GPU number in the top bar should
+   match Task Manager's GPU column for Watershed, and RAM its "Memory" column (the
+   user saw RAM stay under 2 GB while separating). Speed and memory while separating
+   are measured (see "RAM").
+2. **Phase 3.5, next items** in the order of `PLAN.md`: stem names and colors, pitch
+   lock per track (drums skip the transposition), stem offsets with a lock, the
+   compact stem format (Ogg Vorbis by default), BPM, count-in, key detection.
+3. **Gentler separation (idea, not decided):** the user would like separation not to
+   push the machine to the limit. The GPU runs at ~97 % for the whole separation on
+   both machines. Options discussed: a pause after each chunk (a "speed" setting:
+   e.g. full / balanced / quiet), a lower priority for the separation thread, smaller
+   chunks (less GPU memory, same load). Windows showed no memory pressure (no spill
+   to shared GPU memory), so this is about heat, fans and a busy GPU, not RAM.
+4. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
    separated stems to disk instead of holding all six (fits with the Ogg Vorbis
    work), fewer input copies in the C++ wrapper (~190 MiB), a computed overlap
    counter instead of a buffer (~95 MiB), separating in a child process.
-4. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
+5. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
    (open question below).
-5. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+6. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
-6. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), disk optimization
+7. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), disk optimization
    (design principles), portable builds (section 9).
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
@@ -402,6 +406,24 @@ Stems bit-identical (md5) after every step. What changed:
 **In the app** (user, MacBook, "Karaoke"): 0.2 GB idle; 0.9 GB with the model loaded;
 1.7 GB separating, 2.1 GB peak while writing the stems; then down to 0.9 and about
 0.6 GB over a few minutes with the stems open; 0.5 GB when reopening them.
+
+**Windows** (RTX 3050 6 GB, Vulkan, driver 610.62; the 4:03 test song "Illusion Is
+Mine", `examples/separate.rs --memory`, GPU sampled with `nvidia-smi` every 250 ms and
+the Windows "GPU Process Memory" / "GPU Engine" counters every ~1 s):
+
+| | |
+|---|---|
+| Time | 108.9 s (separating 105.8 s, writing 2.7 s); Phase 3.2: 145 s |
+| Process resident memory, peak | 1372 MiB while separating, 709 MiB writing, 201 MiB after freeing the model |
+| GPU compute buffer (ggml log) | 855 MiB |
+| GPU dedicated memory of the process | 1207 MiB peak |
+| GPU shared memory of the process | 129 MiB peak (no spill: the card had ~2.9 GB free) |
+| GPU use | 97 % on average, above 90 % for 95 % of the samples |
+| GPU temperature / power | 62 °C / 69 W peak |
+
+So the contiguous K/V patch does not slow Vulkan down; it likely explains part of the
+gain (not isolated: the queue and free changes landed in the same build). GPU memory
+before the patches was not measured on Windows.
 
 **Left:** right after separating, ~900 MiB of C++ buffers (the wrapper's input copy,
 the padded input, the overlap counter, the result) stay in malloc's cache: the C++

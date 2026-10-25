@@ -69,6 +69,10 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 - [x] **Waveform zoom** and horizontal scroll, to place markers and loop ends precisely.
 - [ ] **Approximate BPM**, estimated when a song is opened (see section 3.1), plus tap
   tempo to correct it. Shown next to the tempo slider as the BPM at the current tempo.
+- [ ] **Pitch lock per track**: transposition skips drum tracks by default (pitch-shifted
+  drums sound wrong and gain nothing). See Phase 3.5.
+- [ ] **Count-in** before playback, from the BPM and a time signature (4/4 by default).
+  See Phase 3.5.
 
 ### Sessions
 - [x] Each song folder keeps its **session** in a file next to the stems
@@ -293,6 +297,14 @@ RAM first, then disk. In this order:
   in Spanish too (`bateria`, `voz`, `bajo`, `guitarra`, `teclado`, …). Unknown or
   duplicate stems get colors from an extra palette instead of all gray. Rename a
   track from the UI (saved in the session).
+- [ ] **Pitch lock per track.** Each track gets a pitch-lock icon; a locked track gets
+  the tempo change but not the transposition. Locked by default for drum tracks,
+  recognized by name like the stem colors (`drums`, `bateria`, …); the user can toggle
+  it on any track (saved in the session). Needs two stereo buses after the mixer: the
+  unlocked tracks go through a stretcher with the transposition, the locked ones
+  through a second stretcher with the same tempo and no transposition, then both are
+  summed before the master. Both stretchers share the same configuration, so their
+  latency matches and they stay aligned; the second one costs another ~1 % of a core.
 - [ ] **Stem offsets.** Stems from other tools can start at different moments. Each
   track gets a lock icon (locked by default); unlocked, its waveform can be dragged
   in time. The offset is stored in seconds in the session (independent of the device
@@ -308,6 +320,16 @@ RAM first, then disk. In this order:
   through an encoder binary downloaded at runtime. Lossy formats decode to float, so
   they need no common gain against clipping.
 - [ ] **Approximate BPM** (section 3.1).
+- [ ] **Count-in.** An optional click count before playback starts, so the user can
+  come in on time. Its speed is the song's BPM at the current tempo; the bar is set by
+  a time signature, **4/4 by default** (one bar of four clicks, the first accented).
+  The time signature cannot be detected reliably (and songs like Opeth's change it
+  often), so the user sets it: numerator and denominator (e.g. 3/4, 6/8, 7/8). Settings
+  next to the transport: count-in on/off and the time signature, saved in the session;
+  the BPM comes from the item above and its tap tempo. Plays when playback starts (play
+  button, space, ▶ on a loop or marker), not when a loop wraps around. The clicks are
+  synthesized (no sample files) and mixed after the stretcher, so they are not
+  time-stretched or transposed. Without a BPM yet, the count-in is disabled.
 - [ ] **Key detection** (e.g. "A major / F# minor"): chroma (energy per pitch class)
   from the pitched stems, without drums, compared against major and minor key
   profiles (Krumhansl–Schmuckler). Relative keys share the same notes, so the
