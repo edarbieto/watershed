@@ -4581,6 +4581,7 @@ dependencies = [
  "watershed-dsp",
  "watershed-separation",
  "watershed-storage",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

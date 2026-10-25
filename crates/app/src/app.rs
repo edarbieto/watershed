@@ -792,15 +792,25 @@ impl WatershedApp {
         });
     }
 
-    /// CPU and RAM used by the process, refreshed every [`usage::INTERVAL`].
+    /// CPU, GPU and RAM used by the process, refreshed every [`usage::INTERVAL`].
     fn usage_label(&mut self, ui: &mut egui::Ui) {
         let Some(sample) = self.usage.sample() else {
             return;
         };
+        let gpu = sample
+            .gpu_percent
+            .map_or_else(|| "  —".to_owned(), |percent| format!("{percent:3.0}"));
+        let gpu_note = if usage::WHOLE_GPU {
+            "GPU is the busiest GPU engine's share of time, for the whole GPU: macOS does \
+             not report it per app."
+        } else {
+            "GPU is the busiest GPU engine's share of time (shown as — when the driver \
+             does not report it)."
+        };
         ui.separator();
         ui.label(
             RichText::new(format!(
-                "CPU {:4.1} %   RAM {:.0} MiB ({:.1} %)",
+                "CPU {:4.1} %   GPU {gpu} %   RAM {:.0} MiB ({:.1} %)",
                 sample.cpu_percent,
                 sample.memory as f64 / (1024.0 * 1024.0),
                 sample.memory_percent
@@ -809,11 +819,11 @@ impl WatershedApp {
             .monospace()
             .size(10.0),
         )
-        .on_hover_text(
+        .on_hover_text(format!(
             "Used by Watershed as a whole (all its windows and threads). CPU is a share \
              of all cores, averaged over the last second; RAM is the memory it holds, and \
-             its share of the installed RAM.",
-        );
+             its share of the installed RAM. {gpu_note}"
+        ));
     }
 
     fn recent_menu(&mut self, ui: &mut egui::Ui) {

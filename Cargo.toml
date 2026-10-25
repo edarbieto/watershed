@@ -35,6 +35,7 @@ symphonia = { version = "0.6", features = ["mp3", "aac", "isomp4", "alac"] }
 thiserror = "2"
 toml = "1"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Performance"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

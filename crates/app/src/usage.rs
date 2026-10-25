@@ -1,6 +1,10 @@
-//! CPU and memory used by the Watershed process, sampled about once per second.
-//! Operating systems measure this per process, which includes all its windows and
-//! threads (UI, audio, loading).
+//! CPU, GPU and memory used by the Watershed process, sampled about once per
+//! second. Operating systems measure this per process, which includes all its
+//! windows and threads (UI, audio, loading); see [`gpu`] for the GPU's exceptions.
+
+mod gpu;
+
+pub use gpu::WHOLE_GPU;
 
 use std::time::{Duration, Instant};
 
@@ -14,7 +18,10 @@ pub const INTERVAL: Duration = Duration::from_secs(1);
 pub struct Sample {
     /// Share of the whole machine (all cores), in percent.
     pub cpu_percent: f32,
-    /// Resident memory, in bytes.
+    /// The busiest GPU engine's share of time, in percent, if the system reports it.
+    pub gpu_percent: Option<f32>,
+    /// Memory in use, in bytes: on macOS the footprint, so it matches Activity
+    /// Monitor's "Memory" column; elsewhere the resident size, like Task Manager.
     pub memory: u64,
     /// Share of the installed memory, in percent.
     pub memory_percent: f32,
@@ -24,6 +31,7 @@ pub struct Usage {
     system: System,
     pid: Option<Pid>,
     cores: usize,
+    gpu: gpu::Gpu,
     last: Option<Instant>,
     sample: Option<Sample>,
 }
@@ -36,6 +44,7 @@ impl Usage {
             system,
             pid: sysinfo::get_current_pid().ok(),
             cores: std::thread::available_parallelism().map_or(1, |n| n.get()),
+            gpu: gpu::Gpu::new(),
             last: None,
             sample: None,
         }
@@ -65,6 +74,7 @@ impl Usage {
             false,
             ProcessRefreshKind::nothing().with_cpu().with_memory(),
         );
+        let gpu_percent = self.gpu.sample();
         if first {
             return;
         }
@@ -72,11 +82,47 @@ impl Usage {
             return;
         };
         let total = self.system.total_memory().max(1);
+        let memory = footprint().unwrap_or_else(|| process.memory());
         self.sample = Some(Sample {
             // sysinfo reports a share of one core, up to 100 % per core.
             cpu_percent: process.cpu_usage() / self.cores as f32,
-            memory: process.memory(),
-            memory_percent: process.memory() as f32 / total as f32 * 100.0,
+            gpu_percent,
+            memory,
+            memory_percent: memory as f32 / total as f32 * 100.0,
         });
     }
+}
+
+/// The process's physical memory footprint on macOS.
+#[cfg(target_os = "macos")]
+fn footprint() -> Option<u64> {
+    // `rusage_info_v0` from <sys/resource.h>.
+    #[repr(C)]
+    #[derive(Default)]
+    struct RusageInfoV0 {
+        uuid: [u8; 16],
+        user_time: u64,
+        system_time: u64,
+        pkg_idle_wkups: u64,
+        interrupt_wkups: u64,
+        pageins: u64,
+        wired_size: u64,
+        resident_size: u64,
+        phys_footprint: u64,
+        proc_start_abstime: u64,
+        proc_exit_abstime: u64,
+    }
+    unsafe extern "C" {
+        fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut RusageInfoV0) -> i32;
+    }
+    let mut info = RusageInfoV0::default();
+    let pid = i32::try_from(std::process::id()).ok()?;
+    // SAFETY: flavor 0 (RUSAGE_INFO_V0) fills exactly this struct.
+    let status = unsafe { proc_pid_rusage(pid, 0, &mut info) };
+    (status == 0).then_some(info.phys_footprint)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn footprint() -> Option<u64> {
+    None
 }
