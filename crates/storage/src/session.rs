@@ -57,6 +57,9 @@ impl Default for Session {
 #[serde(default)]
 pub struct TrackState {
     pub file: String,
+    /// Name given by the user; `None` shows the name from the file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// Linear gain: 1.0 is 0 dB.
     pub gain: f32,
     /// -1.0 is full left, 1.0 full right.
@@ -69,6 +72,7 @@ impl Default for TrackState {
     fn default() -> Self {
         Self {
             file: String::new(),
+            name: None,
             gain: 1.0,
             pan: 0.0,
             mute: false,
@@ -168,6 +172,7 @@ mod tests {
             tracks: vec![
                 TrackState {
                     file: "vocals.flac".into(),
+                    name: Some("Lead vocals".into()),
                     gain: 0.5,
                     pan: -0.3,
                     mute: true,

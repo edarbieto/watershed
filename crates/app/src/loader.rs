@@ -5,12 +5,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 
-use eframe::egui;
+use eframe::egui::{self, Color32};
 use watershed_audio::{Samples, Song};
 use watershed_dsp::Peaks;
 use watershed_storage::Session;
 
-use crate::stems::{StemKind, song_title};
+use crate::stems::{StemKind, default_names, song_title, track_colors};
 
 pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "ogg", "m4a", "aac", "aiff"];
 
@@ -19,7 +19,11 @@ pub struct LoadedSong {
     pub title: String,
     pub files: Vec<PathBuf>,
     pub song: Arc<Song>,
-    pub kinds: Vec<StemKind>,
+    pub colors: Vec<Color32>,
+    /// Names shown for the tracks: the user's, or else the default ones.
+    pub names: Vec<String>,
+    /// Names from the file names, used when the user clears a name.
+    pub default_names: Vec<String>,
     /// Left and right peaks of each track.
     pub peaks: Vec<[Peaks; 2]>,
     /// The session's [`Session::stem_gain`], already undone in `song`; kept so the
@@ -146,20 +150,19 @@ fn load(
     let decoded = decoded.into_iter().collect::<Result<Vec<_>, _>>()?;
     let (samples, peaks): (Vec<_>, Vec<_>) = decoded.into_iter().unzip();
     let kinds: Vec<StemKind> = files.iter().map(|f| StemKind::from_path(f)).collect();
-    let tracks = files
+    let default_names = default_names(&files, &kinds);
+    let names: Vec<String> = files
         .iter()
-        .zip(&kinds)
-        .zip(samples)
-        .map(|((path, kind), samples)| {
-            let name = kind.label().map(str::to_owned).unwrap_or_else(|| {
-                path.file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned()
-            });
-            (name, samples)
+        .zip(&default_names)
+        .map(|(file, default)| {
+            let file = file.file_name().unwrap_or_default().to_string_lossy();
+            session
+                .track(&file)
+                .and_then(|t| t.name.clone())
+                .unwrap_or_else(|| default.clone())
         })
         .collect();
+    let tracks = default_names.iter().cloned().zip(samples).collect();
 
     let song = Arc::new(Song::new(sample_rate, tracks));
 
@@ -176,7 +179,9 @@ fn load(
         title,
         files,
         song,
-        kinds,
+        colors: track_colors(&kinds),
+        names,
+        default_names,
         peaks,
         stem_gain: session.stem_gain,
     })

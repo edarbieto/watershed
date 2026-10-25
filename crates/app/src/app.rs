@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use eframe::egui::{self, Align, Key, Layout, Rect, RichText};
+use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText};
 use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
 use watershed_dsp::Peaks;
 use watershed_storage::{Config, Session, TrackState};
@@ -24,6 +24,7 @@ const SCROLLBAR_HEIGHT: f32 = 8.0;
 const ZOOM_STEP: f64 = 1.5;
 const CONTROLS_WIDTH: f32 = 240.0;
 const PAN_SLIDER_WIDTH: f32 = 40.0;
+const TRACK_NAME_WIDTH: f32 = 140.0;
 const MIN_DB: f32 = -60.0;
 const MAX_DB: f32 = 6.0;
 /// Tempo slider range, in percent of the original speed.
@@ -80,6 +81,7 @@ struct Restore {
     position_secs: f64,
     playing: bool,
     params: Vec<(f32, f32, bool, bool)>,
+    names: Vec<String>,
 }
 
 pub struct WatershedApp {
@@ -118,6 +120,8 @@ pub struct WatershedApp {
     saved_session: Option<Session>,
     /// When the session first differed from `saved_session`.
     changed_at: Option<Instant>,
+    /// Track whose name is being edited, and the text typed so far.
+    renaming: Option<(usize, String)>,
 }
 
 impl WatershedApp {
@@ -152,6 +156,7 @@ impl WatershedApp {
             last_loop: None,
             saved_session: None,
             changed_at: None,
+            renaming: None,
         }
     }
 
@@ -352,8 +357,11 @@ impl WatershedApp {
         };
         self.loading = None;
         match result {
-            Ok(loaded) => {
+            Ok(mut loaded) => {
                 if let Some(restore) = self.restore.take() {
+                    if restore.names.len() == loaded.names.len() {
+                        loaded.names = restore.names;
+                    }
                     for (track, &(gain, pan, mute, solo)) in
                         loaded.song.tracks.iter().zip(&restore.params)
                     {
@@ -446,10 +454,12 @@ impl WatershedApp {
             .tracks
             .iter()
             .zip(&loaded.files)
-            .map(|(track, file)| {
+            .zip(loaded.names.iter().zip(&loaded.default_names))
+            .map(|((track, file), (name, default))| {
                 let p = &track.params;
                 TrackState {
                     file: file_name(file),
+                    name: (name != default).then(|| name.clone()),
                     gain: p.gain(),
                     pan: p.pan(),
                     mute: p.mute(),
@@ -572,6 +582,7 @@ impl WatershedApp {
                         (p.gain(), p.pan(), p.mute(), p.solo())
                     })
                     .collect(),
+                names: loaded.names.clone(),
             });
             let files = loaded.files.clone();
             self.loading = Some(loader::start(files, engine.sample_rate(), ctx.clone()));
@@ -1347,13 +1358,16 @@ impl WatershedApp {
         let mut wave_x = None;
         let any_solo = loaded.song.tracks.iter().any(|t| t.params.solo());
 
+        let mut renamed = None;
+
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for ((track, kind), peaks) in loaded
+            for (i, ((track, &color), peaks)) in loaded
                 .song
                 .tracks
                 .iter()
-                .zip(&loaded.kinds)
+                .zip(&loaded.colors)
                 .zip(&loaded.peaks)
+                .enumerate()
             {
                 let params = &track.params;
                 let audible = !params.mute() && (!any_solo || params.solo());
@@ -1365,7 +1379,16 @@ impl WatershedApp {
                         Layout::top_down(Align::Min),
                         |ui| {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(&track.name).color(kind.color()).strong());
+                                if let Some(name) =
+                                    track_name(ui, &mut self.renaming, i, &loaded.names[i], color)
+                                {
+                                    let name = name.trim();
+                                    let default = &loaded.default_names[i];
+                                    renamed = Some((
+                                        i,
+                                        if name.is_empty() { default } else { name }.to_owned(),
+                                    ));
+                                }
                                 if silent {
                                     ui.label(RichText::new("silent").weak().small());
                                 }
@@ -1417,9 +1440,9 @@ impl WatershedApp {
                     );
 
                     let color = if audible {
-                        kind.color()
+                        color
                     } else {
-                        kind.color().gamma_multiply(0.3)
+                        color.gamma_multiply(0.3)
                     };
                     let (rect, action) = waveform(ui, peaks, color, ROW_HEIGHT, &overlay);
                     wave_x.get_or_insert(rect.x_range());
@@ -1486,6 +1509,11 @@ impl WatershedApp {
                 self.loops.select(start as f64 / rate, end as f64 / rate);
             }
             None => {}
+        }
+        if let Some((i, name)) = renamed
+            && let Some(loaded) = &mut self.loaded
+        {
+            loaded.names[i] = name;
         }
     }
 }
@@ -1586,6 +1614,41 @@ fn file_name(path: &std::path::Path) -> String {
 }
 
 const VOLUME_HINT: &str = "Double-click to reset to 0 dB";
+
+/// A track's name, which a double-click turns into a text field. Returns the new
+/// name when the edit is confirmed (Enter or clicking elsewhere); Escape cancels.
+fn track_name(
+    ui: &mut egui::Ui,
+    renaming: &mut Option<(usize, String)>,
+    index: usize,
+    name: &str,
+    color: Color32,
+) -> Option<String> {
+    if let Some((i, text)) = renaming
+        && *i == index
+    {
+        let response = ui.add(egui::TextEdit::singleline(text).desired_width(TRACK_NAME_WIDTH));
+        if !response.has_focus() && !response.lost_focus() {
+            response.request_focus();
+        }
+        if response.lost_focus() {
+            let cancelled = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            let text = std::mem::take(text);
+            *renaming = None;
+            return (!cancelled).then_some(text);
+        }
+        return None;
+    }
+    let response = ui
+        .add(
+            egui::Label::new(RichText::new(name).color(color).strong()).sense(egui::Sense::click()),
+        )
+        .on_hover_text("Double-click to rename");
+    if response.double_clicked() {
+        *renaming = Some((index, name.to_owned()));
+    }
+    None
+}
 
 /// Sliders only sense drags, so `Response::double_clicked` is always false on them.
 /// This adds click sensing to the same widget to detect a double-click for reset.
