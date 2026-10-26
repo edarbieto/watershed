@@ -61,8 +61,7 @@ Last updated: 2026-10-24.
 - **Phase 3.5, stem names and colors: done.** Tested by the user (see "Stem names and
   colors" below).
 - **Phase 3.5, pitch lock per track and stem offsets: done.** Tested by the user:
-  work well (see "Pitch lock" and "Stem offsets" below). Not pushed yet: the user
-  wants to push when Phase 3.5 is finished.
+  work well (see "Pitch lock" and "Stem offsets" below).
 - **Phase 3.5, settings window and stem format: done, to be tested by the user**
   (see "Settings and stem format" below). New separations write Ogg Vorbis by
   default: 24 MB instead of 149 MB for the 4:03 test song.
@@ -72,11 +71,17 @@ Last updated: 2026-10-24.
 
 ## Next steps
 
-**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes and RAM done.
+**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
+names, pitch lock, offsets, settings and stem format done; BPM, count-in and key
+detection left.
 
-1. **Push** when Phase 3.5 is finished (the user's request).
-2. **User:** test the settings window (checklist in "Settings and stem format").
-3. **Phase 3.5, next items** in the order of `PLAN.md`: BPM, count-in, key
+1. **On the MacBook** (the work moves there next): `git pull`, then the first build
+   compiles `vorbis_rs`'s bundled libvorbis with `cc` (Xcode tools, nothing to
+   install). Check there: the settings window (checklist in "Settings and stem
+   format", Cmd+,), a separation in Ogg Vorbis (size and time on Metal), pitch lock
+   and stem offsets with the trackpad (drag, pinch zoom while ↔ is on), and the
+   renaming of tracks.
+2. **Phase 3.5, next items** in the order of `PLAN.md`: BPM, count-in, key
    detection.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
