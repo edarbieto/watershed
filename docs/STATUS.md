@@ -69,7 +69,7 @@ Last updated: 2026-10-28.
 - **Phase 3.5, approximate BPM: done.** Tested by the user: passes the checklist
   (see "Approximate BPM" below).
 - **Phase 3.5, time signature and beat grid: done.** Tested by the user: works.
-  **Snap to the grid: done, to be tested by the user** (see "Beat grid" below).
+  **Snap to the grid: done.** Tested by the user: works well (see "Beat grid" below).
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -82,12 +82,11 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Test snapping** (checklist in "Beat grid").
-2. **Phase 3.5, next items** in the order of `PLAN.md`: click and count-in (left,
+1. **Phase 3.5, next items** in the order of `PLAN.md`: click and count-in (left,
    right or both channels), then key detection.
-3. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
+2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
-4. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
+3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
    the Rectangle test **on battery**, with both renderers.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
@@ -890,7 +889,7 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   Karaoke 0.334 s, Cada hogar 0.551 s, No Dejes Que 0.341 s. On Afuera, zoomed in,
   the bar lines fall on the kick and the guitar enters right on bar 17.
 
-**Snap test checklist** (for the user):
+**Snap test checklist** (passed):
 1. Click a waveform with the magnet on: the playhead jumps to the nearest line; zoom
    in and it lands on beats.
 2. Drag the playhead along the time ruler: it moves freely.
