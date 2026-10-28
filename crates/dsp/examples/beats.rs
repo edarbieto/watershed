@@ -1,13 +1,13 @@
 //! Tracks the beats of some audio files, as if they were the stems of one song, and
 //! prints how the local tempo moves: `cargo run --release -p watershed-dsp --example
-//! beats -- [--bpm 138] drums.flac bass.flac ...`.
+//! beats -- [--bpm 138] drums.flac bass.flac ...`. Files named `vocals` weigh less.
 
 use std::time::Instant;
 
-use watershed_dsp::{OnsetEnvelope, decode_file};
+use watershed_dsp::{OnsetEnvelope, VOCALS_TEMPO_WEIGHT, decode_file};
 
 /// Beats per printed line of the tempo curve.
-const BEATS_PER_LINE: usize = 32;
+const BEATS_PER_LINE: usize = 16;
 
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -23,7 +23,18 @@ fn main() {
     let mut envelope = OnsetEnvelope::default();
     for file in &args {
         match decode_file(file.as_ref()) {
-            Ok(audio) => envelope.add(&OnsetEnvelope::compute(&audio.samples, audio.sample_rate)),
+            Ok(audio) => {
+                // As the app does, by file name only.
+                let weight = if file.to_lowercase().contains("vocals") {
+                    VOCALS_TEMPO_WEIGHT
+                } else {
+                    1.0
+                };
+                envelope.add_weighted(
+                    &OnsetEnvelope::compute(&audio.samples, audio.sample_rate),
+                    weight,
+                );
+            }
             Err(e) => {
                 eprintln!("{file}: {e}");
                 std::process::exit(1);

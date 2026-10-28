@@ -9,6 +9,11 @@
 
 use realfft::RealFftPlanner;
 
+/// Weight of a vocal stem in the sum of a song's envelopes, against 1 for the
+/// other stems. Singing follows the beat loosely: on its own the vocal stem gave a
+/// wrong tempo on several test songs, and in Change's soft bridge, where it is the
+/// loudest stem, it pulled the tempo from 130 to 140.
+pub const VOCALS_TEMPO_WEIGHT: f32 = 0.25;
 /// Envelope frames per second, about.
 const ENVELOPE_RATE: f64 = 100.0;
 /// Compression of the magnitudes before the flux, so quiet hits count too.
@@ -59,7 +64,9 @@ const CURVE_SPAN: f64 = 0.15;
 /// Step between the tempos it tries, in natural log (about 0.25 %).
 const CURVE_STEP: f64 = 0.0025;
 /// Seconds of onsets each point of the curve is measured over, and between points.
-const CURVE_WINDOW_SECS: f64 = 8.0;
+/// Short enough for a sudden drop: with 6–8 s, the windows across the start of
+/// Change's soft bridge (140 to 130 BPM) mixed both tempos and the beats gained one.
+const CURVE_WINDOW_SECS: f64 = 5.0;
 const CURVE_HOP_SECS: f64 = 1.0;
 /// Beat periods summed to score a tempo in a window.
 const CURVE_BEATS: usize = 4;
@@ -149,6 +156,11 @@ impl OnsetEnvelope {
 
     /// Adds another envelope at the same rate, e.g. of another stem of the song.
     pub fn add(&mut self, other: &Self) {
+        self.add_weighted(other, 1.0);
+    }
+
+    /// Adds another envelope at the same rate, its values times `weight`.
+    pub fn add_weighted(&mut self, other: &Self, weight: f32) {
         if self.values.is_empty() {
             self.rate = other.rate;
             self.start = other.start;
@@ -157,7 +169,7 @@ impl OnsetEnvelope {
             self.values.resize(other.values.len(), 0.0);
         }
         for (value, add) in self.values.iter_mut().zip(&other.values) {
-            *value += add;
+            *value += add * weight;
         }
     }
 
@@ -333,9 +345,11 @@ impl OnsetEnvelope {
 /// The local beat period at each frame of `onsets` (scaled as the beat tracker
 /// does), in frames, within [`CURVE_SPAN`] of `bpm`. The tempo of each window of
 /// [`CURVE_WINDOW_SECS`] scores like [`refine`], relative to the window's best and
-/// times how strong its onsets are (`strength`, 0 to 1), so a guitar alone counts
-/// but a fade-out barely does; then the path through the windows with the best
-/// total is chosen, paying for each change of tempo (Viterbi).
+/// times its confidence: how strong its onsets are (`strength`, 0 to 1), so a
+/// guitar alone counts but a fade-out barely does, and how much its best tempo
+/// stands out, so noise (feedback ringing out) has no say. Then the path through
+/// the windows with the best total is chosen, paying for each change of tempo
+/// (Viterbi): where no window has a say, the tempo holds.
 fn tempo_curve(onsets: &[f64], strength: &[f64], rate: f64, bpm: f64) -> Vec<f64> {
     let candidates: Vec<f64> = {
         let (low, high) = (bpm * (1.0 - CURVE_SPAN), bpm * (1.0 + CURVE_SPAN));
@@ -367,7 +381,15 @@ fn tempo_curve(onsets: &[f64], strength: &[f64], rate: f64, bpm: f64) -> Vec<f64
                 })
                 .collect();
             let best = scores.iter().fold(0.0f64, |a, &s| a.max(s));
-            let weight = strength[start..end].iter().sum::<f64>() / (end - start) as f64;
+            let mean = scores.iter().sum::<f64>() / scores.len() as f64;
+            let strength = strength[start..end].iter().sum::<f64>() / (end - start) as f64;
+            // How much the best tempo stands out: noise matches all about the same.
+            let contrast = if best > 0.0 {
+                (best - mean) / best
+            } else {
+                0.0
+            };
+            let weight = strength * contrast;
             if best > 0.0 {
                 scores.iter().map(|s| s / best * weight).collect()
             } else {
@@ -715,6 +737,50 @@ mod tests {
             intro < 0.01 && band < 0.003,
             "intro {intro} s, band {band} s"
         );
+    }
+
+    /// With 8 s windows the beats gained two here; at 120 they still gain one.
+    const BRIDGE_BPM: f64 = 125.0;
+
+    #[test]
+    fn follows_a_sudden_drop_without_gaining_a_beat() {
+        // A loud band at 140 BPM, a soft bridge at 125 from 20 s, the band again
+        // at 140 from 40 s. In the bridge a riff plays on beats 1 and 3 and
+        // halfway through beat 2: dotted notes, which fit no beat well.
+        let tempo = |t: f64| {
+            if (20.0..40.0).contains(&t) {
+                BRIDGE_BPM
+            } else {
+                140.0
+            }
+        };
+        let mut beats = vec![0.5];
+        while *beats.last().unwrap() < 59.0 {
+            let t = *beats.last().unwrap();
+            beats.push(t + 60.0 / tempo(t));
+        }
+        let mut clicks = Vec::new();
+        for (k, w) in beats.windows(2).enumerate() {
+            if !(20.0..40.0).contains(&w[0]) || k % 2 == 0 {
+                clicks.push(w[0]);
+            } else if k % 4 == 1 {
+                clicks.push((w[0] + w[1]) / 2.0);
+            }
+        }
+        let rate = 44_100;
+        let mut audio = clicks_at(&clicks, rate, 60.0);
+        let bridge = 20 * 2 * rate as usize..40 * 2 * rate as usize;
+        for sample in &mut audio[bridge] {
+            *sample *= 0.1;
+        }
+        let found = OnsetEnvelope::compute(&audio, rate).track_beats(140.0);
+        for (from, to) in [(1.0, 19.0), (42.0, 58.0)] {
+            let miss = worst_miss(&beats, &found, from, to);
+            assert!(miss < 0.01, "{from}–{to} s: missed by {miss} s");
+        }
+        // As many beats as the song has, so the bars after the bridge line up.
+        let count = |beats: &[f64]| beats.iter().filter(|t| (1.0..58.0).contains(*t)).count();
+        assert_eq!(count(&found), count(&beats));
     }
 
     #[test]

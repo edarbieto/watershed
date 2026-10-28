@@ -128,7 +128,13 @@ fn load(
 
     // Each stem is packed and its peaks computed in its own thread, so the
     // full-size f32 copies never all exist at once.
-    type Decoded = (Samples, [Peaks; 2], Option<OnsetEnvelope>, Option<Chroma>);
+    /// A stem's onsets come with their weight in the song's sum.
+    type Decoded = (
+        Samples,
+        [Peaks; 2],
+        Option<(OnsetEnvelope, f32)>,
+        Option<Chroma>,
+    );
     let decoded: Vec<Result<Decoded, String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
             .iter()
@@ -138,6 +144,12 @@ fn load(
                 // sum was right where single stems, drums included, were sometimes
                 // off by half. The instrumental repeats the others.
                 let for_tempo = *kind != StemKind::Instrumental || kinds.len() == 1;
+                // Singing follows the beat loosely.
+                let tempo_weight = if *kind == StemKind::Vocals && kinds.len() > 1 {
+                    watershed_dsp::VOCALS_TEMPO_WEIGHT
+                } else {
+                    1.0
+                };
                 // The key comes from the pitched stems: drums only blur it.
                 let for_key = for_tempo && (*kind != StemKind::Drums || kinds.len() == 1);
                 scope.spawn(move || {
@@ -150,8 +162,10 @@ fn load(
                         audio.samples.iter_mut().for_each(|s| *s *= compensation);
                     }
                     let peaks = Peaks::stereo(&audio.samples, Peaks::DEFAULT_FRAMES_PER_BUCKET);
-                    let onsets = for_tempo
-                        .then(|| OnsetEnvelope::compute(&audio.samples, audio.sample_rate));
+                    let onsets = for_tempo.then(|| {
+                        let onsets = OnsetEnvelope::compute(&audio.samples, audio.sample_rate);
+                        (onsets, tempo_weight)
+                    });
                     let chroma =
                         for_key.then(|| Chroma::compute(&audio.samples, audio.sample_rate));
                     let samples = Samples::from_f32(&audio.samples);
@@ -174,8 +188,8 @@ fn load(
     for (track_samples, track_peaks, track_onsets, track_chroma) in decoded {
         samples.push(track_samples);
         peaks.push(track_peaks);
-        if let Some(track_onsets) = track_onsets {
-            onsets.add(&track_onsets);
+        if let Some((track_onsets, weight)) = track_onsets {
+            onsets.add_weighted(&track_onsets, weight);
         }
         if let Some(track_chroma) = track_chroma {
             chroma.add(&track_chroma);

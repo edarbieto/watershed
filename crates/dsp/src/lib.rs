@@ -14,7 +14,7 @@ pub use flac::{FlacError, gain_to_fit, write_flac};
 pub use key::{Chroma, Key, KeyEstimate};
 pub use peaks::Peaks;
 pub use resample::{ResampleError, resample};
-pub use tempo::OnsetEnvelope;
+pub use tempo::{OnsetEnvelope, VOCALS_TEMPO_WEIGHT};
 pub use vorbis::{VorbisWriteError, write_vorbis};
 
 /// Stereo audio with interleaved `[left, right, left, right, ...]` samples.
