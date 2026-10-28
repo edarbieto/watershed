@@ -45,6 +45,9 @@ const FIRST_BEAT_SLACK: f64 = 0.33;
 /// beats of `lag` frames is `TIGHTNESS · ln(lag / period)²`, against onsets scaled to
 /// a standard deviation of 1. Ellis's value; at 100 it locked onto double tempo.
 const TIGHTNESS: f64 = 680.0;
+/// The beat tracker looks for the song's tempo this far around the one it is
+/// given, as a fraction: a tapped or typed BPM can be a few percent off.
+const TRACK_SPAN: f64 = 0.1;
 /// Beats each tracked beat is smoothed over.
 const SMOOTH_BEATS: usize = 8;
 /// Weight in the smoothing of a beat with no onset, against onsets scaled to a
@@ -167,25 +170,7 @@ impl OnsetEnvelope {
             }
             bpm += BPM_STEP;
         }
-        let guess = best?;
-
-        let mut best = guess;
-        let mut best_score = f64::MIN;
-        let mut bpm = guess * (1.0 - REFINE_SPAN);
-        while bpm <= guess * (1.0 + REFINE_SPAN) {
-            let beat = period(bpm);
-            let score: f64 = (1..=REFINE_BEATS)
-                .map(|k| k as f64 * beat)
-                .take_while(|&lag| lag < max_lag as f64)
-                .map(at)
-                .sum();
-            if score > best_score {
-                best_score = score;
-                best = bpm;
-            }
-            bpm += BPM_STEP / 5.0;
-        }
-        Some(best)
+        Some(refine(&acf, rate, max_lag, best?, REFINE_SPAN))
     }
 
     /// Seconds of the first beat at `bpm`: the beats are placed where a pulse
@@ -265,6 +250,13 @@ impl OnsetEnvelope {
             *value /= deviation;
         }
 
+        // The tempo given picks the beat (not half or double); the audio, the exact
+        // pace: a tempo a few percent off would pull the beats away from the song's.
+        let slowest = 60.0 / (bpm * (1.0 - TRACK_SPAN)) * rate;
+        let max_lag = (onsets.len() / 2).min((slowest * REFINE_BEATS as f64).ceil() as usize);
+        let acf = autocorrelation(&onsets, max_lag + 2);
+        let bpm = refine(&acf, rate, max_lag, bpm, TRACK_SPAN);
+
         let period = 60.0 / bpm * rate;
         let min_lag = ((period / 2.0).round() as usize).max(1);
         let max_lag = ((period * 2.0).round() as usize).max(min_lag);
@@ -304,6 +296,29 @@ impl OnsetEnvelope {
         let weights: Vec<f64> = frames.iter().map(|&f| onsets[f] + SILENT_WEIGHT).collect();
         smooth(&raw, &weights, SMOOTH_BEATS)
     }
+}
+
+/// The tempo within `span` (a fraction) of `guess` whose first [`REFINE_BEATS`]
+/// beat periods best match the autocorrelation `acf` of an envelope at `rate`.
+fn refine(acf: &[f64], rate: f64, max_lag: usize, guess: f64, span: f64) -> f64 {
+    let at = |lag: f64| interpolate(acf, lag);
+    let mut best = guess;
+    let mut best_score = f64::MIN;
+    let mut bpm = guess * (1.0 - span);
+    while bpm <= guess * (1.0 + span) {
+        let beat = 60.0 / bpm * rate;
+        let score: f64 = (1..=REFINE_BEATS)
+            .map(|k| k as f64 * beat)
+            .take_while(|&lag| lag < max_lag as f64)
+            .map(at)
+            .sum();
+        if score > best_score {
+            best_score = score;
+            best = bpm;
+        }
+        bpm += BPM_STEP / 5.0;
+    }
+    best
 }
 
 /// Where the peak around `values[i]` really is, in frames from `i` (-0.5 to 0.5):
@@ -533,6 +548,10 @@ mod tests {
         let found = envelope.track_beats(bpm);
         let miss = worst_miss(&times, &found, 1.0, 39.0);
         assert!(miss < 0.003, "{bpm} BPM: missed by {miss} s");
+        // Also from a tempo a little off, as a tap can give.
+        let found = envelope.track_beats(bpm * 1.06);
+        let miss = worst_miss(&times, &found, 1.0, 39.0);
+        assert!(miss < 0.003, "{bpm} × 1.06 BPM: missed by {miss} s");
         // A steady grid would be off by far more.
         let first = envelope.first_beat(bpm).unwrap();
         let steady: Vec<f64> = (0..100).map(|k| first + k as f64 * 60.0 / bpm).collect();
