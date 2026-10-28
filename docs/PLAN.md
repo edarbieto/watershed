@@ -342,7 +342,9 @@ RAM first, then disk. In this order:
   scope. As built (with the user): a **bar ruler** under the time ruler, like
   Ableton's, which can be dragged; nothing is drawn before bar 1, so a free intro
   stays clear; and a **Grid** switch turns the grid off and greys out the BPM, for
-  songs without a steady beat.
+  songs without a steady beat. Then **snap**: a magnet toggle (on by default) makes a
+  click on a waveform move the playhead to the nearest grid line; the time ruler
+  stays free.
 - [ ] **Click and count-in.** A metronome that follows the grid while playing, on/off,
   with the first beat of each bar accented. The user chooses where it sounds: **left,
   right or both** channels (e.g. the click in one ear and the song in the other).

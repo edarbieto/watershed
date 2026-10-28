@@ -68,8 +68,8 @@ Last updated: 2026-10-28.
   of 149 MB for the 4:03 test song; on Metal it took about the usual time (not timed).
 - **Phase 3.5, approximate BPM: done.** Tested by the user: passes the checklist
   (see "Approximate BPM" below).
-- **Phase 3.5, time signature and beat grid: done, to be tested by the user** (see
-  "Beat grid" below).
+- **Phase 3.5, time signature and beat grid: done.** Tested by the user: works.
+  **Snap to the grid: done, to be tested by the user** (see "Beat grid" below).
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -82,7 +82,7 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Test the beat grid** (checklist in "Beat grid").
+1. **Test snapping** (checklist in "Beat grid").
 2. **Phase 3.5, next items** in the order of `PLAN.md`: click and count-in (left,
    right or both channels), then key detection.
 3. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
@@ -880,11 +880,24 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   Dragging the bar ruler moves the grid; a double-click goes back to the estimate.
 - **Session:** `grid`, `beats_per_bar`, `beat_unit`, `grid_start` (only when set by
   the user).
+- **Snap** (asked by the user after testing the grid, like Reaper): with the magnet
+  on (the default, `snap_to_grid` in `config.toml`), a click on a waveform moves the
+  playhead to the nearest grid line drawn, so the zoom sets the precision (bars when
+  zoomed out, beats when zoomed in). The time ruler never snaps (click or drag), and
+  neither do loop selections. egui's fonts have no magnet emoji, so the toggle is
+  drawn (`magnet_button`).
 - First beats found on the test songs: Afuera 1.125 s, On Most Surfaces 1.081 s,
   Karaoke 0.334 s, Cada hogar 0.551 s, No Dejes Que 0.341 s. On Afuera, zoomed in,
   the bar lines fall on the kick and the guitar enters right on bar 17.
 
-**Test checklist** (for the user):
+**Snap test checklist** (for the user):
+1. Click a waveform with the magnet on: the playhead jumps to the nearest line; zoom
+   in and it lands on beats.
+2. Drag the playhead along the time ruler: it moves freely.
+3. Magnet off: clicks land where you click; restart the app: it stays off.
+4. Grid off: clicks never snap.
+
+**Test checklist** (passed):
 1. Open songs you know and zoom in: do the bar lines fall on the "1"? If the grid is
    a beat or two off, drag the bar ruler or use "1 here".
 2. A song with a free intro: put bar 1 where the beat starts; nothing is drawn
