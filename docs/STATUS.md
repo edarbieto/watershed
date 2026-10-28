@@ -76,8 +76,9 @@ Last updated: 2026-10-28.
 - **Phase 3.5, key detection: done.** Checked by the user against the songs they
   know (see "Key detection" below): meant as a rough hint, and that is enough.
 - **Phase 3.5, dynamic tempo: done, being tuned with the user** (see "Dynamic
-  tempo" below). First test: works; Change's intro was wrong, now fixed with a
-  tempo curve; the middle section and the ending still to check by ear.
+  tempo" below). Change's intro and its soft bridge (2:31) were wrong, both fixed
+  from the user's marks; to listen again. Next test song: Tool's "46 & 2" (tempo
+  and time signature changes, see "Next steps").
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -90,8 +91,12 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Dynamic tempo: the user listens** (checklist in "Dynamic tempo" below), then
-   the **song info panel** (`PLAN.md`), which can reuse the tracked beats.
+1. **Dynamic tempo:** the user listens to Change again (intro and bridge fixed),
+   then tries **Tool's "46 & 2"**: more tempo changes and time signature changes
+   (the drum solo is said to be in 7/8). Ideas discussed, not designed yet:
+   time-signature change marks on the bar ruler (from a bar on, n/m), and short
+   bars (e.g. one bar of 1/4 for a pause or a pickup). Then the **song info
+   panel** (`PLAN.md`), which can reuse the tracked beats.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -987,10 +992,17 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   much as the band. First the exact pace within ±10 % of the song's BPM (the
   user's value only picks the beat, not half or double: from 130 on Change it
   dropped 34 beats before this). Then a **tempo curve** (`tempo_curve`): for each
-  8 s window every 1 s, tempos within ±15 % scored on the window's
+  5 s window every 1 s, tempos within ±15 % scored on the window's
   autocorrelation (4 beat periods), relative to the window's best and times the
-  window's onset strength (local / global deviation, at most 1), chained by
-  Viterbi with a cost of 55 · ln(ratio)² per change. Then Ellis's (2007) dynamic
+  window's confidence: onset strength (local / global deviation, at most 1) times
+  contrast ((best − mean) / best over the tempos tried, ~0 for noise), chained by
+  Viterbi with a cost of 55 · ln(ratio)² per change; with no confident window the
+  tempo holds.
+- **Vocals weigh 0.25** in the onset sum (`VOCALS_TEMPO_WEIGHT`, applied by the
+  loader to `StemKind::Vocals` when other stems exist; the `beats` example by file
+  name). Singing follows the beat loosely: alone it gave wrong tempos on several
+  songs (BPM table), and in Change's bridge, where it is the loudest stem, the sum
+  read 69/138 with it and 130.4 without. Then Ellis's (2007) dynamic
   programming with the local period p(t): score(t) = onset(t) + max over lags in
   [p/2, 2p] of score(t − lag) − 680 · ln(lag / p)², followed back from the best end.
   Each beat is then refined to a fraction of a frame (parabola through the peak) and
@@ -1007,14 +1019,26 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   (both put the intro back at ~137). Now: bars 1–2 at 122.5–123 (within 17 ms of
   the user's 122 grid), bars 3–8 at 122–125, the band from bar 9 (0:16) at 131 →
   134 → 137. Same result from a BPM of 122 or 137.
-- **Still to check by ear on Change:** the middle section (guitar riff almost alone,
-  ~2:42–2:57; the curve dips to ~125 there, the riff's notes are 0.70 s apart
-  against 0.735 in the intro) and the ending (4:40 on, the curve rises to ~150).
+- **Change's bridge** (found by the user: "from 2:31 it goes wild"): a bar starts
+  at 2:31.50 and the bridge is ~130 BPM (the user's steady 130 grid fits it
+  roughly). The tracker was right up to there (bar 87.1 at 2:31.50, +2 ms), then
+  ran on at ~139 for 3 s and gained a beat, so from then on the "1" was on beat 2
+  (the beats themselves later fell on the drums again, within ±25 ms). Causes: the
+  vocals (above) and the 8 s windows mixing 140 and 130 around the change. Now:
+  bar 87.1 at 2:31.50, 94.1 at 2:44.42 (on the user's 130 grid), 103.1 at
+  3:01.09, the band's first hit back (drums, bass and guitar together; exactly
+  16 bars of 130 after 2:31.50). Windows of 4 and 5 s both do it; 6 s lost the
+  beat at the end of the bridge instead. The test
+  `follows_a_sudden_drop_without_gaining_a_beat` (140 → 125 with a dotted riff)
+  fails with 8 s windows; a drop to 120 still gains a beat.
+- **Change's ending**: the drums stop at 4:44.5, then guitar feedback (onsets
+  every 0.1 s, no beat); the curve keeps the tempo of the last fill (~150–158).
+  Harmless: there is nothing to click to.
 - **Measured** (`cargo run --release -p watershed-dsp --example beats -- <stems>`;
   spread of the local tempo from its 5th to 95th percentile): Karaoke 0.9 %, No
-  Dejes Que 1.5 %, Afuera 1.8 %, Cada hogar 2.2 %, On Most Surfaces 2.3 %, Change
-  **18.7 %** (122 in the intro, 136–143 with the band, speeding up around
-  1:52–2:20 and 3:15–4:20). Against
+  Dejes Que 1.5 %, Afuera 1.8 %, Cada hogar 1.7 %, On Most Surfaces 2.3 %, Change
+  **17 %** (122 in the intro, 136–143 with the band, speeding up around
+  1:52–2:20 and 3:15–4:20, ~130 in the bridge at 2:31–3:00). Against
   the steady grid, the tracked beats of steady songs drift slowly: Afuera ends 80 ms
   early, No Dejes Que goes from −67 to +61 ms. That is the band (or a BPM a hair
   off), and what this feature is for.
