@@ -67,9 +67,9 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
   and Reaper's shortcut, `M`). A section runs from one marker to the next, or to the
   end of the song. Each marker has ▶ (play from here) and loop (loop its section).
 - [x] **Waveform zoom** and horizontal scroll, to place markers and loop ends precisely.
-- [ ] **Approximate BPM**, estimated when a song is opened (see section 3.1), plus tap
+- [x] **Approximate BPM**, estimated when a song is opened (see section 3.1), plus tap
   tempo to correct it. Shown next to the tempo slider as the BPM at the current tempo.
-- [ ] **Pitch lock per track**: transposition skips drum tracks by default (pitch-shifted
+- [x] **Pitch lock per track**: transposition skips drum tracks by default (pitch-shifted
   drums sound wrong and gain nothing). See Phase 3.5.
 - [ ] **Count-in** before playback, from the BPM and a time signature (4/4 by default).
   See Phase 3.5.
@@ -82,12 +82,12 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
 - [x] Simple session library: recently opened folders, kept in the app config.
 - [ ] Export individual stems or the current mix to WAV.
 
-### 3.1 BPM estimation (idea, not scheduled)
+### 3.1 BPM estimation (done in Phase 3.5)
 
-Cost: **moderate, about one or two work sessions**, no new heavy dependencies.
-1. Onset strength: STFT of the drums stem (or the sum of all stems when there is none)
-   with `realfft`, and the spectral flux (how much energy rises from one frame to the
-   next), which peaks on hits.
+1. Onset strength: STFT of every stem with `realfft`, and the spectral flux (how much
+   energy rises from one frame to the next), which peaks on hits; summed over the
+   stems. The plan was the drums stem alone, but on the test songs the sum was more
+   reliable (see `STATUS.md`, "Approximate BPM").
 2. Tempo: autocorrelation of that curve over lags of 60–200 BPM; the strongest
    periodic lag is the beat period. A prior centered around 120 BPM picks between
    candidates.
@@ -323,7 +323,7 @@ RAM first, then disk. In this order:
   `vorbis_rs`, which bundles it); symphonia already decodes it. Lossy
   formats decode to float, so they need no common gain against clipping. Only new
   separations use the setting; existing folders are not converted.
-- [ ] **Approximate BPM** (section 3.1).
+- [x] **Approximate BPM** (section 3.1).
 - [ ] **Count-in.** An optional click count before playback starts, so the user can
   come in on time. Its speed is the song's BPM at the current tempo; the bar is set by
   a time signature, **4/4 by default** (one bar of four clicks, the first accented).

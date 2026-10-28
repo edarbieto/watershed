@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-24.
+Last updated: 2026-10-28.
 
 ## Where we are
 
@@ -62,26 +62,23 @@ Last updated: 2026-10-24.
   colors" below).
 - **Phase 3.5, pitch lock per track and stem offsets: done.** Tested by the user:
   work well (see "Pitch lock" and "Stem offsets" below).
-- **Phase 3.5, settings window and stem format: done, to be tested by the user**
-  (see "Settings and stem format" below). New separations write Ogg Vorbis by
-  default: 24 MB instead of 149 MB for the 4:03 test song.
+- **Phase 3.5, settings window and stem format: done.** Tested by the user on macOS
+  (see "Settings and stem format" below), along with pitch lock, offsets with the
+  trackpad and renaming. New separations write Ogg Vorbis by default: 24 MB instead
+  of 149 MB for the 4:03 test song; on Metal it took about the usual time (not timed).
+- **Phase 3.5, approximate BPM: done, to be tested by the user** (see "Approximate
+  BPM" below).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps
 
-**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
-names, pitch lock, offsets, settings and stem format done; BPM, count-in and key
-detection left.
+**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
+count-in and key detection.
 
-1. **On the MacBook** (the work moves there next): `git pull`, then the first build
-   compiles `vorbis_rs`'s bundled libvorbis with `cc` (Xcode tools, nothing to
-   install). Check there: the settings window (checklist in "Settings and stem
-   format", Cmd+,), a separation in Ogg Vorbis (size and time on Metal), pitch lock
-   and stem offsets with the trackpad (drag, pinch zoom while ↔ is on), and the
-   renaming of tracks.
-2. **Phase 3.5, next items** in the order of `PLAN.md`: BPM, count-in, key
+1. **Test the BPM** (checklist in "Approximate BPM").
+2. **Phase 3.5, next items** in the order of `PLAN.md`: count-in, then key
    detection.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
@@ -806,6 +803,51 @@ later.
 4. With Compact selected, separate a song: `.ogg` stems, about 25–45 MB. Listen
    against the FLAC version of a song (solo a stem in each) for any difference.
 5. Choose Lossless, restart the app: still selected; a new separation writes FLAC.
+
+## Approximate BPM
+
+The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
+75 % shows 90).
+
+- **Estimate** (`watershed_dsp::OnsetEnvelope`, `tempo.rs`): per stem, the loader
+  computes an onset envelope at ~100 frames per second (Hann-windowed FFT of 2048
+  samples, log-compressed magnitudes, spectral flux), from the samples already at the
+  device rate; the envelopes of all stems are summed (the instrumental is skipped
+  when other stems are there, since it repeats them). The tempo is the period where
+  the envelope best matches itself (autocorrelation, 40–240 BPM, weighted toward
+  120 BPM so half or double the beat lose), refined with the sum over 16 beat
+  periods for sub-frame precision. Under 10 s or silence: no estimate.
+- **Cost:** ~110 ms per 4–5 min stem in release, in the stems' own loader threads;
+  no extra copy of the audio.
+- **Correcting it** (`bpm.rs`): drag or type the value, ½ and ×2 for half or double
+  errors, Tap (or T) to tap the beat (from the 3rd tap; up to 8 averaged; a 2 s pause
+  starts a new count; taps at 75 % speed are scaled back to the original tempo), ↺
+  back to the estimate. The user's value is saved as `bpm` in the session (at the
+  original speed); the estimate is not saved, it is computed on every load.
+- **Measured** with `cargo run --release -p watershed-dsp --example bpm -- <files>`
+  on the MacBook's test songs (BS-RoFormer SW stems, and MVSEP mp3s for the last):
+
+  | Song | Sum of stems | Drums alone | Single stems off |
+  |---|---|---|---|
+  | Afuera | 125.9 | **63.0** | guitar 189, other 133.6 |
+  | On Most Surfaces | 133.7 | 133.7 | vocals 128.9 |
+  | Karaoke | 127.0 | 127.0 | other 63.5, vocals 103 |
+  | Cada hogar | 150.0 | 150.0 | other, piano, vocals |
+  | No Dejes Que… | 134.1 | 134.1 | piano 89.4 |
+  | Change (In the House of Flies) | 137.0 | 137.1 | bass, guitar, other, piano |
+
+  The sum agreed with most stems on every song, while the drums alone gave half the
+  beat on one; so the plan's "drums stem first" was dropped. Not checked against a
+  known tempo yet: the user's ear decides (Change is often listed as ~69 or ~138).
+- Tests: clicks at 72, 97, 120 and 143.5 BPM at 44.1 and 48 kHz within 0.5 BPM;
+  silence and short audio give none; taps, halving and the reset (`bpm.rs`).
+
+**Test checklist** (for the user):
+1. Open a few songs you know: is the BPM right, or half/double? (½ and ×2 fix it.)
+2. Move the tempo slider: the BPM follows (e.g. 75 % shows three quarters).
+3. Tap (button or T) along with the music, also at 75 %: the BPM settles on the beat.
+4. Close and reopen the song: your value is kept; ↺ goes back to the estimate.
+5. Loading feels as fast as before.
 
 ## Pitch lock
 
