@@ -43,6 +43,8 @@ pub struct Session {
     /// Where bar 1 starts, set by the user; `None` uses the estimate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grid_start: Option<f64>,
+    /// The grid follows the song's own beats instead of a steady BPM.
+    pub dynamic_tempo: bool,
     /// Key of the song at its original pitch, set by the user (e.g. `"F#m"`, `"Eb"`);
     /// `None` uses the estimate.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,6 +74,7 @@ impl Default for Session {
             beats_per_bar: 4,
             beat_unit: 4,
             grid_start: None,
+            dynamic_tempo: false,
             key: None,
             click: false,
             count_in: false,
@@ -241,6 +244,7 @@ mod tests {
             beats_per_bar: 7,
             beat_unit: 8,
             grid_start: Some(3.25),
+            dynamic_tempo: true,
             key: Some("F#m".into()),
             click: true,
             count_in: true,

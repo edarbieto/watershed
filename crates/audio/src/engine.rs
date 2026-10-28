@@ -7,12 +7,12 @@ use cpal::{ErrorKind, FromSample, SampleFormat, SizedSample, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::click::{
-    Beats, ClickChannels, ClickParams, ClickSound, Clicker, CountIn, channels_index, sound_index,
+    ClickChannels, ClickParams, ClickSound, Clicker, CountIn, channels_index, sound_index,
 };
 use crate::limiter::Limiter;
 use crate::mixer::{MAX_BLOCK, Voice};
 use crate::stretch::{MAX_SEMITONES, MAX_TEMPO, MIN_TEMPO, Stretcher};
-use crate::{AtomicF32, Song};
+use crate::{AtomicF32, Beats, Song};
 
 /// How long pause and resume fade, in seconds. Avoids clicks.
 const FADE_SECS: f32 = 0.01;
@@ -69,6 +69,15 @@ fn describe(device: &cpal::Device) -> Option<OutputDevice> {
 enum Command {
     Load(Box<Voice>),
     Seek(usize),
+    Beats(Option<Box<Beats>>),
+}
+
+/// What the audio thread hands back to be freed on the UI thread. Only held until
+/// it is dropped, never read.
+#[allow(dead_code)]
+enum Garbage {
+    Voice(Box<Voice>),
+    Beats(Box<Beats>),
 }
 
 /// State shared between the UI and the audio thread.
@@ -118,11 +127,13 @@ impl Shared {
 pub struct Engine {
     _stream: cpal::Stream,
     commands: Producer<Command>,
-    garbage: Consumer<Box<Voice>>,
+    garbage: Consumer<Garbage>,
     shared: Arc<Shared>,
     device: OutputDevice,
     sample_rate: u32,
     song: Option<Arc<Song>>,
+    /// The beats last sent to the audio thread.
+    beats: Option<Beats>,
 }
 
 impl Engine {
@@ -185,6 +196,7 @@ impl Engine {
             device: info,
             sample_rate: config.sample_rate,
             song: None,
+            beats: None,
         })
     }
 
@@ -328,9 +340,12 @@ impl Engine {
     }
 
     /// The song's beats, in frames at the engine's rate; `None` silences the click
-    /// and the count-in.
-    pub fn set_beats(&self, beats: Option<Beats>) {
-        self.shared.click.set_beats(beats);
+    /// and the count-in. Cheap when they did not change.
+    pub fn set_beats(&mut self, beats: Option<Beats>) {
+        if beats != self.beats {
+            self.beats = beats.clone();
+            self.send(Command::Beats(beats.map(Box::new)));
+        }
     }
 
     pub fn set_click_sound(&self, sound: ClickSound) {
@@ -411,7 +426,7 @@ where
 /// Everything the audio callback owns. Nothing in here allocates after construction.
 struct CallbackState {
     commands: Consumer<Command>,
-    garbage: Producer<Box<Voice>>,
+    garbage: Producer<Garbage>,
     shared: Arc<Shared>,
     voice: Option<Box<Voice>>,
     stretcher: Stretcher,
@@ -450,7 +465,7 @@ impl CallbackState {
             let target = self.shared.position.load(Ordering::Relaxed) as usize;
             self.seek(target);
             if self.shared.click.count_in.load(Ordering::Relaxed) {
-                self.count_in = self.clicker.count_in(self.shared.click.beats(), target);
+                self.count_in = self.clicker.count_in(target);
             }
         }
         if !playing {
@@ -562,7 +577,7 @@ impl CallbackState {
                     if let Some(old) = self.voice.replace(voice) {
                         // Hand the old song back so it is freed on the UI thread.
                         // If the queue is full we free it here, which is rare and only a glitch.
-                        let _ = self.garbage.push(old);
+                        let _ = self.garbage.push(Garbage::Voice(old));
                     }
                     self.fade = 0.0;
                     self.count_in = None;
@@ -572,6 +587,11 @@ impl CallbackState {
                     // A seek during the count-in starts the song there at once.
                     self.count_in = None;
                     self.seek(frame);
+                }
+                Command::Beats(beats) => {
+                    if let Some(old) = self.clicker.set_beats(beats) {
+                        let _ = self.garbage.push(Garbage::Beats(old));
+                    }
                 }
             }
         }
@@ -638,11 +658,8 @@ mod tests {
         let (mut state, _) = callback();
         let song = Arc::new(Song::new(RATE, vec![("sine".into(), sine)]));
         state.voice = Some(Box::new(Voice::new(song)));
-        state.shared.click.set_beats(Some(Beats {
-            start: 0.0,
-            beat,
-            per_bar: 4,
-        }));
+        let beats = Beats::steady(0.0, beat, 4, f64::from(RATE) * 4.0).unwrap();
+        state.clicker.set_beats(Some(Box::new(beats)));
         state.shared.click.gain.store(1.0);
         state.seek(from);
         state

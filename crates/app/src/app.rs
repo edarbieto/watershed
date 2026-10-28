@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText};
-use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
+use watershed_audio::{Beats, Engine, Notify, OutputDevice, output_devices};
 use watershed_dsp::Peaks;
 use watershed_storage::{Config, Session, StemFormat, TrackState};
 
@@ -496,6 +496,7 @@ impl WatershedApp {
             beats_per_bar: self.grid.beats_per_bar,
             beat_unit: self.grid.beat_unit,
             grid_start: self.grid.user_start(),
+            dynamic_tempo: self.grid.dynamic,
             key: self.song_key.user(),
             click: self.metronome.click,
             count_in: self.metronome.count_in,
@@ -752,11 +753,16 @@ impl WatershedApp {
         }
     }
 
-    /// The beats the click follows, at the engine's rate; `None` without a song or a
-    /// grid.
-    fn metronome_beats(&self) -> Option<metronome::Beats> {
-        self.loaded.as_ref()?;
-        metronome::beats(&self.grid, &self.bpm, self.sample_rate())
+    /// The grid's beats in seconds; `None` without a song, a BPM or a grid.
+    fn grid_beats(&self) -> Option<Beats> {
+        let loaded = self.loaded.as_ref()?;
+        let end = loaded.song.frames() as f64 / f64::from(loaded.song.sample_rate);
+        self.grid.beats(self.bpm.value()?, end)
+    }
+
+    /// The beats the click follows, at the engine's rate.
+    fn metronome_beats(&self) -> Option<Beats> {
+        self.grid_beats()?.scaled(f64::from(self.sample_rate()))
     }
 
     fn seek_secs(&mut self, secs: f64) {
@@ -1111,6 +1117,11 @@ impl WatershedApp {
     fn transport(&mut self, ui: &mut egui::Ui) {
         let mut action = None;
         let has_beats = self.metronome_beats().is_some();
+        // The tempo of the beat being heard, when the grid follows the song's beats.
+        let local_bpm = self
+            .grid_beats()
+            .filter(|_| self.grid.dynamic)
+            .map(|beats| 60.0 / beats.beat_at(self.position_secs()));
         ui.horizontal(|ui| {
             let Some(engine) = &mut self.engine else {
                 ui.label("No audio output");
@@ -1218,8 +1229,10 @@ impl WatershedApp {
             bpm_controls(
                 ui,
                 &mut self.bpm,
+                &mut self.grid,
+                local_bpm,
                 f64::from(engine.tempo()),
-                enabled && self.grid.enabled,
+                enabled,
             );
 
             ui.separator();
@@ -1459,13 +1472,12 @@ impl WatershedApp {
             .collect();
         let visible = (self.view.start * rate) as usize..(self.view.end() * rate) as usize;
         self.grid.update_estimate(self.bpm.value(), &loaded.onsets);
-        let grid_lines: Vec<GridLine> = match self.bpm.value() {
-            Some(bpm) if self.grid.enabled => {
+        let grid_lines: Vec<GridLine> = match self.grid_beats() {
+            Some(beats) => {
                 // The waveforms take the width beside the track controls.
                 let width = ui.available_width() - CONTROLS_WIDTH - ui.spacing().item_spacing.x;
                 let points_per_sec = f64::from(width.max(1.0)) / self.view.span.max(1e-9);
-                self.grid
-                    .lines(bpm, self.view.start, self.view.end(), points_per_sec)
+                grid::lines(&beats, self.view.start, self.view.end(), points_per_sec)
                     .into_iter()
                     .map(|line| GridLine {
                         frame: (line.secs * rate) as usize,
@@ -1474,7 +1486,7 @@ impl WatershedApp {
                     })
                     .collect()
             }
-            _ => Vec::new(),
+            None => Vec::new(),
         };
         let overlay = Overlay {
             visible,
@@ -1882,9 +1894,9 @@ impl eframe::App for WatershedApp {
         });
         self.update_min_size(ui.ctx(), tracks_size);
         self.sync_loop(ui);
-        if let Some(engine) = &self.engine {
-            self.metronome
-                .sync(engine, &self.config, self.metronome_beats());
+        let beats = self.metronome_beats();
+        if let Some(engine) = &mut self.engine {
+            self.metronome.sync(engine, &self.config, beats);
         }
         self.autosave_session(ui.ctx());
 
@@ -2142,9 +2154,18 @@ fn magnet_button(ui: &mut egui::Ui, on: bool) -> egui::Response {
     response
 }
 
-/// The song's BPM at the current tempo, with buttons to correct it.
-fn bpm_controls(ui: &mut egui::Ui, bpm: &mut Bpm, tempo: f64, enabled: bool) {
-    ui.add_enabled_ui(enabled, |ui| {
+/// The song's BPM at the current tempo, with buttons to correct it, and the switch
+/// that makes the grid follow the song's own beats. `local_bpm` is the tempo at the
+/// playhead (at the original speed) when it does.
+fn bpm_controls(
+    ui: &mut egui::Ui,
+    bpm: &mut Bpm,
+    grid: &mut Grid,
+    local_bpm: Option<f64>,
+    tempo: f64,
+    enabled: bool,
+) {
+    ui.add_enabled_ui(enabled && grid.enabled, |ui| {
         let estimate = bpm
             .estimate()
             .map_or("No steady beat found.".to_owned(), |e| {
@@ -2152,8 +2173,23 @@ fn bpm_controls(ui: &mut egui::Ui, bpm: &mut Bpm, tempo: f64, enabled: bool) {
             });
         // One width for any value, so the bar does not change width.
         let width = text_width(ui, RichText::new("000 BPM")) + 2.0 * ui.spacing().button_padding.x;
-        match bpm.value() {
-            Some(value) => {
+        let range = grid.tempo_range().map_or(String::new(), |(low, high)| {
+            format!(" The tempo moves between {low:.0} and {high:.0} BPM at 100 %.")
+        });
+        match (bpm.value(), local_bpm) {
+            (Some(_), Some(local)) => {
+                add_with_width(
+                    ui,
+                    width,
+                    egui::Label::new(format!("{:.0} BPM", local * tempo)),
+                )
+                .on_hover_text(format!(
+                    "Tempo at the playhead, at the current tempo, following the song's \
+                     beats.{range} ½ and ×2 fix a half or double beat; turn Dynamic off \
+                     to set a steady BPM."
+                ));
+            }
+            (Some(value), None) => {
                 let mut shown = value * tempo;
                 let response = add_with_width(
                     ui,
@@ -2172,10 +2208,39 @@ fn bpm_controls(ui: &mut egui::Ui, bpm: &mut Bpm, tempo: f64, enabled: bool) {
                     bpm.set(shown / tempo);
                 }
             }
-            None => {
+            (None, _) => {
                 add_with_width(ui, width, egui::Label::new(RichText::new("– BPM").weak()))
                     .on_hover_text(format!("{estimate} Tap the beat to set it."));
             }
+        }
+        // Always there, so the bar keeps its width.
+        let moving = grid.tempo_range().is_some();
+        let star = add_with_width(
+            ui,
+            text_width(ui, RichText::new("★")),
+            egui::Label::new(
+                RichText::new(if moving { "★" } else { " " }).color(ui.visuals().warn_fg_color),
+            ),
+        );
+        if moving {
+            star.on_hover_text(format!(
+                "This song speeds up or slows down.{range} Turn on Dynamic so the grid \
+                 and the click follow it."
+            ));
+        }
+        if ui
+            .add_enabled(
+                grid.can_follow(),
+                egui::Button::selectable(grid.dynamic, "Dynamic").small(),
+            )
+            .on_hover_text(
+                "Follow the song's own beats: the grid, snap, click and count-in speed up \
+                 and slow down with it, for songs not played to a click.",
+            )
+            .on_disabled_hover_text("No beats found in the song")
+            .clicked()
+        {
+            grid.dynamic = !grid.dynamic;
         }
         let known = bpm.value().is_some();
         if ui

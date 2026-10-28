@@ -1,15 +1,15 @@
 //! Metronome click and count-in, mixed after the stretcher so they are never
 //! time-stretched or transposed.
 //!
-//! The beats come from the song's grid: bar 1 and the beat length, in song frames.
-//! The click follows the song frame being heard, so it lands on the beat the user
+//! The beats come from the song's grid, in song frames: steady, or following the
+//! song's own beats when its tempo moves. The click follows the song frame being heard, so it lands on the beat the user
 //! hears at any tempo. The sounds are synthesized once, when the engine starts.
 
 use std::f32::consts::TAU;
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
-use crate::AtomicF32;
+use crate::{AtomicF32, Beats};
 
 /// Beats closer than this to a seek target still click: a playhead snapped to a
 /// beat can land a frame or two before or after it.
@@ -40,77 +40,19 @@ pub enum ClickChannels {
     Right,
 }
 
-/// The song's beats, in song frames.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Beats {
-    /// Frame where bar 1 starts.
-    pub start: f64,
-    /// Frames per beat.
-    pub beat: f64,
-    pub per_bar: u32,
-}
-
-impl Beats {
-    /// The beats in `range`: their index from bar 1 (negative before it) and frame.
-    fn within(&self, range: Range<f64>) -> impl Iterator<Item = (i64, f64)> + '_ {
-        let first = ((range.start - self.start) / self.beat).ceil() as i64;
-        (first..)
-            .map(|index| (index, self.start + index as f64 * self.beat))
-            .take_while(move |(_, frame)| *frame < range.end)
-    }
-
-    fn accented(&self, index: i64) -> bool {
-        index.rem_euclid(i64::from(self.per_bar.max(1))) == 0
-    }
-
-    fn bar(&self) -> f64 {
-        self.beat * f64::from(self.per_bar.max(1))
-    }
-}
-
-/// Click settings shared with the UI. A torn read (a new start with an old beat
-/// length) lasts one callback at most, which is inaudible.
+/// Click settings shared with the UI. The beats come through the command queue.
 #[derive(Debug, Default)]
 pub(crate) struct ClickParams {
     /// Metronome while playing.
     pub on: AtomicBool,
     /// One bar of clicks before playback starts.
     pub count_in: AtomicBool,
-    /// [`Beats`], with `beat` 0 when the song has no grid.
-    start: AtomicU64,
-    beat: AtomicU64,
-    per_bar: AtomicU32,
     pub sound: AtomicU8,
     pub channels: AtomicU8,
     pub gain: AtomicF32,
 }
 
 impl ClickParams {
-    pub fn set_beats(&self, beats: Option<Beats>) {
-        let beats = beats.filter(|b| b.beat > 0.0 && b.beat.is_finite() && b.start.is_finite());
-        let Beats {
-            start,
-            beat,
-            per_bar,
-        } = beats.unwrap_or(Beats {
-            start: 0.0,
-            beat: 0.0,
-            per_bar: 1,
-        });
-        self.start.store(start.to_bits(), Ordering::Relaxed);
-        self.beat.store(beat.to_bits(), Ordering::Relaxed);
-        self.per_bar.store(per_bar.max(1), Ordering::Relaxed);
-    }
-
-    pub fn beats(&self) -> Option<Beats> {
-        let beat = f64::from_bits(self.beat.load(Ordering::Relaxed));
-        (beat > 0.0).then(|| Beats {
-            start: f64::from_bits(self.start.load(Ordering::Relaxed)),
-            beat,
-            per_bar: self.per_bar.load(Ordering::Relaxed),
-        })
-    }
-
     pub fn sound(&self) -> ClickSound {
         ClickSound::ALL[usize::from(self.sound.load(Ordering::Relaxed)).min(2)]
     }
@@ -151,6 +93,8 @@ pub(crate) struct CountIn {
 /// Plays the click on the audio thread. Nothing here allocates after
 /// [`Clicker::new`].
 pub(crate) struct Clicker {
+    /// The song's beats, in song frames; `None` without a grid.
+    beats: Option<Box<Beats>>,
     /// Indexed by sound, then accent (1 for the first beat of a bar). Mono.
     sounds: [[Vec<f32>; 2]; 3],
     /// The click sounding now: sound, accent and next sample.
@@ -168,6 +112,7 @@ impl Clicker {
     pub fn new(sample_rate: u32) -> Self {
         let sounds = ClickSound::ALL.map(|s| [false, true].map(|a| synthesize(s, a, sample_rate)));
         Self {
+            beats: None,
             sounds,
             voice: None,
             last: None,
@@ -175,6 +120,11 @@ impl Clicker {
             count_in_end: f64::NEG_INFINITY,
             tolerance: SEEK_TOLERANCE_SECS * f64::from(sample_rate),
         }
+    }
+
+    /// Replaces the beats, returning the old ones so they are freed elsewhere.
+    pub fn set_beats(&mut self, beats: Option<Box<Beats>>) -> Option<Box<Beats>> {
+        std::mem::replace(&mut self.beats, beats)
     }
 
     /// Playback will start at `frame`: beats from there on click.
@@ -189,13 +139,14 @@ impl Clicker {
         self.last = None;
     }
 
-    /// Starts a count-in before `target`, or `None` without a grid.
-    pub fn count_in(&mut self, beats: Option<Beats>, target: usize) -> Option<CountIn> {
-        let beats = beats?;
-        self.count_in_end = target as f64;
-        Some(CountIn {
-            heard: target as f64 - beats.bar(),
-        })
+    /// Starts a count-in before `target`, or `None` without a grid. It counts the
+    /// bar before the first beat from `target`, at its pace.
+    pub fn count_in(&mut self, target: usize) -> Option<CountIn> {
+        let beats = self.beats.as_ref()?;
+        let target = target as f64;
+        let heard = target - beats.bar_before(target - self.tolerance);
+        self.count_in_end = target;
+        Some(CountIn { heard })
     }
 
     /// The count-in is over and the song is heard from `heard` on.
@@ -235,7 +186,7 @@ impl Clicker {
         let count_in_end = self.count_in_end;
         self.render(
             params,
-            params.beats(),
+            true,
             block,
             floor,
             |index, frame| (on && index >= 0) || frame < count_in_end,
@@ -245,7 +196,7 @@ impl Clicker {
 
     /// Lets a click already sounding ring out over `out`, starting no new one.
     pub fn ring(&mut self, params: &ClickParams, out: &mut [f32]) {
-        self.render(params, None, 0.0..0.0, 0.0, |_, _| false, out);
+        self.render(params, false, 0.0..0.0, 0.0, |_, _| false, out);
     }
 
     /// Clicks for a count-in block over `out`, advancing it by `tempo` song frames
@@ -260,15 +211,16 @@ impl Clicker {
         let from = count_in.heard;
         count_in.heard += (out.len() / 2) as f64 * f64::from(tempo);
         let block = from..count_in.heard;
-        self.render(params, params.beats(), block, from, |_, _| true, out);
+        self.render(params, true, block, from, |_, _| true, out);
     }
 
-    /// Adds the click to `out`, which plays the song frames in `block`. A new click
-    /// starts at each beat from `floor` to the end of the block that `keep` accepts.
+    /// Adds the click to `out`, which plays the song frames in `block`. With `beats`,
+    /// a new click starts at each beat from `floor` to the end of the block that
+    /// `keep` accepts.
     fn render(
         &mut self,
         params: &ClickParams,
-        beats: Option<Beats>,
+        beats: bool,
         block: Range<f64>,
         floor: f64,
         keep: impl Fn(i64, f64) -> bool,
@@ -285,20 +237,21 @@ impl Clicker {
 
         let gains = (gain, channels);
         let mut done = 0;
-        if let Some(beats) = beats
-            && block.end > block.start
-        {
-            let span = block.end - block.start;
-            for (index, frame) in beats.within(floor..block.end) {
-                if !keep(index, frame) {
-                    continue;
+        if beats && let Some(beats) = self.beats.take() {
+            if block.end > block.start {
+                let span = block.end - block.start;
+                for (index, frame) in beats.within(floor..block.end) {
+                    if !keep(index, frame) {
+                        continue;
+                    }
+                    let offset = (frame - block.start) / span * frames as f64;
+                    let at = (offset.max(0.0).round() as usize).clamp(done, frames);
+                    self.add_voice(&mut out[done * 2..at * 2], gains);
+                    done = at;
+                    self.voice = Some((sound, usize::from(beats.accented(index)), 0));
                 }
-                let offset = (frame - block.start) / span * frames as f64;
-                let at = (offset.max(0.0).round() as usize).clamp(done, frames);
-                self.add_voice(&mut out[done * 2..at * 2], gains);
-                done = at;
-                self.voice = Some((sound, usize::from(beats.accented(index)), 0));
             }
+            self.beats = Some(beats);
         }
         self.add_voice(&mut out[done * 2..], gains);
     }
@@ -493,7 +446,16 @@ mod tests {
     const RATE: u32 = 48_000;
     const BLOCK: usize = 256;
 
-    fn params(beats: Beats) -> ClickParams {
+    /// Where the steady grids of the tests stop being listed (they go on after).
+    const SONG_END: f64 = 1e6;
+
+    fn clicker(beats: &Beats) -> Clicker {
+        let mut clicker = Clicker::new(RATE);
+        clicker.set_beats(Some(Box::new(beats.clone())));
+        clicker
+    }
+
+    fn params() -> ClickParams {
         let params = ClickParams {
             gain: AtomicF32::new(1.0),
             ..Default::default()
@@ -503,7 +465,6 @@ mod tests {
         params
             .sound
             .store(sound_index(ClickSound::Metronome), Ordering::Relaxed);
-        params.set_beats(Some(beats));
         params
     }
 
@@ -544,30 +505,12 @@ mod tests {
     }
 
     #[test]
-    fn beats_from_bar_one() {
-        let beats = Beats {
-            start: 100.0,
-            beat: 50.0,
-            per_bar: 3,
-        };
-        let found: Vec<(i64, f64)> = beats.within(0.0..260.0).collect();
-        let expected = [-2, -1, 0, 1, 2, 3].map(|i| (i, 100.0 + i as f64 * 50.0));
-        assert_eq!(found, expected);
-        assert!(beats.accented(0) && beats.accented(3) && beats.accented(-3));
-        assert!(!beats.accented(-1));
-    }
-
-    #[test]
     fn clicks_land_on_the_beats_at_any_tempo() {
         // 120 BPM from bar 1 at 0.5 s, in 3/4.
-        let beats = Beats {
-            start: 24_000.0,
-            beat: 24_000.0,
-            per_bar: 3,
-        };
+        let beats = Beats::steady(24_000.0, 24_000.0, 3, SONG_END).unwrap();
         for tempo in [0.5, 1.0, 1.25] {
-            let params = params(beats);
-            let mut clicker = Clicker::new(RATE);
+            let params = params();
+            let mut clicker = clicker(&beats);
             clicker.seek(0);
             let found = clicks(&play(&mut clicker, &params, 0.0, tempo));
             let expected: Vec<(usize, bool)> = (0..)
@@ -586,40 +529,28 @@ mod tests {
 
     #[test]
     fn nothing_before_bar_one() {
-        let beats = Beats {
-            start: 48_000.0,
-            beat: 12_000.0,
-            per_bar: 4,
-        };
-        let mut clicker = Clicker::new(RATE);
+        let beats = Beats::steady(48_000.0, 12_000.0, 4, SONG_END).unwrap();
+        let mut clicker = clicker(&beats);
         clicker.seek(0);
-        let found = clicks(&play(&mut clicker, &params(beats), 0.0, 1.0));
+        let found = clicks(&play(&mut clicker, &params(), 0.0, 1.0));
         assert_eq!(found[0], (48_000, true));
     }
 
     #[test]
     fn a_seek_onto_a_beat_clicks_it() {
-        let beats = Beats {
-            start: 0.0,
-            beat: 24_000.0,
-            per_bar: 4,
-        };
-        let mut clicker = Clicker::new(RATE);
+        let beats = Beats::steady(0.0, 24_000.0, 4, SONG_END).unwrap();
+        let mut clicker = clicker(&beats);
         // Snapped a frame past beat 4; the stretcher's latency shows first.
         clicker.seek(72_001);
-        let found = clicks(&play(&mut clicker, &params(beats), 72_001.0 - 3000.0, 1.0));
+        let found = clicks(&play(&mut clicker, &params(), 72_001.0 - 3000.0, 1.0));
         assert_eq!(found[0], (3000 - 1, false));
     }
 
     #[test]
     fn loop_jumps_click_from_the_loop_start() {
-        let beats = Beats {
-            start: 0.0,
-            beat: 24_000.0,
-            per_bar: 4,
-        };
-        let params = params(beats);
-        let mut clicker = Clicker::new(RATE);
+        let beats = Beats::steady(0.0, 24_000.0, 4, SONG_END).unwrap();
+        let params = params();
+        let mut clicker = clicker(&beats);
         clicker.seek(30_000);
         let mut out = vec![0.0; 300 * BLOCK * 2];
         let looped = 24_000..60_000;
@@ -644,15 +575,11 @@ mod tests {
     #[test]
     fn count_in_plays_one_bar() {
         // A bar is 200 blocks, so the count-in ends between two blocks.
-        let beats = Beats {
-            start: 0.0,
-            beat: 12_800.0,
-            per_bar: 4,
-        };
-        let params = params(beats);
+        let beats = Beats::steady(0.0, 12_800.0, 4, SONG_END).unwrap();
+        let params = params();
         params.on.store(false, Ordering::Relaxed);
-        let mut clicker = Clicker::new(RATE);
-        let mut count_in = clicker.count_in(Some(beats), 102_400).unwrap();
+        let mut clicker = clicker(&beats);
+        let mut count_in = clicker.count_in(102_400).unwrap();
         let mut out = vec![0.0; 300 * BLOCK * 2];
         for block in out.chunks_mut(BLOCK * 2) {
             if count_in.heard < 102_400.0 {
@@ -666,6 +593,32 @@ mod tests {
         let found = clicks(&out);
         let expected: Vec<(usize, bool)> = (0..4).map(|k| (k * 12_800, k == 0)).collect();
         assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn clicks_and_count_in_follow_a_tempo_map() {
+        // Bar 1 at 48 000, then beats 24 000, 22 000 and 20 000 frames apart.
+        let beats = Beats::new(vec![48_000.0, 72_000.0, 94_000.0, 114_000.0], 4).unwrap();
+        let mut clicker = clicker(&beats);
+        clicker.seek(0);
+        let found = clicks(&play(&mut clicker, &params(), 0.0, 1.0));
+        assert_eq!(found, [(48_000, true), (72_000, false), (94_000, false)]);
+
+        // A count-in to the beat at 94 000: the bar before it, at its own pace,
+        // counted on from bar 1 backwards at the first beat's pace.
+        let params = params();
+        params.on.store(false, Ordering::Relaxed);
+        let mut count_in = clicker.count_in(94_000).unwrap();
+        assert_eq!(count_in.heard, 0.0);
+        let mut out = vec![0.0; 400 * BLOCK * 2];
+        for block in out.chunks_mut(BLOCK * 2) {
+            // Up to where the song starts, as the engine does.
+            let left = (94_000.0 - count_in.heard).max(0.0) as usize;
+            let block = &mut block[..(left * 2).min(BLOCK * 2)];
+            clicker.play_count_in(&params, &mut count_in, 1.0, block);
+        }
+        let found: Vec<usize> = clicks(&out).iter().map(|c| c.0).collect();
+        assert_eq!(found, vec![0, 24_000, 48_000, 72_000]);
     }
 
     #[test]

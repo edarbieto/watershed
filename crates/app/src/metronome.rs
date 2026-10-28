@@ -2,12 +2,8 @@
 //! them, and their controls in the transport bar.
 
 use eframe::egui::{self, RichText};
-pub use watershed_audio::Beats;
-use watershed_audio::Engine;
+use watershed_audio::{Beats, Engine};
 use watershed_storage::{ClickChannels, ClickSound, Config, Session};
-
-use crate::bpm::Bpm;
-use crate::grid::Grid;
 
 const MIN_VOLUME_DB: f32 = -40.0;
 /// +12 dB, the engine's loudest click.
@@ -31,7 +27,7 @@ impl Metronome {
 
     /// Sends everything to the engine. Cheap: called on every frame, so a new engine
     /// (another output device) gets the settings too.
-    pub fn sync(&self, engine: &Engine, config: &Config, beats: Option<Beats>) {
+    pub fn sync(&self, engine: &mut Engine, config: &Config, beats: Option<Beats>) {
         engine.set_beats(beats);
         engine.set_click(self.click);
         engine.set_count_in(self.count_in);
@@ -48,20 +44,6 @@ impl Metronome {
         let db = config.click_volume_db.clamp(MIN_VOLUME_DB, MAX_VOLUME_DB);
         engine.set_click_gain(10f32.powf(db / 20.0));
     }
-}
-
-/// The song's beats in frames at `sample_rate`, when the grid is on and placed.
-pub fn beats(grid: &Grid, bpm: &Bpm, sample_rate: u32) -> Option<Beats> {
-    if !grid.enabled {
-        return None;
-    }
-    let bpm = bpm.value()?;
-    let rate = f64::from(sample_rate);
-    Some(Beats {
-        start: grid.start()? * rate,
-        beat: 60.0 / bpm * rate,
-        per_bar: grid.beats_per_bar,
-    })
 }
 
 /// The Click and Count-in toggles and a menu with the sound, channels and volume.
