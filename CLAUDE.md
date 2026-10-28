@@ -73,8 +73,8 @@ machine or regenerate them with the reference tool from any mp3s.
 | Path | What |
 |---|---|
 | `crates/app` | `watershed` binary. `app.rs` UI and state, `loader.rs` background loading, `separate.rs` background separation job, `bpm.rs` song BPM (estimate, tap, user value), `stems.rs` stem names/colors, `waveform.rs` widget, `usage.rs` CPU/GPU/RAM display, `alloc.rs` macOS allocator |
-| `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `Samples` (packed 24-bit), `mixer.rs` (pure, tested) |
-| `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `resample` (rubato FFT), `Peaks`, `OnsetEnvelope` (tempo estimation); `examples/bpm.rs` |
+| `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `Samples` (packed 24-bit), `Beats` (beat times for the grid and click), `click.rs`, `mixer.rs` (pure, tested) |
+| `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `resample` (rubato FFT), `Peaks`, `OnsetEnvelope` (tempo estimation, beat tracking); `examples/bpm.rs`, `examples/beats.rs` |
 | `crates/storage` | `Config` (TOML in the OS config dir), `Session` (`.watershed.toml`), `models_dir` |
 | `crates/separation` | `trait Separator`, `GgufSeparator`, `separate_song` (song file → folder of FLAC stems + session); `catalog` (`models.toml`: downloadable models, `install` with sha256 check); `bsroformer::Model` (safe wrapper over BSRoformer.cpp + ggml); `cpp/` C wrapper and CMake project; `build.rs`; `vendor/` submodules; `examples/separate.rs` |
 | `tools/reference` | dev-only PyTorch reference separation (uv project) |

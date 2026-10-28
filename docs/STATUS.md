@@ -75,6 +75,8 @@ Last updated: 2026-10-28.
   still has to listen to them (see "Click and count-in" below).
 - **Phase 3.5, key detection: done.** Checked by the user against the songs they
   know (see "Key detection" below): meant as a rough hint, and that is enough.
+- **Phase 3.5, dynamic tempo: done, to test by the user** (see "Dynamic tempo"
+  below).
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -87,17 +89,8 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. The two new ideas in `PLAN.md`: **dynamic tempo**, then the **song info panel**.
-   The feasibility experiment (Python, not kept) to redo in Rust: spectral flux of
-   the drum stem at 100 frames/s (log-compressed magnitudes, a 0.5 s moving mean
-   subtracted, clipped at 0) normalized by its standard deviation; global BPM from
-   autocorrelation with a log-Gaussian prior around 120; then Ellis's (2007)
-   dynamic-programming beat tracker: score(t) = env(t) + max over lags in [p/2, 2p]
-   of score(t − lag) − 680 · ln(lag / p)², backtracked from the best end. Without
-   normalizing the envelope (or with a weight of 100) it locked onto double tempo.
-   Local tempo = 60 / beat intervals, averaged over 8 beats. Results: Change 133 →
-   145 BPM (5.8 % between p5 and p95, beat jitter 2.6 %); the other test songs
-   0.9–3.6 % and 1.4–2.4 %.
+1. **Dynamic tempo: the user listens** (checklist in "Dynamic tempo" below), then
+   the **song info panel** (`PLAN.md`), which can reuse the tracked beats.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -984,6 +977,62 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
    the wraps.
 6. Grid off or no BPM: both buttons greyed out, silence. Close and reopen the song:
    Click and Count-in are kept; restart the app: sound, channels and volume are kept.
+
+## Dynamic tempo
+
+- **Beat tracking** (`OnsetEnvelope::track_beats` in `tempo.rs`): on the summed onset
+  envelope the loader already keeps, scaled to a standard deviation of 1. First the
+  exact pace within ±10 % of the song's BPM (the user's value only picks the beat,
+  not half or double: from 130 on Change it dropped 34 beats before this), then
+  Ellis's (2007) dynamic programming: score(t) = onset(t) + max over lags in
+  [p/2, 2p] of score(t − lag) − 680 · ln(lag / p)², followed back from the best end.
+  Each beat is then refined to a fraction of a frame (parabola through the peak) and
+  smoothed by a straight line through the 8 beats around it, **weighted by their
+  onsets** (without the weights, beats placed in a silent intro pulled the first
+  real ones by up to 9 ms). With clicks, steady or speeding up 120 → 132 BPM, and
+  from a BPM 6 % off: within 2.3 ms (tests). Takes 10–25 ms per song in release.
+- **Measured** (`cargo run --release -p watershed-dsp --example beats -- <stems>`;
+  spread of the local tempo from its 5th to 95th percentile): Karaoke 1.0 %, No
+  Dejes Que 1.4 %, Cada hogar 1.6 %, On Most Surfaces 1.7 %, Afuera 1.8 %, Change
+  **5.9 %** (≈135 → 143 BPM: speeds up around 1:52–2:20 and 3:15–4:20). Against
+  the steady grid, the tracked beats of steady songs drift slowly: Afuera ends 80 ms
+  early, No Dejes Que goes from −67 to +61 ms. That is the band (or a BPM a hair
+  off), and what this feature is for.
+- **Grid** (`grid.rs`): the beats are tracked on load and again when the BPM changes
+  by more than 5 % (½, ×2, a tap far off; dragging the BPM does not retrack). With
+  **Dynamic** on, bar 1 is the tracked beat nearest to the estimated or user bar 1
+  (dragging the bar ruler or "1 here" moves it by whole beats), and the grid lines,
+  snap, click and count-in follow the tracked beats. Off: as before.
+- **Engine**: `watershed_audio::Beats` is now a list of beat times from bar 1 (a
+  steady grid is listed up to the song's end), extended at the pace of the first
+  and last beat (count-in before bar 1, after the end). It reaches the audio thread
+  through the command queue and comes back on the garbage queue, like songs; the
+  engine sends it only when it changed. The count-in counts the bar before the
+  target at its local pace.
+- **UI**, after the BPM: a **★** (orange) when the local tempo spreads more than 3 %,
+  with the range in its tooltip, and the **Dynamic** toggle (off by default, saved
+  as `dynamic_tempo` in the session). With Dynamic on, the BPM shows the tempo of
+  the beat at the playhead (times the tempo slider) and cannot be dragged; ½, ×2,
+  Tap and ↺ still work. The tracked beats are not saved: they are recomputed on load.
+- Checked by Claude on Change: the ★ shows; with Dynamic on, the BPM reads 139 at
+  2:30 and the bar ruler ends at bar 169 instead of ~160.
+- **Not done** (open points in `PLAN.md`): a song with a free section (the tracker
+  goes on through it at its pace), correcting single beats, a tempo change on
+  purpose (the smoothing turns a step into an 8-beat ramp).
+
+**Test checklist:**
+1. Change: the ★ shows; turn on Dynamic and Click, play from a few places (also
+   2:00 and 3:30, where it speeds up): does the click stay with the drums the whole
+   way, with the accent on the "1"?
+2. The same song with Dynamic off: the click drifts (by ~0.2 s at times).
+3. A steady song (Karaoke, Cada hogar): no ★; Dynamic on still clicks in time.
+   Afuera with Dynamic: does it sound better than the steady grid near the end?
+4. Count-in with Dynamic on, from a bar line late in Change: one bar at the local
+   pace, then the song on the "1".
+5. Zoomed in with Dynamic: the beat lines fall on the hits; snap lands on them; drag
+   the bar ruler: bar 1 moves by whole beats.
+6. ½ and ×2 with Dynamic on: the grid follows (half or double beats).
+7. Close and reopen: Dynamic is kept; loading feels as fast as before.
 
 ## Key detection
 

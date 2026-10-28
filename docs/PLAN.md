@@ -366,7 +366,8 @@ RAM first, then disk. In this order:
   shifting updates the displayed key. As built: its own STFT (a longer window than
   the onsets need, to tell semitones apart in the bass), with the tuning measured
   first; the relative and the runner-up are offered in the key menu.
-- [ ] **Dynamic tempo (tempo map), idea from the user.** Many songs are not played
+- [x] **Dynamic tempo (tempo map), idea from the user.** Done (`STATUS.md`, "Dynamic
+  tempo"); the tracked beats are recomputed on load, not saved. Many songs are not played
   to a fixed tempo: 90s grunge and metal drift (Deftones' "Change" speeds up over
   the song), songs like Opeth's change tempo on purpose, while today's Latin pop is
   made on a grid. A **Dynamic** switch beside the BPM (off by default) makes the grid,
