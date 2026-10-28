@@ -35,6 +35,11 @@ pub struct Config {
     pub stem_format: StemFormat,
     /// Whether a click on a waveform moves the playhead to the nearest grid line.
     pub snap_to_grid: bool,
+    /// The metronome's sound, channels and level, the same for every song.
+    pub click_sound: ClickSound,
+    pub click_channels: ClickChannels,
+    /// In dB, independent of the master volume.
+    pub click_volume_db: f32,
 }
 
 impl Default for Config {
@@ -46,8 +51,31 @@ impl Default for Config {
             library_folder: None,
             stem_format: StemFormat::default(),
             snap_to_grid: true,
+            click_sound: ClickSound::default(),
+            click_channels: ClickChannels::default(),
+            click_volume_db: -6.0,
         }
     }
+}
+
+/// The sound of the metronome click.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClickSound {
+    #[default]
+    Click,
+    Metronome,
+    Wood,
+}
+
+/// Which output channels the click plays on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClickChannels {
+    Left,
+    #[default]
+    Both,
+    Right,
 }
 
 /// The format separated stems are written in.
@@ -170,6 +198,9 @@ mod tests {
             library_folder: Some(PathBuf::from("library")),
             stem_format: StemFormat::Lossless,
             snap_to_grid: false,
+            click_sound: ClickSound::Wood,
+            click_channels: ClickChannels::Left,
+            click_volume_db: -12.5,
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), config);

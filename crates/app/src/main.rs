@@ -9,6 +9,7 @@ mod grid;
 mod loader;
 mod loops;
 mod markers;
+mod metronome;
 mod playhead;
 mod separate;
 mod stems;

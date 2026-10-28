@@ -12,6 +12,7 @@ use crate::grid::{self, Grid};
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
 use crate::markers::Markers;
+use crate::metronome::{self, Metronome};
 use crate::playhead::Playhead;
 use crate::separate::{self, Job, Target};
 use crate::stems::song_title;
@@ -83,6 +84,7 @@ enum Action {
     ZoomToFit,
     /// A tap of tap tempo.
     Tap,
+    ToggleClick,
 }
 
 /// Mixer settings carried over when a song is reloaded, e.g. after switching to a
@@ -115,6 +117,7 @@ pub struct WatershedApp {
     markers: Markers,
     bpm: Bpm,
     grid: Grid,
+    metronome: Metronome,
     /// Bar 1 when a drag of the bar ruler began.
     grid_drag_origin: Option<f64>,
     /// Visible part of the song.
@@ -172,6 +175,7 @@ impl WatershedApp {
             markers: Markers::default(),
             bpm: Bpm::default(),
             grid: Grid::default(),
+            metronome: Metronome::default(),
             grid_drag_origin: None,
             view: View::new(0.0),
             last_position: 0.0,
@@ -448,6 +452,7 @@ impl WatershedApp {
         self.markers = Markers::from_session(&session.markers);
         self.bpm = Bpm::new(loaded.bpm, session.bpm);
         self.grid = Grid::from_session(&session);
+        self.metronome = Metronome::from_session(&session);
         self.view = View::new(loaded.song.duration_secs());
         self.last_loop = None;
         let Some(engine) = &mut self.engine else {
@@ -487,6 +492,8 @@ impl WatershedApp {
             beats_per_bar: self.grid.beats_per_bar,
             beat_unit: self.grid.beat_unit,
             grid_start: self.grid.user_start(),
+            click: self.metronome.click,
+            count_in: self.metronome.count_in,
             ..Session::default()
         };
         Some((session_path(loaded), session))
@@ -625,6 +632,7 @@ impl WatershedApp {
             (Key::L, Action::ToggleLoop),
             (Key::M, Action::AddMarker),
             (Key::T, Action::Tap),
+            (Key::C, Action::ToggleClick),
             (Key::Plus, Action::Zoom(ZOOM_STEP)),
             (Key::Equals, Action::Zoom(ZOOM_STEP)),
             (Key::Minus, Action::Zoom(1.0 / ZOOM_STEP)),
@@ -684,6 +692,11 @@ impl WatershedApp {
                     self.bpm.tap(Instant::now(), f64::from(tempo));
                 }
             }
+            Action::ToggleClick => {
+                if self.loaded.is_some() {
+                    self.metronome.click = !self.metronome.click;
+                }
+            }
         }
     }
 
@@ -694,10 +707,10 @@ impl WatershedApp {
             .last_frame
             .map_or(0.0, |last| now.duration_since(last).as_secs_f64());
         self.last_frame = Some(now);
-        let (playing, tempo) = self
-            .engine
-            .as_ref()
-            .map_or((false, 1.0), |e| (e.is_playing(), f64::from(e.tempo())));
+        let (playing, tempo) = self.engine.as_ref().map_or((false, 1.0), |e| {
+            // The song waits during the count-in.
+            (e.is_playing() && !e.counting_in(), f64::from(e.tempo()))
+        });
         let position = self
             .playhead
             .update(self.position_secs(), dt, playing, tempo);
@@ -732,6 +745,13 @@ impl WatershedApp {
         if let Some(engine) = &mut self.engine {
             engine.play();
         }
+    }
+
+    /// The beats the click follows, at the engine's rate; `None` without a song or a
+    /// grid.
+    fn metronome_beats(&self) -> Option<metronome::Beats> {
+        self.loaded.as_ref()?;
+        metronome::beats(&self.grid, &self.bpm, self.sample_rate())
     }
 
     fn seek_secs(&mut self, secs: f64) {
@@ -1085,6 +1105,7 @@ impl WatershedApp {
 
     fn transport(&mut self, ui: &mut egui::Ui) {
         let mut action = None;
+        let has_beats = self.metronome_beats().is_some();
         ui.horizontal(|ui| {
             let Some(engine) = &mut self.engine else {
                 ui.label("No audio output");
@@ -1212,6 +1233,11 @@ impl WatershedApp {
                 engine.set_semitones(semitones);
             }
             ui.label("Pitch");
+
+            ui.separator();
+            if metronome::controls(ui, &mut self.metronome, &mut self.config, has_beats) {
+                self.config.save();
+            }
 
             let used = ui.min_rect().width();
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1845,6 +1871,10 @@ impl eframe::App for WatershedApp {
         });
         self.update_min_size(ui.ctx(), tracks_size);
         self.sync_loop(ui);
+        if let Some(engine) = &self.engine {
+            self.metronome
+                .sync(engine, &self.config, self.metronome_beats());
+        }
         self.autosave_session(ui.ctx());
 
         if self.engine.as_ref().is_some_and(Engine::is_playing) {

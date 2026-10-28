@@ -43,6 +43,10 @@ pub struct Session {
     /// Where bar 1 starts, set by the user; `None` uses the estimate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grid_start: Option<f64>,
+    /// Metronome while playing, following the grid.
+    pub click: bool,
+    /// One bar of clicks before playback starts.
+    pub count_in: bool,
 }
 
 impl Default for Session {
@@ -64,6 +68,8 @@ impl Default for Session {
             beats_per_bar: 4,
             beat_unit: 4,
             grid_start: None,
+            click: false,
+            count_in: false,
         }
     }
 }
@@ -230,6 +236,8 @@ mod tests {
             beats_per_bar: 7,
             beat_unit: 8,
             grid_start: Some(3.25),
+            click: true,
+            count_in: true,
             ..Session::default()
         };
         session.save_to(&path).unwrap();
@@ -267,6 +275,7 @@ mod tests {
         assert_eq!(session.bpm, None);
         assert!(session.grid);
         assert_eq!((session.beats_per_bar, session.beat_unit), (4, 4));
+        assert!(!session.click && !session.count_in);
         assert_eq!(
             session.track("bass.wav"),
             Some(&TrackState {
