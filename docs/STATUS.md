@@ -68,9 +68,9 @@ Last updated: 2026-10-28.
   of 149 MB for the 4:03 test song; on Metal it took about the usual time (not timed).
 - **Phase 3.5, approximate BPM: done.** Tested by the user: passes the checklist
   (see "Approximate BPM" below).
-- **Phase 3.5, minimum window size: done.** Tested by the user: works. **Maximizing
-  on macOS: fixed, to be confirmed by the user** with Rectangle (see "Window size and
-  maximizing" below).
+- **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
+  user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
+  OpenGL on macOS (see "Window size and maximizing" below).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -80,12 +80,12 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Confirm maximizing with Rectangle** (double-click on the title bar) now that
-   macOS uses OpenGL.
-2. **Phase 3.5, next items** in the order of `PLAN.md`: time signature, beat grid,
+1. **Phase 3.5, next items** in the order of `PLAN.md`: time signature, beat grid,
    click and count-in (left, right or both channels), key detection.
-3. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
+2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
+3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
+   the Rectangle test **on battery**, with both renderers.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
@@ -886,6 +886,33 @@ Measured:
   none over 26 ms. Playing a song costs **~26 % of a core with glow vs ~40 % with
   wgpu**; idle ~0.5 % for both. OpenGL is deprecated on macOS but still shipped;
   Windows and Linux keep wgpu.
+
+**Follow-up (pending, not settled).** The user would rather use the native path
+(wgpu on Metal), and it is odd that OpenGL costs less. What is known:
+- Later the same day the stall **no longer reproduced with either renderer** (~500
+  calls, none over 50 ms: the bare app, Watershed with wgpu and with glow). The
+  user had plugged in the charger in between: on battery macOS may keep the GPU and
+  the display in lower power states, which would fit a wait for a Metal drawable.
+  **Next test:** on battery, the AX script on Watershed with each renderer (a
+  temporary `options.renderer = eframe::Renderer::Wgpu` in `main.rs` switches back).
+- The stall never happens while `sample` profiles the process (it wakes it every
+  millisecond): the main thread is waiting, not working.
+- The CPU difference is stable: playing, wgpu ~40 % of a core, glow ~26 % (four
+  alternating runs, plugged in). A profile shows more time in timed waits
+  (`semaphore_timedwait`) with wgpu; release builds have no symbols, so not deeper.
+- Elsewhere: the same Rectangle symptom is open in winit
+  ([#3644](https://github.com/rust-windowing/winit/issues/3644), 200–500 ms, wgpu
+  and vulkano, no root cause); slow resizing in wgpu
+  ([#7670](https://github.com/gfx-rs/wgpu/issues/7670)); `nextDrawable` taking ~1 s
+  after a resize ([Apple forums 773229](https://developer.apple.com/forums/thread/773229),
+  Apple suggests `CAMetalDisplayLink`); reports of Metal having a higher base CPU
+  cost than OpenGL on Apple Silicon. egui-wgpu's `macos-window-resize-jitter-fix`
+  (`presentsWithTransaction`) only covers mouse live resizes. OpenGL is deprecated
+  since 2018 (4.1 only) but still works on macOS 26, with no removal date announced.
+- Options if it comes back: keep glow (current); back to wgpu and accept the cost;
+  try wgpu with a different frame latency or a `CAMetalDisplayLink`-driven loop
+  (needs a reliable repro first). The separation backend (Phase 4, burn + wgpu)
+  does not depend on the UI renderer.
 
 ## Pitch lock
 
