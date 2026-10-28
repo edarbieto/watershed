@@ -70,6 +70,8 @@ Last updated: 2026-10-28.
   (see "Approximate BPM" below).
 - **Phase 3.5, time signature and beat grid: done.** Tested by the user: works.
   **Snap to the grid: done.** Tested by the user: works well (see "Beat grid" below).
+- **Phase 3.5, click and count-in: built, waiting for the user to listen** (see
+  "Click and count-in" below).
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -82,8 +84,8 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Phase 3.5, next items** in the order of `PLAN.md`: click and count-in (left,
-   right or both channels), then key detection.
+1. **Click and count-in:** the user listens with the checklist in "Click and
+   count-in" (and tunes the three sounds by ear). Then **key detection**.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -905,6 +907,53 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
 4. ½ / ×2 on the BPM: the grid follows.
 5. Grid off: the grid and the bar ruler empty, BPM greyed out. Close and reopen the
    song: everything is kept.
+
+## Click and count-in
+
+- **Engine** (`crates/audio/src/click.rs`): the click is mixed **after the limiter**,
+  so it is neither stretched, transposed nor ducked by the song. It follows the song
+  frame being heard (`Stretcher::heard_exact`, fractional and without the seek floor,
+  limiter delay included), so a beat clicks exactly when it is heard at any tempo:
+  in the test it lands within 0.2 ms of a sine's attack at 0.5×, 1× and 1.25× (at
+  slow tempos the stretcher spreads an attack over ~10 ms; the click falls in its
+  middle). Beats come from the grid (bar 1 and beat length in song frames, atomics);
+  nothing clicks before bar 1. After a seek, beats from the target on click (2 ms
+  tolerance, for a playhead snapped onto a beat); after a loop jump, from the loop
+  start. A pause lets a click already sounding ring out.
+- **Count-in**: when playback starts from silence (play, space, ▶ on a loop or
+  marker while paused), the engine seeks, then counts the bar before the playhead on
+  the grid, extended backwards (the first click is the accent of that bar), with the
+  stretcher frozen. The song starts when the count reaches the frame the stretcher
+  will play first, so the count and the song form one continuous pulse (tested). A
+  seek during the count-in starts the song at once. `Engine::counting_in()` keeps
+  the playhead still meanwhile. Not on loop wraps, nor on seeks while playing.
+- **Sounds**, synthesized when the engine starts (no files, any sample rate): Click
+  (damped 2 kHz / 3 kHz accent, 40 ms), Metronome (a two-mode tick; the accent adds a
+  bell at 2.1 kHz, 0.5 s), Wood (woodblock modes at 880 / 1175 Hz). Accent 1.0, other
+  beats 0.7, times the click volume.
+- **UI**, at the right of the transport: **Click** (also the C key) and **Count-in**
+  toggles, and a ⏷ menu with the sound, channels (Left / Both / Right) and volume
+  (−40 to 0 dB, default −6). Disabled without a BPM, with the grid off or before bar
+  1 is known. Click and count-in are saved in the session (`click`, `count_in`); the
+  sound, channels and volume in `config.toml` (`click_sound`, `click_channels`,
+  `click_volume_db`), the same for every song.
+- **Not done** (ideas for after listening): the song only in the other ear when the
+  click is on one side; showing the count (1 2 3 4) on screen.
+
+**Test checklist:**
+1. Turn on Click and play a song you know: is it on the beat, with the accent on the
+   "1"? Try 50 % and 125 % tempo and a transposition: it stays on the beat and its
+   pitch does not change.
+2. Try the three sounds and the volume while playing; is each one pleasant and
+   audible over the mix? Which one would you change?
+3. Channels Left and Right with headphones.
+4. Count-in on: press play with the playhead on a bar line (snap helps): four clicks,
+   then the song comes in on the "1". Also from ▶ on a marker or loop, and with the
+   Click off (only the count-in sounds).
+5. A loop with Click on: no double or missing clicks where it wraps; no count-in on
+   the wraps.
+6. Grid off or no BPM: both buttons greyed out, silence. Close and reopen the song:
+   Click and Count-in are kept; restart the app: sound, channels and volume are kept.
 
 ## Window size and maximizing
 

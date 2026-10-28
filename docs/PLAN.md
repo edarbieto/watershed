@@ -345,7 +345,7 @@ RAM first, then disk. In this order:
   songs without a steady beat. Then **snap**: a magnet toggle (on by default) makes a
   click on a waveform move the playhead to the nearest grid line; the time ruler
   stays free.
-- [ ] **Click and count-in.** A metronome that follows the grid while playing, on/off,
+- [x] **Click and count-in.** A metronome that follows the grid while playing, on/off,
   with the first beat of each bar accented. The user chooses where it sounds: **left,
   right or both** channels (e.g. the click in one ear and the song in the other).
   Plus an optional **count-in**: one bar of clicks before playback starts, so the user
@@ -355,7 +355,9 @@ RAM first, then disk. In this order:
   stretcher, so they are not time-stretched or transposed, and placed using the
   stretcher's latency so they land on the beat that is heard. Settings next to the
   transport, saved in the session (the channel choice could be global, in
-  `config.toml`). Without a BPM, both are disabled.
+  `config.toml`). Without a BPM, both are disabled. As built: three sounds like
+  Ableton's (**Click**, **Metronome**, **Wood**); click and count-in on/off per song in
+  the session, sound, channels and volume global in `config.toml`.
 - [ ] **Key detection** (e.g. "A major / F# minor"): chroma (energy per pitch class)
   from the pitched stems, without drums, compared against major and minor key
   profiles (Krumhansl–Schmuckler). Relative keys share the same notes, so the
