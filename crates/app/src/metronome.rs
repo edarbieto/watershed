@@ -10,7 +10,8 @@ use crate::bpm::Bpm;
 use crate::grid::Grid;
 
 const MIN_VOLUME_DB: f32 = -40.0;
-const MAX_VOLUME_DB: f32 = 0.0;
+/// +12 dB, the engine's loudest click.
+const MAX_VOLUME_DB: f32 = 12.0;
 
 /// The settings saved with each song. The sound, channels and volume are global,
 /// in the config.

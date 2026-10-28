@@ -945,10 +945,15 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
     2.7× and 3.4×, −20 dB at 15 ms, then a hollow ring of three close modes around
     −27 dB that fades by 0.3 s. Peak −1 dBFS.
   The peaks follow Live's, which balance a sustained beep against a dry pulse. All
-  times the click volume.
+  times the click volume. The user listened: they sound good. Copyright, as
+  discussed: only physical measurements (frequencies, decay times, levels) were
+  taken, not audio; the samples are not in the repo or the app.
 - **UI**, at the right of the transport: **Click** (also the C key) and **Count-in**
   toggles, and a ⏷ menu with the sound, channels (Left / Both / Right) and volume
-  (−40 to 0 dB, default −6). Disabled without a BPM, with the grid off or before bar
+  (−40 to +12 dB, default −6; asked by the user). The click is mixed after the
+  limiter, so above 0 dB its peaks go through a soft clipper (`soft_clip`: linear
+  up to 0.5, then a tanh curve towards 1.0): turned far up it gets denser and louder
+  instead of being squared off at the output. Disabled without a BPM, with the grid off or before bar
   1 is known. Click and count-in are saved in the session (`click`, `count_in`); the
   sound, channels and volume in `config.toml` (`click_sound`, `click_channels`,
   `click_volume_db`), the same for every song.

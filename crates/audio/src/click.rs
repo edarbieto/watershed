@@ -276,14 +276,14 @@ impl Clicker {
     ) {
         let frames = out.len() / 2;
         let gain = params.gain.load();
-        let (left, right) = match params.channels() {
-            ClickChannels::Left => (gain, 0.0),
-            ClickChannels::Both => (gain, gain),
-            ClickChannels::Right => (0.0, gain),
+        let channels = match params.channels() {
+            ClickChannels::Left => [1.0, 0.0],
+            ClickChannels::Both => [1.0, 1.0],
+            ClickChannels::Right => [0.0, 1.0],
         };
         let sound = sound_index(params.sound()) as usize;
 
-        let gains = [left, right];
+        let gains = (gain, channels);
         let mut done = 0;
         if let Some(beats) = beats
             && block.end > block.start
@@ -303,14 +303,16 @@ impl Clicker {
         self.add_voice(&mut out[done * 2..], gains);
     }
 
-    /// Adds the click sounding now to `out`, as far as it lasts.
-    fn add_voice(&mut self, out: &mut [f32], [left, right]: [f32; 2]) {
+    /// Adds the click sounding now to `out`, as far as it lasts, at `gain` and on
+    /// the channels set to 1.0.
+    fn add_voice(&mut self, out: &mut [f32], (gain, [left, right]): (f32, [f32; 2])) {
         let Some((sound, accent, next)) = &mut self.voice else {
             return;
         };
         let samples = &self.sounds[*sound][*accent][*next..];
         let n = (out.len() / 2).min(samples.len());
         for (frame, sample) in out.as_chunks_mut::<2>().0.iter_mut().zip(&samples[..n]) {
+            let sample = soft_clip(sample * gain);
             frame[0] += sample * left;
             frame[1] += sample * right;
         }
@@ -319,6 +321,24 @@ impl Clicker {
             self.voice = None;
         }
     }
+}
+
+/// Level up to which the click passes unchanged; above it, peaks bend smoothly
+/// towards 1.0. A wide knee, so a click turned far up thickens instead of being
+/// squared off. At 0 dB only the Wood click's first peak (0.9) is touched, by
+/// less than 1 dB.
+const SOFT_CLIP_KNEE: f32 = 0.5;
+
+/// Keeps a click turned up past 0 dB below full scale: it is mixed after the
+/// limiter, so it would otherwise be clipped hard at the output. Louder, not harsh.
+fn soft_clip(x: f32) -> f32 {
+    let magnitude = x.abs();
+    if magnitude <= SOFT_CLIP_KNEE {
+        return x;
+    }
+    let room = 1.0 - SOFT_CLIP_KNEE;
+    let bent = SOFT_CLIP_KNEE + room * ((magnitude - SOFT_CLIP_KNEE) / room).tanh();
+    bent.copysign(x)
 }
 
 /// Peak level of each click, after Ableton Live's metronome samples so that the
@@ -646,6 +666,23 @@ mod tests {
         let found = clicks(&out);
         let expected: Vec<(usize, bool)> = (0..4).map(|k| (k * 12_800, k == 0)).collect();
         assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn soft_clip_bends_only_loud_peaks() {
+        assert_eq!(soft_clip(0.4), 0.4);
+        assert_eq!(soft_clip(-0.5), -0.5);
+        // The loudest click at 0 dB loses less than 1 dB.
+        assert!(soft_clip(0.9) > 0.9 * 0.891, "{}", soft_clip(0.9));
+        for x in [1.0, 2.0, 3.6, -3.6, 100.0] {
+            let y = soft_clip(x);
+            assert!(
+                y.abs() <= 1.0 && y.abs() > 0.8 && y.signum() == x.signum(),
+                "{x} → {y}"
+            );
+        }
+        // Still growing with the input, so louder means louder.
+        assert!(soft_clip(2.0) > soft_clip(1.5));
     }
 
     #[test]

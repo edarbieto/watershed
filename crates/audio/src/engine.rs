@@ -23,6 +23,8 @@ pub const MIN_LOOP_SECS: f64 = 0.5;
 
 /// Click level before the user changes it: -6 dB.
 pub const DEFAULT_CLICK_GAIN: f32 = 0.5;
+/// Loudest click: +12 dB.
+pub const MAX_CLICK_GAIN: f32 = 4.0;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -345,9 +347,13 @@ impl Engine {
             .store(channels_index(channels), Ordering::Relaxed);
     }
 
-    /// Linear gain of the click, independent of the master volume.
+    /// Linear gain of the click, independent of the master volume. Up to
+    /// [`MAX_CLICK_GAIN`]; above 1.0 its peaks are softly limited.
     pub fn set_click_gain(&self, gain: f32) {
-        self.shared.click.gain.store(gain.clamp(0.0, 1.0));
+        self.shared
+            .click
+            .gain
+            .store(gain.clamp(0.0, MAX_CLICK_GAIN));
     }
 
     /// Drops songs the audio thread is done with. Call regularly from the UI thread.
