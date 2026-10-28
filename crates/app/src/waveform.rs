@@ -23,6 +23,22 @@ pub enum RulerAction {
     AddMarker(usize),
 }
 
+/// What the user did on the bar ruler.
+pub enum BarRulerAction {
+    /// Dragged: move bar 1 by this many seconds from where it was when the drag
+    /// began (`started` on the first frame of the drag).
+    Drag { started: bool, delta_secs: f64 },
+    /// Double-clicked: back to the estimated bar 1.
+    Reset,
+}
+
+/// A line of the beat grid: its frame, whether it starts a bar, and its label.
+pub struct GridLine {
+    pub frame: usize,
+    pub bar: bool,
+    pub label: Option<String>,
+}
+
 /// What is drawn over the waveforms and the ruler. Positions are in frames.
 pub struct Overlay<'a> {
     /// The frames shown across the width (zoom and scroll).
@@ -32,6 +48,8 @@ pub struct Overlay<'a> {
     pub loop_region: Option<(usize, usize, bool)>,
     /// Marker positions and labels, in time order.
     pub markers: &'a [(usize, String)],
+    /// The beat grid, empty when it is off.
+    pub grid: &'a [GridLine],
 }
 
 /// Height of the time labels row of the ruler; markers go in the row below.
@@ -132,6 +150,16 @@ pub fn waveform(
 
     let timeline = Timeline::new(rect.x_range(), &overlay.visible);
     paint_loop(ui, &painter, rect, timeline, overlay.loop_region);
+    // Behind the waveform, so it stays readable.
+    let grid_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+    for line in overlay.grid {
+        let strength = if line.bar { 1.0 } else { 0.45 };
+        painter.vline(
+            timeline.x_of(line.frame),
+            rect.y_range(),
+            Stroke::new(1.0, grid_color.gamma_multiply(strength)),
+        );
+    }
 
     // Each channel gets half the height, centered on its own axis.
     let half = rect.height() * 0.25 - 1.0;
@@ -293,6 +321,78 @@ pub fn ruler(
     } else {
         None
     }
+}
+
+/// Draws the bar ruler (bar numbers, and beats when zoomed in) in the rect of
+/// `response`, with the timeline spanning `x_range`. Dragging it moves the grid;
+/// a double-click puts bar 1 back where it was estimated. `enabled` false draws it
+/// empty and ignores the pointer.
+pub fn bar_ruler(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    x_range: Rangef,
+    sample_rate: u32,
+    overlay: &Overlay,
+    enabled: bool,
+) -> Option<BarRulerAction> {
+    let rect = Rect::from_x_y_ranges(x_range, response.rect.y_range());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 2.0, ui.visuals().faint_bg_color);
+    let text_color = ui.visuals().weak_text_color();
+    if !enabled {
+        return None;
+    }
+    let timeline = Timeline::new(x_range, &overlay.visible);
+    let font = FontId::proportional(10.0);
+    for line in overlay.grid {
+        let x = timeline.x_of(line.frame);
+        let height = if line.bar { rect.height() } else { 5.0 };
+        painter.vline(
+            x,
+            rect.bottom() - height..=rect.bottom(),
+            Stroke::new(
+                1.0,
+                text_color.gamma_multiply(if line.bar { 1.0 } else { 0.6 }),
+            ),
+        );
+        if let Some(label) = &line.label {
+            painter.text(
+                Pos2::new(x + 3.0, rect.top() + 1.0),
+                Align2::LEFT_TOP,
+                label,
+                font.clone(),
+                if line.bar {
+                    ui.visuals().text_color()
+                } else {
+                    text_color
+                },
+            );
+        }
+    }
+    painter.vline(
+        timeline.x_of(overlay.position),
+        rect.y_range(),
+        Stroke::new(1.5, ui.visuals().strong_text_color()),
+    );
+
+    if response.hovered() || response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    if response.double_clicked() {
+        return Some(BarRulerAction::Reset);
+    }
+    if response.dragged() {
+        let pointer = response.interact_pointer_pos()?;
+        let origin = ui.input(|i| i.pointer.press_origin())?;
+        let frames_per_point = timeline.len as f64 / f64::from(x_range.span().max(1.0));
+        let delta_secs =
+            f64::from(pointer.x - origin.x) * frames_per_point / f64::from(sample_rate.max(1));
+        return Some(BarRulerAction::Drag {
+            started: response.drag_started(),
+            delta_secs,
+        });
+    }
+    None
 }
 
 /// Draws a horizontal scrollbar for the view in the rect of `response`, under the

@@ -32,6 +32,8 @@ pub struct LoadedSong {
     pub stem_gain: f32,
     /// Estimated tempo of the song, if it has a steady enough beat.
     pub bpm: Option<f64>,
+    /// Onsets of all stems, kept to place the beat grid at any BPM.
+    pub onsets: OnsetEnvelope,
 }
 
 /// A load in progress.
@@ -197,5 +199,6 @@ fn load(
         peaks,
         stem_gain: session.stem_gain,
         bpm: onsets.bpm(),
+        onsets,
     })
 }

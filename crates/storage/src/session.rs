@@ -35,6 +35,14 @@ pub struct Session {
     /// estimate made when the song is loaded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bpm: Option<f64>,
+    /// Whether the beat grid (and the BPM) is on.
+    pub grid: bool,
+    /// Time signature: beats per bar, and the note value of a beat.
+    pub beats_per_bar: u32,
+    pub beat_unit: u32,
+    /// Where bar 1 starts, set by the user; `None` uses the estimate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grid_start: Option<f64>,
 }
 
 impl Default for Session {
@@ -52,6 +60,10 @@ impl Default for Session {
             markers: Vec::new(),
             stem_gain: 1.0,
             bpm: None,
+            grid: true,
+            beats_per_bar: 4,
+            beat_unit: 4,
+            grid_start: None,
         }
     }
 }
@@ -214,6 +226,10 @@ mod tests {
             }],
             stem_gain: 0.5,
             bpm: Some(127.5),
+            grid: false,
+            beats_per_bar: 7,
+            beat_unit: 8,
+            grid_start: Some(3.25),
             ..Session::default()
         };
         session.save_to(&path).unwrap();
@@ -249,6 +265,8 @@ mod tests {
         assert_eq!(session.semitones, 0.0);
         assert_eq!(session.stem_gain, 1.0);
         assert_eq!(session.bpm, None);
+        assert!(session.grid);
+        assert_eq!((session.beats_per_bar, session.beat_unit), (4, 4));
         assert_eq!(
             session.track("bass.wav"),
             Some(&TrackState {

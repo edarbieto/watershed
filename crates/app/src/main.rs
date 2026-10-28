@@ -5,6 +5,7 @@
 mod alloc;
 mod app;
 mod bpm;
+mod grid;
 mod loader;
 mod loops;
 mod markers;

@@ -3,7 +3,8 @@
 //! Two steps: an onset envelope, which peaks where notes and hits start (the rise in
 //! energy from one short frame to the next, summed over frequencies: "spectral
 //! flux"), and the beat period, the delay at which that envelope best matches
-//! itself (autocorrelation). Only a number comes out, no beat positions.
+//! itself (autocorrelation). Given a tempo, [`OnsetEnvelope::first_beat`] finds
+//! where the beats fall.
 
 use realfft::RealFftPlanner;
 
@@ -26,14 +27,28 @@ const REFINE_SPAN: f64 = 0.03;
 /// Multiples of the beat period summed by the refinement: the delay of the
 /// sixteenth beat is measured with sixteen times the precision of the first.
 const REFINE_BEATS: usize = 16;
+/// Where an attack shows in the envelope, in hops before the end of the window it
+/// enters (measured with clicks, see the tests).
+const ATTACK_LEAD: f64 = 1.5;
 /// Shorter audio gives no estimate.
 const MIN_SECS: f64 = 10.0;
+/// Step of the beat phase search, in envelope frames.
+const PHASE_STEP: f64 = 0.25;
+/// The music starts at the first onset this strong, as a fraction of the 95th
+/// percentile of all onsets.
+const START_THRESHOLD: f64 = 0.3;
+/// The first beat may come this early before the first onset, in beats, so a beat
+/// detected a hair late still counts as the first.
+const FIRST_BEAT_SLACK: f64 = 0.33;
 
 /// How much the onsets of some audio rise, per short frame.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OnsetEnvelope {
     /// Frames per second.
     pub rate: f64,
+    /// Seconds in the audio that frame 0 stands for: an attack shows in the frame
+    /// whose window it enters, a little before the window's start plus its length.
+    pub start: f64,
     pub values: Vec<f32>,
 }
 
@@ -43,10 +58,12 @@ impl OnsetEnvelope {
         let hop = ((f64::from(sample_rate) / ENVELOPE_RATE).round() as usize).max(1);
         let size = (hop * 4).next_power_of_two();
         let rate = f64::from(sample_rate) / hop as f64;
+        let start = (size as f64 - ATTACK_LEAD * hop as f64) / f64::from(sample_rate);
         let total = samples.len() / 2;
         if total < size {
             return Self {
                 rate,
+                start,
                 values: Vec::new(),
             };
         }
@@ -91,13 +108,18 @@ impl OnsetEnvelope {
             values.push(flux);
             std::mem::swap(&mut current, &mut previous);
         }
-        Self { rate, values }
+        Self {
+            rate,
+            start,
+            values,
+        }
     }
 
     /// Adds another envelope at the same rate, e.g. of another stem of the song.
     pub fn add(&mut self, other: &Self) {
         if self.values.is_empty() {
             self.rate = other.rate;
+            self.start = other.start;
         }
         if self.values.len() < other.values.len() {
             self.values.resize(other.values.len(), 0.0);
@@ -155,6 +177,58 @@ impl OnsetEnvelope {
         }
         Some(best)
     }
+
+    /// Seconds of the first beat at `bpm`: the beats are placed where a pulse
+    /// train at that tempo lines up best with the onsets, and the first one is at
+    /// (or just before) the first clear onset, so silence at the start is skipped.
+    /// `None` when [`OnsetEnvelope::bpm`] would give none.
+    pub fn first_beat(&self, bpm: f64) -> Option<f64> {
+        let rate = self.rate;
+        if rate <= 0.0 || bpm <= 0.0 || (self.values.len() as f64) < MIN_SECS * rate {
+            return None;
+        }
+        let onsets = peaks_only(&self.values, (MEAN_WINDOW_SECS * rate) as usize);
+        let period = 60.0 / bpm * rate;
+        let len = onsets.len() as f64;
+
+        let mut best = None;
+        let mut best_score = 0.0;
+        let mut phase = 0.0;
+        while phase < period {
+            let mut score = 0.0;
+            let mut at = phase;
+            while at < len {
+                score += interpolate(&onsets, at);
+                at += period;
+            }
+            if score > best_score {
+                best_score = score;
+                best = Some(phase);
+            }
+            phase += PHASE_STEP;
+        }
+        let phase = best?;
+
+        let mut sorted = onsets.clone();
+        sorted.sort_by(f64::total_cmp);
+        let strong = sorted[(sorted.len() * 95 / 100).min(sorted.len() - 1)];
+        let first_onset = onsets
+            .iter()
+            .position(|&v| v >= START_THRESHOLD * strong)
+            .unwrap_or(0) as f64;
+        let beats = ((first_onset - phase) / period - FIRST_BEAT_SLACK)
+            .ceil()
+            .max(0.0);
+        let first = self.start + (phase + beats * period) / rate;
+        // The first window cannot see an attack at the very start: a beat there,
+        // before the first one found, counts too.
+        let earlier = first - 60.0 / bpm;
+        Some(if (-0.005..self.start).contains(&earlier) {
+            earlier.max(0.0)
+        } else {
+            first
+        })
+    }
 }
 
 /// `values` minus their local mean, negatives dropped.
@@ -209,7 +283,13 @@ mod tests {
     /// Interleaved stereo clicks: a short decaying noise burst on every beat, over
     /// quiet noise. Every fourth beat is louder, like a downbeat.
     fn clicks(bpm: f64, sample_rate: u32, secs: f64) -> Vec<f32> {
+        clicks_from(bpm, sample_rate, secs, 0.0)
+    }
+
+    /// [`clicks`] with only the quiet noise before `first` seconds.
+    fn clicks_from(bpm: f64, sample_rate: u32, secs: f64, first: f64) -> Vec<f32> {
         let frames = (secs * f64::from(sample_rate)) as usize;
+        let lead = (first * f64::from(sample_rate)) as usize;
         let beat = 60.0 / bpm * f64::from(sample_rate);
         let mut seed = 1u32;
         let mut noise = move || {
@@ -218,7 +298,12 @@ mod tests {
         };
         let mut samples = Vec::with_capacity(frames * 2);
         for i in 0..frames {
-            let beats = i as f64 / beat;
+            if i < lead {
+                let s = noise() * 0.01;
+                samples.extend([s, s]);
+                continue;
+            }
+            let beats = (i - lead) as f64 / beat;
             let since = (beats.fract() * beat) / f64::from(sample_rate);
             let accent = if (beats as usize).is_multiple_of(4) {
                 1.0
@@ -255,6 +340,24 @@ mod tests {
     }
 
     #[test]
+    fn finds_the_first_beat_after_silence() {
+        for (bpm, rate, first) in [
+            (120.0, 48_000, 2.0),
+            (97.0, 44_100, 3.37),
+            (143.5, 48_000, 0.0),
+        ] {
+            let audio = clicks_from(bpm, rate, 30.0, first);
+            let found = OnsetEnvelope::compute(&audio, rate)
+                .first_beat(bpm)
+                .expect("a first beat");
+            assert!(
+                (found - first).abs() < 0.005,
+                "{bpm} BPM at {rate} Hz from {first}: got {found}"
+            );
+        }
+    }
+
+    #[test]
     fn silence_and_short_audio_give_none() {
         assert_eq!(
             OnsetEnvelope::compute(&vec![0.0; 48_000 * 2 * 20], 48_000).bpm(),
@@ -270,10 +373,12 @@ mod tests {
         let mut sum = OnsetEnvelope::default();
         let a = OnsetEnvelope {
             rate: 100.0,
+            start: 0.0,
             values: vec![1.0, 2.0],
         };
         let b = OnsetEnvelope {
             rate: 100.0,
+            start: 0.0,
             values: vec![1.0, 1.0, 1.0],
         };
         sum.add(&a);

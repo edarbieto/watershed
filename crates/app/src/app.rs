@@ -8,6 +8,7 @@ use watershed_dsp::Peaks;
 use watershed_storage::{Config, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
+use crate::grid::{self, Grid};
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
 use crate::markers::Markers;
@@ -16,10 +17,14 @@ use crate::separate::{self, Job, Target};
 use crate::stems::song_title;
 use crate::usage::{self, Usage};
 use crate::view::View;
-use crate::waveform::{Overlay, RulerAction, WaveformAction, ruler, scrollbar, waveform};
+use crate::waveform::{
+    BarRulerAction, GridLine, Overlay, RulerAction, WaveformAction, bar_ruler, ruler, scrollbar,
+    waveform,
+};
 
 const ROW_HEIGHT: f32 = 64.0;
 const RULER_HEIGHT: f32 = 32.0;
+const BAR_RULER_HEIGHT: f32 = 20.0;
 const SCROLLBAR_HEIGHT: f32 = 8.0;
 /// Zoom factor of the zoom buttons and keys.
 const ZOOM_STEP: f64 = 1.5;
@@ -109,6 +114,9 @@ pub struct WatershedApp {
     loops: Loops,
     markers: Markers,
     bpm: Bpm,
+    grid: Grid,
+    /// Bar 1 when a drag of the bar ruler began.
+    grid_drag_origin: Option<f64>,
     /// Visible part of the song.
     view: View,
     /// Playhead position in the previous frame, in seconds, to follow it.
@@ -163,6 +171,8 @@ impl WatershedApp {
             loops: Loops::default(),
             markers: Markers::default(),
             bpm: Bpm::default(),
+            grid: Grid::default(),
+            grid_drag_origin: None,
             view: View::new(0.0),
             last_position: 0.0,
             playhead: Playhead::default(),
@@ -437,6 +447,7 @@ impl WatershedApp {
         self.loops = Loops::from_session(&session);
         self.markers = Markers::from_session(&session.markers);
         self.bpm = Bpm::new(loaded.bpm, session.bpm);
+        self.grid = Grid::from_session(&session);
         self.view = View::new(loaded.song.duration_secs());
         self.last_loop = None;
         let Some(engine) = &mut self.engine else {
@@ -472,6 +483,10 @@ impl WatershedApp {
             markers: self.markers.list.clone(),
             stem_gain: loaded.stem_gain,
             bpm: self.bpm.user(),
+            grid: self.grid.enabled,
+            beats_per_bar: self.grid.beats_per_bar,
+            beat_unit: self.grid.beat_unit,
+            grid_start: self.grid.user_start(),
             ..Session::default()
         };
         Some((session_path(loaded), session))
@@ -664,7 +679,7 @@ impl WatershedApp {
             }
             Action::ZoomToFit => self.view = View::new(self.view.duration()),
             Action::Tap => {
-                if self.loaded.is_some() {
+                if self.loaded.is_some() && self.grid.enabled {
                     let tempo = self.engine.as_ref().map_or(1.0, Engine::tempo);
                     self.bpm.tap(Instant::now(), f64::from(tempo));
                 }
@@ -1174,7 +1189,12 @@ impl WatershedApp {
                 engine.set_tempo(percent / 100.0);
             }
             ui.label("Tempo");
-            bpm_controls(ui, &mut self.bpm, f64::from(engine.tempo()), enabled);
+            bpm_controls(
+                ui,
+                &mut self.bpm,
+                f64::from(engine.tempo()),
+                enabled && self.grid.enabled,
+            );
 
             ui.separator();
             let mut semitones = engine.semitones();
@@ -1401,12 +1421,33 @@ impl WatershedApp {
             .map(|(i, m)| ((m.time * rate) as usize, format!("{} {}", i + 1, m.name)))
             .collect();
         let visible = (self.view.start * rate) as usize..(self.view.end() * rate) as usize;
+        self.grid.update_estimate(self.bpm.value(), &loaded.onsets);
+        let grid_lines: Vec<GridLine> = match self.bpm.value() {
+            Some(bpm) if self.grid.enabled => {
+                // The waveforms take the width beside the track controls.
+                let width = ui.available_width() - CONTROLS_WIDTH - ui.spacing().item_spacing.x;
+                let points_per_sec = f64::from(width.max(1.0)) / self.view.span.max(1e-9);
+                self.grid
+                    .lines(bpm, self.view.start, self.view.end(), points_per_sec)
+                    .into_iter()
+                    .map(|line| GridLine {
+                        frame: (line.secs * rate) as usize,
+                        bar: line.bar,
+                        label: line.label,
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
         let overlay = Overlay {
             visible,
             position,
             loop_region,
             markers: &markers,
+            grid: &grid_lines,
         };
+        let playhead_secs = self.position_secs();
+        let has_bpm = self.bpm.value().is_some();
         let mut wave_action = None;
         let mut zoom_action = None;
         // The ruler and the scrollbar are drawn once the rows have shown where the
@@ -1438,6 +1479,22 @@ impl WatershedApp {
                 );
                 ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), RULER_HEIGHT),
+                    egui::Sense::click_and_drag(),
+                )
+                .1
+            })
+            .inner;
+        // The grid controls sit beside the bar ruler.
+        let grid = &mut self.grid;
+        let bar_ruler_response = ui
+            .horizontal(|ui| {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(CONTROLS_WIDTH, BAR_RULER_HEIGHT),
+                    Layout::left_to_right(Align::Center),
+                    |ui| grid_controls(ui, grid, has_bpm, playhead_secs),
+                );
+                ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), BAR_RULER_HEIGHT),
                     egui::Sense::click_and_drag(),
                 )
                 .1
@@ -1598,6 +1655,32 @@ impl WatershedApp {
                 &overlay,
             )
         });
+        let grid_shown = self.grid.enabled && has_bpm;
+        let bar_action = wave_x.and_then(|x_range| {
+            bar_ruler(
+                ui,
+                &bar_ruler_response,
+                x_range,
+                loaded.song.sample_rate,
+                &overlay,
+                grid_shown,
+            )
+        });
+        match bar_action {
+            Some(BarRulerAction::Drag {
+                started,
+                delta_secs,
+            }) => {
+                if started {
+                    self.grid_drag_origin = self.grid.start();
+                }
+                if let Some(origin) = self.grid_drag_origin {
+                    self.grid.set_start(origin + delta_secs);
+                }
+            }
+            Some(BarRulerAction::Reset) => self.grid.reset_start(),
+            None => {}
+        }
         if let Some(x_range) = wave_x {
             scrollbar(ui, &scrollbar_response, x_range, &mut self.view);
             // Cmd + scroll or a pinch zooms around the pointer; sideways scrolling
@@ -1722,7 +1805,12 @@ impl eframe::App for WatershedApp {
             tracks_size = margins
                 + egui::vec2(
                     side_width + CONTROLS_WIDTH + MIN_WAVEFORM_WIDTH,
-                    bars_height + RULER_HEIGHT + ROW_HEIGHT + SCROLLBAR_HEIGHT + 3.0 * spacing,
+                    bars_height
+                        + RULER_HEIGHT
+                        + BAR_RULER_HEIGHT
+                        + ROW_HEIGHT
+                        + SCROLLBAR_HEIGHT
+                        + 4.0 * spacing,
                 );
             self.separation_status(ui);
             if let Some(loading) = &self.loading {
@@ -1906,6 +1994,44 @@ fn text_width(ui: &egui::Ui, text: RichText) -> f32 {
 /// contents wider than the panel widen its rectangle.
 fn panel_margins(ui: &egui::Ui) -> f32 {
     ui.ctx().content_rect().width() - ui.max_rect().width()
+}
+
+/// The grid switch, the time signature and "1 here", beside the bar ruler.
+fn grid_controls(ui: &mut egui::Ui, grid: &mut Grid, has_bpm: bool, playhead_secs: f64) {
+    ui.checkbox(&mut grid.enabled, "Grid").on_hover_text(
+        "Beat grid, bar ruler and BPM. Turn it off for songs without a steady beat.",
+    );
+    ui.add_enabled_ui(grid.enabled, |ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.add(
+            egui::DragValue::new(&mut grid.beats_per_bar)
+                .range(1..=grid::MAX_BEATS_PER_BAR)
+                .speed(0.05),
+        )
+        .on_hover_text("Beats per bar");
+        ui.label("/");
+        egui::ComboBox::from_id_salt("beat_unit")
+            .width(36.0)
+            .selected_text(grid.beat_unit.to_string())
+            .show_ui(ui, |ui| {
+                for unit in grid::BEAT_UNITS {
+                    ui.selectable_value(&mut grid.beat_unit, unit, unit.to_string());
+                }
+            })
+            .response
+            .on_hover_text("Note value of a beat: the BPM counts these");
+        ui.add_space(6.0);
+        if ui
+            .add_enabled(has_bpm, egui::Button::new("1 here").small())
+            .on_hover_text(
+                "Start bar 1 at the playhead. Or drag the bar ruler; double-click it to \
+                 go back to the estimate.",
+            )
+            .clicked()
+        {
+            grid.set_start(playhead_secs);
+        }
+    });
 }
 
 /// The song's BPM at the current tempo, with buttons to correct it.

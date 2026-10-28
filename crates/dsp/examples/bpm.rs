@@ -1,5 +1,5 @@
-//! Prints the estimated tempo of some audio files, as if they were the stems of one
-//! song: `cargo run --release -p watershed-dsp --example bpm -- drums.flac`.
+//! Prints the estimated tempo and first beat of some audio files, as if they were the
+//! stems of one song: `cargo run --release -p watershed-dsp --example bpm -- drums.flac`.
 
 use std::time::Instant;
 
@@ -34,5 +34,10 @@ fn main() {
             Some(bpm) => println!("{bpm:6.1} BPM  all"),
             None => println!("     -      all"),
         }
+    }
+    if let Some(bpm) = envelope.bpm()
+        && let Some(first) = envelope.first_beat(bpm)
+    {
+        println!("first beat at {first:.3} s");
     }
 }
