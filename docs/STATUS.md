@@ -88,6 +88,16 @@ Last updated: 2026-10-28.
 names, pitch lock, offsets, settings, stem format and BPM done.
 
 1. The two new ideas in `PLAN.md`: **dynamic tempo**, then the **song info panel**.
+   The feasibility experiment (Python, not kept) to redo in Rust: spectral flux of
+   the drum stem at 100 frames/s (log-compressed magnitudes, a 0.5 s moving mean
+   subtracted, clipped at 0) normalized by its standard deviation; global BPM from
+   autocorrelation with a log-Gaussian prior around 120; then Ellis's (2007)
+   dynamic-programming beat tracker: score(t) = env(t) + max over lags in [p/2, 2p]
+   of score(t − lag) − 680 · ln(lag / p)², backtracked from the best end. Without
+   normalizing the envelope (or with a weight of 100) it locked onto double tempo.
+   Local tempo = 60 / beat intervals, averaged over 8 beats. Results: Change 133 →
+   145 BPM (5.8 % between p5 and p95, beat jitter 2.6 %); the other test songs
+   0.9–3.6 % and 1.4–2.4 %.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
