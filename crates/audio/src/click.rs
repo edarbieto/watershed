@@ -18,10 +18,10 @@ const SEEK_TOLERANCE_SECS: f64 = 0.002;
 /// The sound of the click.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ClickSound {
-    /// A short, bright tick.
+    /// A short, dry tick.
     #[default]
     Click,
-    /// A mechanical metronome: a tick, with a bell on the first beat of the bar.
+    /// The classic beep of a DAW metronome.
     Metronome,
     /// A woodblock.
     Wood,
@@ -321,58 +321,149 @@ impl Clicker {
     }
 }
 
-/// One click, mono, peaking at 1.0 when accented and 0.7 otherwise.
+/// Peak level of each click, after Ableton Live's metronome samples so that the
+/// three sounds are about as loud: a sustained tone needs a lower peak than a dry
+/// pulse. The accent is told apart by its pitch, and in the Metronome sound also by
+/// its level.
+fn level(sound: ClickSound, accent: bool) -> f32 {
+    match (sound, accent) {
+        (ClickSound::Click, _) => 0.5,
+        (ClickSound::Metronome, false) => 0.23,
+        (ClickSound::Metronome, true) => 0.34,
+        (ClickSound::Wood, _) => 0.9,
+    }
+}
+
+/// One click, mono. Modelled on what Ableton Live's Click, Classic and Wood samples
+/// measure (spectrum and envelope), not copied from them.
 fn synthesize(sound: ClickSound, accent: bool, sample_rate: u32) -> Vec<f32> {
     let rate = sample_rate as f32;
-    // (frequency, decay time constant in seconds, level)
-    let (partials, noise, length): (Vec<(f32, f32, f32)>, f32, f32) = match (sound, accent) {
-        (ClickSound::Click, false) => (vec![(2000.0, 0.004, 1.0)], 0.3, 0.04),
-        (ClickSound::Click, true) => (vec![(3000.0, 0.004, 1.0)], 0.3, 0.04),
-        (ClickSound::Metronome, false) => {
-            (vec![(1250.0, 0.008, 1.0), (3400.0, 0.003, 0.6)], 0.5, 0.06)
-        }
-        // The tick plus a bell, like the bell of a mechanical metronome.
-        (ClickSound::Metronome, true) => (
-            vec![
-                (1250.0, 0.008, 1.0),
-                (3400.0, 0.003, 0.6),
-                (2093.0, 0.12, 0.5),
-                (5776.0, 0.04, 0.15),
-            ],
-            0.5,
-            0.5,
-        ),
-        // A woodblock: a strong mode and a weaker inharmonic one.
-        (ClickSound::Wood, false) => (vec![(880.0, 0.025, 1.0), (2420.0, 0.008, 0.4)], 0.2, 0.15),
-        (ClickSound::Wood, true) => (vec![(1175.0, 0.025, 1.0), (3230.0, 0.008, 0.4)], 0.2, 0.15),
+    let mut samples = match sound {
+        ClickSound::Click => click(accent, rate),
+        ClickSound::Metronome => beep(accent, rate),
+        ClickSound::Wood => woodblock(accent, rate),
     };
-    let len = (length * rate) as usize;
-    // A noise burst for the strike, 1 ms; deterministic so every click is the same.
-    let mut seed = 0x9e37_79b9_u32;
-    let mut samples: Vec<f32> = (0..len)
+    let peak = samples.iter().fold(0.0f32, |p, s| p.max(s.abs()));
+    if peak > 0.0 {
+        let gain = level(sound, accent) / peak;
+        samples.iter_mut().for_each(|s| *s *= gain);
+    }
+    samples
+}
+
+/// A damped sine starting at zero.
+fn mode(t: f32, frequency: f32, decay: f32) -> f32 {
+    (TAU * frequency * t).sin() * (-t / decay).exp()
+}
+
+/// Rises from 0 to 1 over `secs` along half a cosine.
+fn rise(t: f32, secs: f32) -> f32 {
+    if t >= secs {
+        1.0
+    } else {
+        0.5 - 0.5 * (std::f32::consts::PI * t / secs).cos()
+    }
+}
+
+/// A dry tick: one short pulse, a low thump around 240 Hz and a 1 kHz ring, all
+/// gone within 5 ms. The accent has a wider pulse and a lower thump, so it sounds
+/// fuller, and a higher ring.
+fn click(accent: bool, rate: f32) -> Vec<f32> {
+    // (pulse width, thump frequency, level and decay, ring frequency and level)
+    let (width, thump, ring) = if accent {
+        (0.0006, (186.0, 0.5, 0.0015), (1600.0, 0.15))
+    } else {
+        (0.0003, (240.0, 0.35, 0.0012), (1050.0, 0.3))
+    };
+    let ramp = 0.00015;
+    // One-pole high-pass at 200 Hz: what follows the pulse swings below zero.
+    let coef = (-TAU * 200.0 / rate).exp();
+    let (mut previous_in, mut previous_out) = (0.0, 0.0);
+    (0..(0.015 * rate) as usize)
         .map(|i| {
             let t = i as f32 / rate;
-            let tone: f32 = partials
+            let pulse = rise(t, ramp) * rise(width - t, ramp) * f32::from(u8::from(t < width));
+            let high_passed = coef * (previous_out + pulse - previous_in);
+            (previous_in, previous_out) = (pulse, high_passed);
+            let tail = rise((0.015 - t).max(0.0), 0.002);
+            let low = thump.1 * mode(t, thump.0, thump.2);
+            (high_passed + low + ring.1 * mode(t, ring.0, 0.0015)) * tail
+        })
+        .collect()
+}
+
+/// The classic DAW beep: a 1.1 kHz tone (1.575 kHz on the accent) with a little
+/// third and fifth harmonic, decaying for 17 ms, then cut off in 3 ms.
+fn beep(accent: bool, rate: f32) -> Vec<f32> {
+    let f = if accent { 1575.0 } else { 1100.0 };
+    let length = 0.02;
+    (0..(length * rate) as usize)
+        .map(|i| {
+            let t = i as f32 / rate;
+            let w = TAU * f * t;
+            let tone = w.sin() + 0.22 * (3.0 * w).sin() + 0.025 * (5.0 * w).sin();
+            let envelope = rise(t, 0.0005) * (-t / 0.0082).exp() * rise(length - t, 0.003);
+            tone * envelope
+        })
+        .collect()
+}
+
+/// A woodblock at 1.08 kHz (1.555 kHz on the accent): a soft 2 ms strike, a body
+/// that holds for a few milliseconds and drops fast, weaker inharmonic modes, and
+/// the hollow block ringing on quietly for about 0.3 s.
+fn woodblock(accent: bool, rate: f32) -> Vec<f32> {
+    let f = if accent { 1555.0 } else { 1080.0 };
+    // (frequency ratio, level, decay): the accent has a strong mode close to the
+    // main one, which beats against it.
+    let modes: &[(f32, f32, f32)] = if accent {
+        &[
+            (0.94, 0.6, 0.006),
+            (0.87, 0.05, 0.005),
+            (2.23, 0.25, 0.0025),
+            (2.48, 0.25, 0.002),
+        ]
+    } else {
+        &[
+            (0.86, 0.06, 0.005),
+            (1.6, 0.2, 0.0025),
+            (2.21, 0.6, 0.0025),
+            (2.66, 0.15, 0.002),
+            (3.36, 0.2, 0.002),
+        ]
+    };
+    // The hollow ringing: the main mode and two close ones, so it is not a pure tone.
+    // Quieter on the accent, which rings for less time in the reference.
+    let ring_level = if accent { 0.6 } else { 1.0 };
+    let rings = [(1.0, 0.16), (0.965, 0.08), (1.035, 0.06)].map(|(r, l)| (r, l * ring_level));
+    let length = 0.3;
+    // Deterministic noise for the strike, so every click is the same.
+    let mut seed = 0x9e37_79b9_u32;
+    (0..(length * rate) as usize)
+        .map(|i| {
+            let t = i as f32 / rate;
+            let strike = rise(t, 0.002);
+            let body = strike
+                * (-(t - 0.002).max(0.0) / 0.02).exp()
+                * (-(t - 0.007).max(0.0) / 0.0045).exp();
+            let main = (TAU * f * t).sin() * body;
+            let others: f32 = modes
                 .iter()
-                .map(|&(f, decay, level)| level * (TAU * f * t).sin() * (-t / decay).exp())
+                .map(|&(ratio, level, decay)| level * rise(t, 0.0005) * mode(t, f * ratio, decay))
                 .sum();
+            let ring: f32 = rings
+                .iter()
+                .map(|&(ratio, level)| level * (TAU * f * ratio * t).sin())
+                .sum::<f32>()
+                * (1.0 - (-t / 0.005).exp())
+                * (-t / 0.055).exp();
             seed ^= seed << 13;
             seed ^= seed >> 17;
             seed ^= seed << 5;
             let white = seed as f32 / u32::MAX as f32 * 2.0 - 1.0;
-            let strike = noise * white * (-t / 0.001).exp();
-            // 0.2 ms attack and a short fade at the end, so neither edge clicks.
-            let attack = (t / 0.0002).min(1.0);
-            let release = ((len - i) as f32 / (rate * 0.002)).min(1.0);
-            (tone + strike) * attack * release
+            let noise = 0.12 * white * rise(t, 0.0001) * (-t / 0.0007).exp();
+            (main + others + ring + noise) * rise(length - t, 0.005)
         })
-        .collect();
-    let peak = samples.iter().fold(0.0f32, |p, s| p.max(s.abs()));
-    let level = if accent { 1.0 } else { 0.7 };
-    if peak > 0.0 {
-        samples.iter_mut().for_each(|s| *s *= level / peak);
-    }
-    samples
+        .collect()
 }
 
 #[cfg(test)]
@@ -388,6 +479,10 @@ mod tests {
             ..Default::default()
         };
         params.on.store(true, Ordering::Relaxed);
+        // Its accent is louder, which `clicks` tells apart.
+        params
+            .sound
+            .store(sound_index(ClickSound::Metronome), Ordering::Relaxed);
         params.set_beats(Some(beats));
         params
     }
@@ -407,7 +502,10 @@ mod tests {
                 let peak = left[i..(i + 200).min(left.len())]
                     .iter()
                     .fold(0.0f32, |p, s| p.max(s.abs()));
-                found.push((i - 1, peak > 0.85));
+                let threshold = (level(ClickSound::Metronome, false)
+                    + level(ClickSound::Metronome, true))
+                    / 2.0;
+                found.push((i - 1, peak > threshold));
             }
             zeros = 0;
         }
@@ -557,10 +655,10 @@ mod tests {
                 let samples = synthesize(sound, accent, RATE);
                 assert!(samples.len() <= RATE as usize / 2);
                 let peak = samples.iter().fold(0.0f32, |p, s| p.max(s.abs()));
-                let level = if accent { 1.0 } else { 0.7 };
+                let level = level(sound, accent);
                 assert!((peak - level).abs() < 1e-3, "{sound:?} {accent}: {peak}");
                 assert_eq!(samples[0], 0.0);
-                assert!(samples.last().unwrap().abs() < 0.01);
+                assert!(samples.last().unwrap().abs() < 1e-3);
             }
         }
     }

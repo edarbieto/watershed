@@ -70,8 +70,9 @@ Last updated: 2026-10-28.
   (see "Approximate BPM" below).
 - **Phase 3.5, time signature and beat grid: done.** Tested by the user: works.
   **Snap to the grid: done.** Tested by the user: works well (see "Beat grid" below).
-- **Phase 3.5, click and count-in: built, waiting for the user to listen** (see
-  "Click and count-in" below).
+- **Phase 3.5, click and count-in: done.** Tested by the user: timing, count-in and
+  controls work. The three sounds were then remodelled on Ableton Live's; the user
+  still has to listen to them (see "Click and count-in" below).
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -84,8 +85,9 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Click and count-in:** the user listens with the checklist in "Click and
-   count-in" (and tunes the three sounds by ear). Then **key detection**.
+1. **Click and count-in:** tested by the user, timing and controls all fine; the
+   sounds were redone after Live's (see "Click and count-in"), to listen again.
+   Then **key detection**.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -927,10 +929,23 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   will play first, so the count and the song form one continuous pulse (tested). A
   seek during the count-in starts the song at once. `Engine::counting_in()` keeps
   the playhead still meanwhile. Not on loop wraps, nor on seeks while playing.
-- **Sounds**, synthesized when the engine starts (no files, any sample rate): Click
-  (damped 2 kHz / 3 kHz accent, 40 ms), Metronome (a two-mode tick; the accent adds a
-  bell at 2.1 kHz, 0.5 s), Wood (woodblock modes at 880 / 1175 Hz). Accent 1.0, other
-  beats 0.7, times the click volume.
+- **Sounds**, synthesized when the engine starts (no files, any sample rate). The
+  first version was designed blind and the user asked to adjust it; the second is
+  modelled on **Ableton Live's own metronome samples** (Live 12 Lite installs them:
+  `Misc/Metronome/Samples` is "Classic", `Core Library/Defaults/Metronomes/Samples`
+  holds Click and Wood), measured for spectrum, envelope and peak level, not copied.
+  Measured and matched (accent in brackets):
+  - **Click**: a 0.3 ms pulse (0.6), a thump at 240 Hz (186) and a ring at 1050 Hz
+    (1600), −20 dB at 3 ms, gone by 10 ms. Peak −6 dBFS.
+  - **Metronome** (Live's "Classic"): 1100 Hz (1575) with the 3rd harmonic at −13 dB
+    and the 5th at −32 dB, decaying ~1 dB/ms and cut off at 20 ms. Peak −13 dBFS
+    (−9.4: the accent is also louder).
+  - **Wood**: main mode 1080 Hz (1555; the accent adds a mode at 0.94× that beats
+    against it), a 2 ms soft strike, inharmonic attack modes at 1.6×, 2.2× (−13 dB),
+    2.7× and 3.4×, −20 dB at 15 ms, then a hollow ring of three close modes around
+    −27 dB that fades by 0.3 s. Peak −1 dBFS.
+  The peaks follow Live's, which balance a sustained beep against a dry pulse. All
+  times the click volume.
 - **UI**, at the right of the transport: **Click** (also the C key) and **Count-in**
   toggles, and a ⏷ menu with the sound, channels (Left / Both / Right) and volume
   (−40 to 0 dB, default −6). Disabled without a BPM, with the grid off or before bar
