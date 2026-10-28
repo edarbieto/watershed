@@ -76,9 +76,9 @@ Last updated: 2026-10-28.
 - **Phase 3.5, key detection: done.** Checked by the user against the songs they
   know (see "Key detection" below): meant as a rough hint, and that is enough.
 - **Phase 3.5, dynamic tempo: done, being tuned with the user** (see "Dynamic
-  tempo" below). Change's intro and its soft bridge (2:31) were wrong, both fixed
-  from the user's marks; to listen again. Next test song: Tool's "46 & 2" (tempo
-  and time signature changes, see "Next steps").
+  tempo" below). Change passes (checked by the user). Tool's "46 & 2": the start
+  fixed (bar 1 and 79 BPM from the user's marks), the rest left as it is; the user
+  wants to move on to time signature marks.
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -91,12 +91,17 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Dynamic tempo:** Change passes (the user listened after the bridge fix); the
-   steady ending is to hear once. Then try **Tool's "46 & 2"**: more tempo changes and time signature changes
-   (the drum solo is said to be in 7/8). Ideas discussed, not designed yet:
-   time-signature change marks on the bar ruler (from a bar on, n/m), and short
-   bars (e.g. one bar of 1/4 for a pause or a pickup). Then the **song info
-   panel** (`PLAN.md`), which can reuse the tracked beats.
+1. **Time signature marks** (next session, asked by the user): marks on the bar
+   ruler fixed to the song's time like the section markers (`Marker.time`, in
+   seconds), each starting a bar with its own n/m from there on; short bars (one
+   bar of 1/4 for a pause or a pickup); Tool's "46 & 2" drum solo is said to be
+   in 7/8. Each mark should also be a bar 1 for the beat tracker
+   (`track_beats(bpm, bar_one)` takes one today): automatic tracking cannot always
+   tell beats from offbeats (see "Dynamic tempo"), the user's marks can. Also to
+   hear once: Change's steady ending and the start of "46 & 2" with Dynamic.
+   Then the **song info panel** (`PLAN.md`), which can reuse the tracked beats.
+   Idea from the user, not designed: cutting pieces of a stem (in "46 & 2" the
+   bass intro came out in the guitar stem).
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -1039,6 +1044,26 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   last fill does not set it. Change: the rhythm ends at 4:44.6 (the drums stop),
   then 148.2 BPM, the pace of the last fill (its beats sit on the drum hits).
   The other test songs end 3–15 s before their files do.
+- **Tool's "46 & 2"** (separated by Watershed; the bass intro came out in the
+  guitar stem). The user's bar 1 at 0.24 s and 79 BPM. The tracker alone reads
+  107 BPM (4/3 of 79: the riff moves in dotted eighths) and, at 79, put the beats
+  on the riff's offbeats (−0.3 to −0.4 beat) and ran at 84 BPM over the first
+  bars. Two changes: **bar 1 holds a beat** when the user put it on a note (an
+  onset of at least 1 local deviation within 60 ms; every path after it goes back
+  through it, and it weighs 10⁶ in the smoothing), and **beats in silence keep
+  the tempo** (a gap ending on an onset under 0.5 pays 20 000 · ln(lag / p)²
+  instead of 680). Now the first bars are at 79.1, on the user's grid (+42 ms on
+  average over the first 16 beats). Still wrong: from ~0:12 to ~0:35 the beats
+  slide to the offbeats again (−130 to −165 ms) and come back once the drums
+  carry the beat (from ~0:35 within ±80 ms of the steady 79 grid, following the
+  drummer's drift, which the drum stem shows too). Tried and dropped: a higher
+  tightness (2000, 5000: no change) and gaps limited to ±15–33 % of the period
+  (the riff's offbeats sound more often than its beats, so on the onsets alone
+  they are the better path; the limit only moved the slip, and broke the sudden
+  drop test). Only more marks from the user can fix that. Change: unchanged, its
+  bar 1 (0.12 s, placed to line the steady grid up with the bridge) is on no note,
+  so it does not hold; the bridge bars land as before (87 at 2:31.50, 94, 103).
+  Other songs unchanged.
 - **Checked by the user after the bridge fix:** "almost perfect"; some parts run a
   little ahead, which makes sense; at 4:05 a short drum fill really speeds up and
   the tempo relaxes after it.
@@ -1052,9 +1077,10 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   early, No Dejes Que goes from −67 to +61 ms. That is the band (or a BPM a hair
   off), and what this feature is for.
 - **Grid** (`grid.rs`): the beats are tracked on load and again when the BPM changes
-  by more than 5 % (½, ×2, a tap far off; dragging the BPM does not retrack). With
-  **Dynamic** on, bar 1 is the tracked beat nearest to the estimated or user bar 1
-  (dragging the bar ruler or "1 here" moves it by whole beats), and the grid lines,
+  by more than 5 % (½, ×2, a tap far off; dragging the BPM does not retrack), and,
+  with Dynamic on, when the user's bar 1 moved (once a drag ends: tracking takes
+  25–65 ms). With **Dynamic** on, the beats are counted from the user's bar 1 when
+  it is on a note; bar 1 is the tracked beat nearest to it, and the grid lines,
   snap, click and count-in follow the tracked beats. Off: as before.
 - **Engine**: `watershed_audio::Beats` is now a list of beat times from bar 1 (a
   steady grid is listed up to the song's end), extended at the pace of the first
