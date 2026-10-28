@@ -68,6 +68,9 @@ Last updated: 2026-10-28.
   of 149 MB for the 4:03 test song; on Metal it took about the usual time (not timed).
 - **Phase 3.5, approximate BPM: done.** Tested by the user: passes the checklist
   (see "Approximate BPM" below).
+- **Phase 3.5, minimum window size: done.** Tested by the user: works. **Maximizing
+  on macOS: fixed, to be confirmed by the user** with Rectangle (see "Window size and
+  maximizing" below).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -77,10 +80,12 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Phase 3.5, next items** in the order of `PLAN.md` (the last five added by the
-   user after testing the BPM): time signature, beat grid, click and count-in (left,
-   right or both channels), key detection, smooth UI when maximizing on macOS,
-   minimum window size so nothing overlaps.
+1. **Confirm maximizing with Rectangle** (double-click on the title bar) now that
+   macOS uses OpenGL.
+2. **Phase 3.5, next items** in the order of `PLAN.md`: time signature, beat grid,
+   click and count-in (left, right or both channels), key detection.
+3. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
+   window size.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
@@ -850,6 +855,38 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
 4. Close and reopen the song: your value is kept; ↺ goes back to the estimate.
 5. Loading feels as fast as before.
 
+## Window size and maximizing
+
+**Minimum size** (`update_min_size` in `app.rs`): every frame the app measures what
+the top bar and the transport bar need (their widgets laid out in a row, plus the
+panel margins, measured before adding the contents: overflowing contents widen the
+panel's rectangle) and what the tracks need (controls, a 200 px waveform, the side
+panel, the ruler, one row and the scrollbar). When that changes, it sends
+`ViewportCommand::MinInnerSize`; AppKit then keeps the user from making the window
+smaller, and winit grows it if it already is. Widgets that come and go keep their
+space so the minimum does not jump: the loop range (`A → B`) and the BPM's ↺ always
+take their width. Result on macOS with a song open: **~1262 × 198** (one track row
+shows); the transport bar is the widest part. The window now opens at 1320 × 760.
+A narrower window would need the transport bar split into two rows.
+
+**Maximizing** (reported by the user: laggy when maximizing, not in full screen).
+Measured:
+- Our drawing is cheap: 120 fps and 2–3 ms of CPU per frame at 1100 × 700 and at
+  1800 × 1098, and every step of the native zoom animation is drawn.
+- The user maximizes with **Rectangle**, which intercepts the title-bar double-click
+  and moves, then resizes the window through the accessibility API (two requests).
+  Repeating those calls from a script: most are answered in 1–15 ms, but about one
+  in seven takes **~305–315 ms** (once 1 s) with the app idle, so the move shows
+  before the resize. The same happens with a **bare eframe 0.36 app** with the
+  default wgpu (Metal) renderer, and **never with its OpenGL (glow) renderer**. Not
+  our code; likely how wgpu's Metal surface and the window interact (not dug
+  further). `presentsWithTransaction` on the Metal layer did not change it.
+- **Fix:** macOS uses `eframe::Renderer::Glow` (the `glow` feature only on the macOS
+  target; it changes `App::on_exit`'s signature there). Watershed with glow: 100 calls,
+  none over 26 ms. Playing a song costs **~26 % of a core with glow vs ~40 % with
+  wgpu**; idle ~0.5 % for both. OpenGL is deprecated on macOS but still shipped;
+  Windows and Linux keep wgpu.
+
 ## Pitch lock
 
 Each track has a 🔒 button next to M and S. A locked track follows the tempo but
@@ -1003,10 +1040,12 @@ in Terminal. **Fix to try:** a small script (or `cargo-bundle`) that wraps the r
 binary in `target/release/Watershed.app` and starts it with `open`. The `.app` is
 needed for distribution anyway (PLAN section 9). Check with the system Cmd+Tab too.
 
-### Slow UI when the window is maximized
+### Slow UI when the window is maximized (fixed)
 
-Now a Phase 3.5 item. Reported by the user: maximizing the window is slow, playing or
-paused, and (2026-10-28) also with nothing playing or separating. Only
+Fixed in Phase 3.5: it was Rectangle's move-then-resize meeting the wgpu renderer;
+see "Window size and maximizing". The notes below are from before. Reported by the
+user: maximizing the window is slow, playing or paused, and (2026-10-28) also with
+nothing playing or separating. Only
 **during** the maximize animation on macOS, and not at all on Windows, so it is
 likely how macOS resizes the window surface frame by frame (live resize), not our
 drawing. Low priority; if it is ever worth looking at, start there. Candidates: the cost of a frame grows with the width (each waveform

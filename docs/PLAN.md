@@ -357,15 +357,16 @@ RAM first, then disk. In this order:
   major/minor choice is the weak point: show the best guess with its relative, and
   let the user correct it (saved in the session). Shares the STFT with BPM. Pitch
   shifting updates the displayed key.
-- [ ] **Smooth UI when the window is maximized or resized on macOS.** Reported by the
-  user: laggy while the window maximizes, even with nothing playing or separating
-  (`STATUS.md`, "Slow UI when the window is maximized"). Measure the frame time first,
-  then look at how eframe/wgpu presents on macOS (present mode, surface
-  reconfiguration on every resize step, the Metal layer's options) and at our drawing
-  (waveforms as one mesh per track, cached while the view is unchanged).
-- [ ] **Minimum window size.** Computed from the widths the controls need (transport
-  bar, track controls, side panel) so that buttons and labels never overlap or cross
-  each other; below it the window cannot shrink.
+- [x] **Smooth UI when the window is maximized or resized on macOS.** Our drawing was
+  not the cause (2–3 ms per frame at any size). Window managers that move and resize
+  through the accessibility API (Rectangle) showed the move and the resize as two
+  steps: with eframe's wgpu (Metal) renderer the app sometimes takes ~300 ms to
+  answer, even a bare eframe app. macOS now uses eframe's OpenGL renderer (glow),
+  which answers at once and costs less CPU; Windows and Linux keep wgpu (details in
+  `STATUS.md`, "Window size and maximizing").
+- [x] **Minimum window size.** Computed from the widths the controls need (top bar,
+  transport bar, track controls with a narrow waveform, side panel) so that buttons and
+  labels never overlap; below it the window cannot shrink.
 
 ### Phase 4: Native `burn` + `wgpu` backend
 - [ ] STFT/iSTFT + overlapping chunking in Rust.
