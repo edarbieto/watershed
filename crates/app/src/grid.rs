@@ -22,7 +22,7 @@ pub const BEAT_UNITS: [u32; 4] = [2, 4, 8, 16];
 const MOVING_SPREAD: f64 = 0.03;
 /// The beats are tracked again when the BPM changes by more than this fraction.
 /// The tracker finds the exact pace itself (within 10 %), so dragging the BPM does
-/// not need it, and it takes 10–25 ms.
+/// not need it, and it takes 20–40 ms.
 const RETRACK: f64 = 0.05;
 
 #[derive(Debug)]

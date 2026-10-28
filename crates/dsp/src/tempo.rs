@@ -45,9 +45,28 @@ const FIRST_BEAT_SLACK: f64 = 0.33;
 /// beats of `lag` frames is `TIGHTNESS · ln(lag / period)²`, against onsets scaled to
 /// a standard deviation of 1. Ellis's value; at 100 it locked onto double tempo.
 const TIGHTNESS: f64 = 680.0;
+/// Seconds over which the beat tracker scales the onsets, so quiet sections count
+/// as much as loud ones.
+const LOCAL_SECS: f64 = 8.0;
+/// The local scale never goes below this fraction of the whole song's, so silence
+/// stays silent.
+const LOCAL_FLOOR: f64 = 0.05;
 /// The beat tracker looks for the song's tempo this far around the one it is
 /// given, as a fraction: a tapped or typed BPM can be a few percent off.
 const TRACK_SPAN: f64 = 0.1;
+/// The tempo curve looks this far around the song's tempo, as a fraction.
+const CURVE_SPAN: f64 = 0.15;
+/// Step between the tempos it tries, in natural log (about 0.25 %).
+const CURVE_STEP: f64 = 0.0025;
+/// Seconds of onsets each point of the curve is measured over, and between points.
+const CURVE_WINDOW_SECS: f64 = 8.0;
+const CURVE_HOP_SECS: f64 = 1.0;
+/// Beat periods summed to score a tempo in a window.
+const CURVE_BEATS: usize = 4;
+/// Cost of a change of tempo between two points of the curve: `CURVE_JUMP ·
+/// ln(ratio)²`, against scores of 0 to 1. A 10 % jump costs about 0.5, a drift
+/// of 0.5 % per second next to nothing.
+const CURVE_JUMP: f64 = 55.0;
 /// Beats each tracked beat is smoothed over.
 const SMOOTH_BEATS: usize = 8;
 /// Weight in the smoothing of a beat with no onset, against onsets scaled to a
@@ -226,10 +245,11 @@ impl OnsetEnvelope {
     }
 
     /// Seconds of every beat over the whole envelope, for a song whose tempo moves
-    /// around `bpm`. Beat tracking by dynamic programming (Ellis, 2007): each frame
-    /// scores its onset plus the best score of a beat between half and twice a
-    /// period earlier, minus a penalty that grows as that gap strays from the
-    /// period; the best path is then followed back from the end. The beats found
+    /// around `bpm` (within 25 % or so). First a tempo curve ([`tempo_curve`]), so
+    /// a slow intro has its own pace; then beat tracking by dynamic programming
+    /// (Ellis, 2007): each frame scores its onset plus the best score of a beat
+    /// between half and twice the local period earlier, minus a penalty that grows
+    /// as that gap strays from it; the best path is followed back from the end. The beats found
     /// fall on envelope frames (10 ms), so they are smoothed by a straight line
     /// through each [`SMOOTH_BEATS`] around them: the tempo can drift, the jitter
     /// goes. Empty when [`OnsetEnvelope::bpm`] would give none.
@@ -239,15 +259,19 @@ impl OnsetEnvelope {
             return Vec::new();
         }
         let mut onsets = peaks_only(&self.values, (MEAN_WINDOW_SECS * rate) as usize);
-        // On a common scale, so the penalty weighs the same on any song.
+        // On a common scale, so the penalty weighs the same on any song, and in
+        // any section: a guitar alone counts as much as the whole band.
         let n = onsets.len() as f64;
         let mean = onsets.iter().sum::<f64>() / n;
         let deviation = (onsets.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
         if deviation <= 0.0 {
             return Vec::new();
         }
-        for value in &mut onsets {
-            *value /= deviation;
+        let local = local_deviation(&onsets, (LOCAL_SECS * rate) as usize);
+        // How strong the onsets are around each frame, against the whole song's.
+        let strength: Vec<f64> = local.iter().map(|l| (l / deviation).min(1.0)).collect();
+        for (value, local) in onsets.iter_mut().zip(local) {
+            *value /= local.max(LOCAL_FLOOR * deviation);
         }
 
         // The tempo given picks the beat (not half or double); the audio, the exact
@@ -257,27 +281,35 @@ impl OnsetEnvelope {
         let acf = autocorrelation(&onsets, max_lag + 2);
         let bpm = refine(&acf, rate, max_lag, bpm, TRACK_SPAN);
 
-        let period = 60.0 / bpm * rate;
-        let min_lag = ((period / 2.0).round() as usize).max(1);
-        let max_lag = ((period * 2.0).round() as usize).max(min_lag);
-        let penalty: Vec<f64> = (min_lag..=max_lag)
-            .map(|lag| TIGHTNESS * (lag as f64 / period).ln().powi(2))
+        // Each beat is measured against the tempo of its own section: an intro can
+        // be slower than the rest by 10 %.
+        let periods = tempo_curve(&onsets, &strength, rate, bpm);
+        let longest = periods.iter().fold(0.0f64, |a, &p| a.max(p));
+        let ln_lag: Vec<f64> = (0..=(longest * 2.0).ceil() as usize + 1)
+            .map(|lag| (lag.max(1) as f64).ln())
             .collect();
         let mut score = onsets.clone();
         let mut previous = vec![usize::MAX; onsets.len()];
-        for t in min_lag..onsets.len() {
+        for t in 0..onsets.len() {
+            let period = periods[t];
+            let ln_period = period.ln();
+            let min_lag = ((period / 2.0).round() as usize).max(1);
+            let max_lag = ((period * 2.0).round() as usize).min(t);
             let mut best = f64::MIN;
-            for (lag, penalty) in (min_lag..=max_lag.min(t)).zip(&penalty) {
-                let candidate = score[t - lag] - penalty;
+            for lag in min_lag..=max_lag {
+                let candidate = score[t - lag] - TIGHTNESS * (ln_lag[lag] - ln_period).powi(2);
                 if candidate > best {
                     best = candidate;
                     previous[t] = t - lag;
                 }
             }
-            score[t] += best;
+            if best > f64::MIN {
+                score[t] += best;
+            }
         }
 
         // The path ends at the best score within the last period.
+        let period = periods.last().copied().unwrap_or(1.0);
         let tail = onsets.len().saturating_sub(period.ceil() as usize);
         let mut at = (tail..onsets.len())
             .max_by(|&a, &b| score[a].total_cmp(&score[b]))
@@ -296,6 +328,110 @@ impl OnsetEnvelope {
         let weights: Vec<f64> = frames.iter().map(|&f| onsets[f] + SILENT_WEIGHT).collect();
         smooth(&raw, &weights, SMOOTH_BEATS)
     }
+}
+
+/// The local beat period at each frame of `onsets` (scaled as the beat tracker
+/// does), in frames, within [`CURVE_SPAN`] of `bpm`. The tempo of each window of
+/// [`CURVE_WINDOW_SECS`] scores like [`refine`], relative to the window's best and
+/// times how strong its onsets are (`strength`, 0 to 1), so a guitar alone counts
+/// but a fade-out barely does; then the path through the windows with the best
+/// total is chosen, paying for each change of tempo (Viterbi).
+fn tempo_curve(onsets: &[f64], strength: &[f64], rate: f64, bpm: f64) -> Vec<f64> {
+    let candidates: Vec<f64> = {
+        let (low, high) = (bpm * (1.0 - CURVE_SPAN), bpm * (1.0 + CURVE_SPAN));
+        let steps = ((high / low).ln() / CURVE_STEP).ceil() as usize;
+        (0..=steps)
+            .map(|i| low * (CURVE_STEP * i as f64).exp())
+            .collect()
+    };
+    let slowest = 60.0 / candidates[0] * rate;
+    let max_lag = (slowest * CURVE_BEATS as f64).ceil() as usize;
+    let window = ((CURVE_WINDOW_SECS * rate) as usize).max(max_lag * 2);
+    let hop = ((CURVE_HOP_SECS * rate) as usize).max(1);
+
+    let centers: Vec<usize> = (0..onsets.len().div_ceil(hop)).map(|i| i * hop).collect();
+    let scores: Vec<Vec<f64>> = centers
+        .iter()
+        .map(|&center| {
+            let start = center.saturating_sub(window / 2);
+            let end = (start + window).min(onsets.len());
+            let start = end.saturating_sub(window);
+            let acf = autocorrelation(&onsets[start..end], max_lag + 2);
+            let scores: Vec<f64> = candidates
+                .iter()
+                .map(|&bpm| {
+                    let beat = 60.0 / bpm * rate;
+                    (1..=CURVE_BEATS)
+                        .map(|k| interpolate(&acf, k as f64 * beat))
+                        .sum()
+                })
+                .collect();
+            let best = scores.iter().fold(0.0f64, |a, &s| a.max(s));
+            let weight = strength[start..end].iter().sum::<f64>() / (end - start) as f64;
+            if best > 0.0 {
+                scores.iter().map(|s| s / best * weight).collect()
+            } else {
+                vec![0.0; scores.len()]
+            }
+        })
+        .collect();
+
+    // Viterbi over the windows.
+    let jump = |a: usize, b: usize| CURVE_JUMP * (CURVE_STEP * a.abs_diff(b) as f64).powi(2);
+    let mut total = scores[0].clone();
+    let mut from = vec![vec![0usize; candidates.len()]; centers.len()];
+    for (w, window_scores) in scores.iter().enumerate().skip(1) {
+        let next: Vec<f64> = (0..candidates.len())
+            .map(|j| {
+                let (i, best) = (0..candidates.len())
+                    .map(|i| (i, total[i] - jump(i, j)))
+                    .max_by(|a, b| a.1.total_cmp(&b.1))
+                    .unwrap_or((j, 0.0));
+                from[w][j] = i;
+                best + window_scores[j]
+            })
+            .collect();
+        total = next;
+    }
+    let mut path = vec![0usize; centers.len()];
+    path[centers.len() - 1] = (0..candidates.len())
+        .max_by(|&a, &b| total[a].total_cmp(&total[b]))
+        .unwrap_or(0);
+    for w in (1..centers.len()).rev() {
+        path[w - 1] = from[w][path[w]];
+    }
+
+    // Per frame, between the window centers.
+    let period = |w: usize| 60.0 / candidates[path[w]] * rate;
+    (0..onsets.len())
+        .map(|t| {
+            let w = t / hop;
+            if w + 1 >= centers.len() {
+                return period(w.min(centers.len() - 1));
+            }
+            let frac = (t - centers[w]) as f64 / hop as f64;
+            period(w) * (1.0 - frac) + period(w + 1) * frac
+        })
+        .collect()
+}
+
+/// The standard deviation of `values` over the `window` around each of them.
+fn local_deviation(values: &[f64], window: usize) -> Vec<f64> {
+    let half = window.max(1) / 2;
+    let mut sums = vec![(0.0f64, 0.0f64)];
+    for &v in values {
+        let (sum, squares) = sums[sums.len() - 1];
+        sums.push((sum + v, squares + v * v));
+    }
+    (0..values.len())
+        .map(|i| {
+            let (start, end) = (i.saturating_sub(half), (i + half + 1).min(values.len()));
+            let n = (end - start) as f64;
+            let mean = (sums[end].0 - sums[start].0) / n;
+            let squares = (sums[end].1 - sums[start].1) / n;
+            (squares - mean * mean).max(0.0).sqrt()
+        })
+        .collect()
 }
 
 /// The tempo within `span` (a fraction) of `guess` whose first [`REFINE_BEATS`]
@@ -556,6 +692,29 @@ mod tests {
         let first = envelope.first_beat(bpm).unwrap();
         let steady: Vec<f64> = (0..100).map(|k| first + k as f64 * 60.0 / bpm).collect();
         assert!(worst_miss(&times, &steady, 1.0, 39.0) > 0.05);
+    }
+
+    #[test]
+    fn follows_a_quiet_slow_intro_into_the_band() {
+        // A quiet intro at 122 BPM for 12 s, then a loud band at 134 BPM.
+        let mut times = vec![0.25];
+        while *times.last().unwrap() < 45.0 {
+            let t = *times.last().unwrap();
+            times.push(t + 60.0 / if t < 12.0 { 122.0 } else { 134.0 });
+        }
+        let rate = 48_000;
+        let mut audio = clicks_at(&times, rate, 46.0);
+        for sample in &mut audio[..12 * 2 * rate as usize] {
+            *sample *= 0.05;
+        }
+        let envelope = OnsetEnvelope::compute(&audio, rate);
+        let found = envelope.track_beats(134.0);
+        let intro = worst_miss(&times, &found, 0.5, 11.0);
+        let band = worst_miss(&times, &found, 15.0, 44.0);
+        assert!(
+            intro < 0.01 && band < 0.003,
+            "intro {intro} s, band {band} s"
+        );
     }
 
     #[test]
