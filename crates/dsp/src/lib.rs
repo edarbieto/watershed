@@ -1,15 +1,18 @@
-//! Audio decoding, FLAC and Ogg Vorbis writing, resampling, waveform peaks and (later) STFT/iSTFT and chunking.
+//! Audio decoding, FLAC and Ogg Vorbis writing, resampling, waveform peaks, tempo
+//! estimation and (later) STFT/iSTFT and chunking.
 
 mod decode;
 mod flac;
 mod peaks;
 mod resample;
+mod tempo;
 mod vorbis;
 
 pub use decode::{DecodeError, decode_file};
 pub use flac::{FlacError, gain_to_fit, write_flac};
 pub use peaks::Peaks;
 pub use resample::{ResampleError, resample};
+pub use tempo::OnsetEnvelope;
 pub use vorbis::{VorbisWriteError, write_vorbis};
 
 /// Stereo audio with interleaved `[left, right, left, right, ...]` samples.

@@ -4,6 +4,7 @@
 #[cfg(target_os = "macos")]
 mod alloc;
 mod app;
+mod bpm;
 mod loader;
 mod loops;
 mod markers;

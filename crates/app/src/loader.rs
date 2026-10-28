@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 use eframe::egui::{self, Color32};
 use watershed_audio::{Samples, Song};
-use watershed_dsp::Peaks;
+use watershed_dsp::{OnsetEnvelope, Peaks};
 use watershed_storage::Session;
 
 use crate::stems::{StemKind, default_names, song_title, track_colors};
@@ -30,6 +30,8 @@ pub struct LoadedSong {
     /// The session's [`Session::stem_gain`], already undone in `song`; kept so the
     /// session is saved with it.
     pub stem_gain: f32,
+    /// Estimated tempo of the song, if it has a steady enough beat.
+    pub bpm: Option<f64>,
 }
 
 /// A load in progress.
@@ -118,14 +120,20 @@ fn load(
         .and_then(|folder| Session::load_from(&Session::path_in(folder)))
         .unwrap_or_default();
     let compensation = session.stem_gain_compensation();
+    let kinds: Vec<StemKind> = files.iter().map(|f| StemKind::from_path(f)).collect();
 
     // Each stem is packed and its peaks computed in its own thread, so the
     // full-size f32 copies never all exist at once.
-    type Decoded = (Samples, [Peaks; 2]);
+    type Decoded = (Samples, [Peaks; 2], Option<OnsetEnvelope>);
     let decoded: Vec<Result<Decoded, String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
             .iter()
-            .map(|path| {
+            .zip(&kinds)
+            .map(|(path, kind)| {
+                // The tempo is estimated from all stems together: on test songs the
+                // sum was right where single stems, drums included, were sometimes
+                // off by half. The instrumental repeats the others.
+                let for_tempo = *kind != StemKind::Instrumental || kinds.len() == 1;
                 scope.spawn(move || {
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
                     let audio =
@@ -136,9 +144,11 @@ fn load(
                         audio.samples.iter_mut().for_each(|s| *s *= compensation);
                     }
                     let peaks = Peaks::stereo(&audio.samples, Peaks::DEFAULT_FRAMES_PER_BUCKET);
+                    let onsets = for_tempo
+                        .then(|| OnsetEnvelope::compute(&audio.samples, audio.sample_rate));
                     let samples = Samples::from_f32(&audio.samples);
                     done.fetch_add(1, Ordering::Relaxed);
-                    Ok((samples, peaks))
+                    Ok((samples, peaks, onsets))
                 })
             })
             .collect();
@@ -149,8 +159,16 @@ fn load(
     });
 
     let decoded = decoded.into_iter().collect::<Result<Vec<_>, _>>()?;
-    let (samples, peaks): (Vec<_>, Vec<_>) = decoded.into_iter().unzip();
-    let kinds: Vec<StemKind> = files.iter().map(|f| StemKind::from_path(f)).collect();
+    let mut samples = Vec::with_capacity(decoded.len());
+    let mut peaks = Vec::with_capacity(decoded.len());
+    let mut onsets = OnsetEnvelope::default();
+    for (track_samples, track_peaks, track_onsets) in decoded {
+        samples.push(track_samples);
+        peaks.push(track_peaks);
+        if let Some(track_onsets) = track_onsets {
+            onsets.add(&track_onsets);
+        }
+    }
     let default_names = default_names(&files, &kinds);
     let tracks = default_names.iter().cloned().zip(samples).collect();
 
@@ -178,5 +196,6 @@ fn load(
         default_names,
         peaks,
         stem_gain: session.stem_gain,
+        bpm: onsets.bpm(),
     })
 }

@@ -7,6 +7,7 @@ use watershed_audio::{Engine, Notify, OutputDevice, output_devices};
 use watershed_dsp::Peaks;
 use watershed_storage::{Config, Session, StemFormat, TrackState};
 
+use crate::bpm::{self, Bpm};
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
 use crate::markers::Markers;
@@ -73,6 +74,8 @@ enum Action {
     Zoom(f64),
     /// Shows the whole song.
     ZoomToFit,
+    /// A tap of tap tempo.
+    Tap,
 }
 
 /// Mixer settings carried over when a song is reloaded, e.g. after switching to a
@@ -103,6 +106,7 @@ pub struct WatershedApp {
     notify: Notify,
     loops: Loops,
     markers: Markers,
+    bpm: Bpm,
     /// Visible part of the song.
     view: View,
     /// Playhead position in the previous frame, in seconds, to follow it.
@@ -150,6 +154,7 @@ impl WatershedApp {
             notify,
             loops: Loops::default(),
             markers: Markers::default(),
+            bpm: Bpm::default(),
             view: View::new(0.0),
             last_position: 0.0,
             playhead: Playhead::default(),
@@ -420,6 +425,7 @@ impl WatershedApp {
         apply_track_states(loaded, &session.tracks);
         self.loops = Loops::from_session(&session);
         self.markers = Markers::from_session(&session.markers);
+        self.bpm = Bpm::new(loaded.bpm, session.bpm);
         self.view = View::new(loaded.song.duration_secs());
         self.last_loop = None;
         let Some(engine) = &mut self.engine else {
@@ -454,6 +460,7 @@ impl WatershedApp {
             loops: self.loops.saved.clone(),
             markers: self.markers.list.clone(),
             stem_gain: loaded.stem_gain,
+            bpm: self.bpm.user(),
             ..Session::default()
         };
         Some((session_path(loaded), session))
@@ -591,6 +598,7 @@ impl WatershedApp {
             (Key::B, Action::SetB),
             (Key::L, Action::ToggleLoop),
             (Key::M, Action::AddMarker),
+            (Key::T, Action::Tap),
             (Key::Plus, Action::Zoom(ZOOM_STEP)),
             (Key::Equals, Action::Zoom(ZOOM_STEP)),
             (Key::Minus, Action::Zoom(1.0 / ZOOM_STEP)),
@@ -644,6 +652,12 @@ impl WatershedApp {
                 self.view.zoom(factor, anchor);
             }
             Action::ZoomToFit => self.view = View::new(self.view.duration()),
+            Action::Tap => {
+                if self.loaded.is_some() {
+                    let tempo = self.engine.as_ref().map_or(1.0, Engine::tempo);
+                    self.bpm.tap(Instant::now(), f64::from(tempo));
+                }
+            }
         }
     }
 
@@ -1125,6 +1139,7 @@ impl WatershedApp {
                 engine.set_tempo(percent / 100.0);
             }
             ui.label("Tempo");
+            bpm_controls(ui, &mut self.bpm, f64::from(engine.tempo()), enabled);
 
             ui.separator();
             let mut semitones = engine.semitones();
@@ -1797,6 +1812,80 @@ fn track_name(
 
 /// Sliders only sense drags, so `Response::double_clicked` is always false on them.
 /// This adds click sensing to the same widget to detect a double-click for reset.
+/// The song's BPM at the current tempo, with buttons to correct it.
+fn bpm_controls(ui: &mut egui::Ui, bpm: &mut Bpm, tempo: f64, enabled: bool) {
+    ui.add_enabled_ui(enabled, |ui| {
+        let estimate = bpm
+            .estimate()
+            .map_or("No steady beat found.".to_owned(), |e| {
+                format!("Estimated: {e:.1} BPM at 100 %.")
+            });
+        match bpm.value() {
+            Some(value) => {
+                let mut shown = value * tempo;
+                let response = ui
+                    .add(
+                        egui::DragValue::new(&mut shown)
+                            .range(bpm::MIN_BPM * tempo..=bpm::MAX_BPM * tempo)
+                            .speed(0.2)
+                            .fixed_decimals(0)
+                            .suffix(" BPM"),
+                    )
+                    .on_hover_text(format!(
+                        "Beats per minute at the current tempo, approximate. Drag or click \
+                         to type the right value.\n{estimate}"
+                    ));
+                if response.changed() {
+                    bpm.set(shown / tempo);
+                }
+            }
+            None => {
+                ui.label(RichText::new("– BPM").weak())
+                    .on_hover_text(format!("{estimate} Tap the beat to set it."));
+            }
+        }
+        let known = bpm.value().is_some();
+        if ui
+            .add_enabled(known, egui::Button::new("½").small())
+            .on_hover_text("Half the BPM (the estimate can be double the beat)")
+            .clicked()
+        {
+            bpm.scale(0.5);
+        }
+        if ui
+            .add_enabled(known, egui::Button::new("×2").small())
+            .on_hover_text("Double the BPM (the estimate can be half the beat)")
+            .clicked()
+        {
+            bpm.scale(2.0);
+        }
+        let taps = bpm.taps(Instant::now());
+        let label = if taps > 0 {
+            // Clears the count once tapping stops.
+            ui.ctx().request_repaint_after(bpm::TAP_RESET);
+            format!("Tap {taps}")
+        } else {
+            "Tap".to_owned()
+        };
+        if ui
+            .small_button(label)
+            .on_hover_text("Tap along with the beat to set the BPM (T)")
+            .clicked()
+        {
+            bpm.tap(Instant::now(), tempo);
+        }
+        if bpm.user().is_some()
+            && let Some(estimate) = bpm.estimate()
+            && ui
+                .small_button("↺")
+                .on_hover_text(format!("Back to the estimate, {estimate:.0} BPM at 100 %"))
+                .clicked()
+        {
+            bpm.reset();
+        }
+    });
+}
+
 fn double_clicked(response: &egui::Response) -> bool {
     response.interact(egui::Sense::click()).double_clicked()
 }

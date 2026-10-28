@@ -4639,6 +4639,7 @@ name = "watershed-dsp"
 version = "0.1.0"
 dependencies = [
  "flac-codec",
+ "realfft",
  "rubato",
  "symphonia",
  "thiserror 2.0.21",

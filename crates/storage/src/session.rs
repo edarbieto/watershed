@@ -31,6 +31,10 @@ pub struct Session {
     /// Gain applied to every stem when it was written, so that integer formats like
     /// FLAC do not clip the hot ones (1.0: none). Loading undoes it.
     pub stem_gain: f32,
+    /// Tempo of the song at its original speed, set by the user; `None` uses the
+    /// estimate made when the song is loaded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<f64>,
 }
 
 impl Default for Session {
@@ -47,6 +51,7 @@ impl Default for Session {
             loops: Vec::new(),
             markers: Vec::new(),
             stem_gain: 1.0,
+            bpm: None,
         }
     }
 }
@@ -208,6 +213,7 @@ mod tests {
                 time: 12.5,
             }],
             stem_gain: 0.5,
+            bpm: Some(127.5),
             ..Session::default()
         };
         session.save_to(&path).unwrap();
@@ -242,6 +248,7 @@ mod tests {
         assert_eq!(session.tempo, 0.5);
         assert_eq!(session.semitones, 0.0);
         assert_eq!(session.stem_gain, 1.0);
+        assert_eq!(session.bpm, None);
         assert_eq!(
             session.track("bass.wav"),
             Some(&TrackState {

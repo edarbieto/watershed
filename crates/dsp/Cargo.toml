@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 flac-codec.workspace = true
+realfft.workspace = true
 rubato.workspace = true
 symphonia.workspace = true
 thiserror.workspace = true
