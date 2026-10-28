@@ -73,8 +73,8 @@ Last updated: 2026-10-28.
 - **Phase 3.5, click and count-in: done.** Tested by the user: timing, count-in and
   controls work. The three sounds were then remodelled on Ableton Live's; the user
   still has to listen to them (see "Click and count-in" below).
-- **Phase 3.5, key detection: built, waiting for the user** (see "Key detection"
-  below).
+- **Phase 3.5, key detection: done.** Checked by the user against the songs they
+  know (see "Key detection" below): meant as a rough hint, and that is enough.
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -87,9 +87,7 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Key detection:** the user checks the estimates against the keys they know
-   (checklist in "Key detection"); that gives the ground truth to tune it. Then the
-   two new ideas in `PLAN.md`: **dynamic tempo** and the **song info panel**.
+1. The two new ideas in `PLAN.md`: **dynamic tempo**, then the **song info panel**.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -1000,8 +998,12 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   On Most Surfaces Gm (0.63), Karaoke Eb (0.71), Cada hogar Gm (0.47). Variants
   tried: Temperley and Sha'ath (KeyFinder) profiles, square-root magnitudes,
   frames weighted by loudness. All agree on Afuera and Karaoke and move around on
-  the low-confidence ones; plain magnitudes with K–K were kept. Too few known keys
-  to tune further without overfitting: the user's answers are the next input.
+  the low-confidence ones; plain magnitudes with K–K were kept. **User's check:**
+  Change roughly right (its chorus and bridge move the key center, so one key per
+  song is a compromise there), Karaoke roughly right. With every known key matched,
+  the parameters stay as they are: tuning them on four songs would only overfit.
+  The user wants a rough hint, not precision. Possible later: a key per section
+  (between markers), for songs like Change.
 
 **Test checklist:**
 1. For the songs you know: is the key right? If not, is it the relative (same
