@@ -20,6 +20,8 @@ rfd.workspace = true
 sysinfo.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# OpenGL on macOS: see `main.rs`.
+eframe = { workspace = true, features = ["glow"] }
 libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]

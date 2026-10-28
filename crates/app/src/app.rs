@@ -1752,6 +1752,13 @@ impl eframe::App for WatershedApp {
         }
     }
 
+    // eframe's `glow` feature, on for macOS, adds the OpenGL context.
+    #[cfg(target_os = "macos")]
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_session();
+    }
+
+    #[cfg(not(target_os = "macos"))]
     fn on_exit(&mut self) {
         self.save_session();
     }

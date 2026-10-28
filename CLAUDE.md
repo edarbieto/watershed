@@ -111,5 +111,11 @@ dropped on the UI thread. Mixer parameters are atomics.
   the footprint. The app's global allocator (`alloc.rs`) maps blocks ≥ 4 MiB directly;
   C++ allocations still go through malloc. To measure in-use memory only, run with
   `MallocLargeCache=0` (undocumented, for measuring only).
+- **macOS renders with OpenGL** (`eframe::Renderer::Glow`, eframe's `glow` feature
+  enabled only for the macOS target), not wgpu: with wgpu the app sometimes took
+  ~300 ms to answer window moves from window managers like Rectangle. With `glow`
+  on, `App::on_exit` takes the GL context, so it is defined per platform.
+- To screenshot the app on macOS: `screencapture -x -o -l <window id>` (the id from
+  `CGWindowListCopyWindowInfo`); it captures only that window.
 - To screenshot the app on Windows, capture only its window with `PrintWindow`
   (`PW_RENDERFULLCONTENT`); screen-region captures can grab whatever window is on top.

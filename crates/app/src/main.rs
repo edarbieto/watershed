@@ -29,6 +29,13 @@ fn main() -> eframe::Result {
             .with_title("Watershed")
             // The app sets the minimum size from its contents once it has drawn them.
             .with_inner_size([1320.0, 760.0]),
+        // On macOS the wgpu (Metal) renderer sometimes leaves the main thread unable
+        // to answer for ~300 ms when another app moves or resizes the window through
+        // the accessibility API (window managers like Rectangle), so the move and
+        // the resize show as two steps. OpenGL answers at once. Measured with a bare
+        // eframe app too, so it is not our drawing.
+        #[cfg(target_os = "macos")]
+        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
 
