@@ -71,8 +71,11 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
   tempo to correct it. Shown next to the tempo slider as the BPM at the current tempo.
 - [x] **Pitch lock per track**: transposition skips drum tracks by default (pitch-shifted
   drums sound wrong and gain nothing). See Phase 3.5.
-- [ ] **Count-in** before playback, from the BPM and a time signature (4/4 by default).
-  See Phase 3.5.
+- [ ] **Time signature**, 4/4 by default, set by the user. See Phase 3.5.
+- [ ] **Beat grid**: vertical lines on the tracks at every beat, stronger on each bar,
+  like a DAW. See Phase 3.5.
+- [ ] **Click** (metronome) while playing, to the left, right or both channels, and a
+  **count-in** before playback. See Phase 3.5.
 
 ### Sessions
 - [x] Each song folder keeps its **session** in a file next to the stems
@@ -324,22 +327,45 @@ RAM first, then disk. In this order:
   formats decode to float, so they need no common gain against clipping. Only new
   separations use the setting; existing folders are not converted.
 - [x] **Approximate BPM** (section 3.1).
-- [ ] **Count-in.** An optional click count before playback starts, so the user can
-  come in on time. Its speed is the song's BPM at the current tempo; the bar is set by
-  a time signature, **4/4 by default** (one bar of four clicks, the first accented).
-  The time signature cannot be detected reliably (and songs like Opeth's change it
-  often), so the user sets it: numerator and denominator (e.g. 3/4, 6/8, 7/8). Settings
-  next to the transport: count-in on/off and the time signature, saved in the session;
-  the BPM comes from the item above and its tap tempo. Plays when playback starts (play
-  button, space, ▶ on a loop or marker), not when a loop wraps around. The clicks are
-  synthesized (no sample files) and mixed after the stretcher, so they are not
-  time-stretched or transposed. Without a BPM yet, the count-in is disabled.
+- [ ] **Time signature.** Detecting it reliably is out of reach (and songs like
+  Opeth's change it often), so it is **4/4 by default** and the user sets it:
+  numerator and denominator (e.g. 3/4, 6/8, 7/8), saved in the session. One per song
+  for now.
+- [ ] **Beat grid.** Vertical lines over the tracks at every beat, stronger at the
+  start of each bar, like a DAW; thinned out when zoomed out so they never crowd. The
+  estimate gives only the BPM, so the grid also needs the beat **phase** (where the
+  first beat falls): estimated from the same onset envelope (the offset that best
+  lines a pulse train up with it), and corrected by the user ("first beat here" at
+  the playhead, or dragging the grid). The downbeat (which beat is "1") cannot be
+  told reliably either: the user sets it the same way. Saved in the session. A song
+  whose tempo drifts (live recordings) will slide off the grid; a tempo map is out of
+  scope.
+- [ ] **Click and count-in.** A metronome that follows the grid while playing, on/off,
+  with the first beat of each bar accented. The user chooses where it sounds: **left,
+  right or both** channels (e.g. the click in one ear and the song in the other).
+  Plus an optional **count-in**: one bar of clicks before playback starts, so the user
+  can come in on time. Both run at the song's BPM at the current tempo. The count-in
+  plays when playback starts (play button, space, ▶ on a loop or marker), not when a
+  loop wraps around. The clicks are synthesized (no sample files) and mixed after the
+  stretcher, so they are not time-stretched or transposed, and placed using the
+  stretcher's latency so they land on the beat that is heard. Settings next to the
+  transport, saved in the session (the channel choice could be global, in
+  `config.toml`). Without a BPM, both are disabled.
 - [ ] **Key detection** (e.g. "A major / F# minor"): chroma (energy per pitch class)
   from the pitched stems, without drums, compared against major and minor key
   profiles (Krumhansl–Schmuckler). Relative keys share the same notes, so the
   major/minor choice is the weak point: show the best guess with its relative, and
   let the user correct it (saved in the session). Shares the STFT with BPM. Pitch
   shifting updates the displayed key.
+- [ ] **Smooth UI when the window is maximized or resized on macOS.** Reported by the
+  user: laggy while the window maximizes, even with nothing playing or separating
+  (`STATUS.md`, "Slow UI when the window is maximized"). Measure the frame time first,
+  then look at how eframe/wgpu presents on macOS (present mode, surface
+  reconfiguration on every resize step, the Metal layer's options) and at our drawing
+  (waveforms as one mesh per track, cached while the view is unchanged).
+- [ ] **Minimum window size.** Computed from the widths the controls need (transport
+  bar, track controls, side panel) so that buttons and labels never overlap or cross
+  each other; below it the window cannot shrink.
 
 ### Phase 4: Native `burn` + `wgpu` backend
 - [ ] STFT/iSTFT + overlapping chunking in Rust.

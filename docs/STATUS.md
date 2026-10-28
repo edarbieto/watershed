@@ -66,20 +66,21 @@ Last updated: 2026-10-28.
   (see "Settings and stem format" below), along with pitch lock, offsets with the
   trackpad and renaming. New separations write Ogg Vorbis by default: 24 MB instead
   of 149 MB for the 4:03 test song; on Metal it took about the usual time (not timed).
-- **Phase 3.5, approximate BPM: done, to be tested by the user** (see "Approximate
-  BPM" below).
+- **Phase 3.5, approximate BPM: done.** Tested by the user: passes the checklist
+  (see "Approximate BPM" below).
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
 
 ## Next steps
 
-**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
-count-in and key detection.
+**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
+names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Test the BPM** (checklist in "Approximate BPM").
-2. **Phase 3.5, next items** in the order of `PLAN.md`: count-in, then key
-   detection.
+1. **Phase 3.5, next items** in the order of `PLAN.md` (the last five added by the
+   user after testing the BPM): time signature, beat grid, click and count-in (left,
+   right or both channels), key detection, smooth UI when maximizing on macOS,
+   minimum window size so nothing overlaps.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
@@ -842,7 +843,7 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
 - Tests: clicks at 72, 97, 120 and 143.5 BPM at 44.1 and 48 kHz within 0.5 BPM;
   silence and short audio give none; taps, halving and the reset (`bpm.rs`).
 
-**Test checklist** (for the user):
+**Test checklist** (passed):
 1. Open a few songs you know: is the BPM right, or half/double? (½ and ×2 fix it.)
 2. Move the tempo slider: the BPM follows (e.g. 75 % shows three quarters).
 3. Tap (button or T) along with the music, also at 75 %: the BPM settles on the beat.
@@ -1004,7 +1005,8 @@ needed for distribution anyway (PLAN section 9). Check with the system Cmd+Tab t
 
 ### Slow UI when the window is maximized
 
-Reported by the user: maximizing the window is slow, playing or paused. Only
+Now a Phase 3.5 item. Reported by the user: maximizing the window is slow, playing or
+paused, and (2026-10-28) also with nothing playing or separating. Only
 **during** the maximize animation on macOS, and not at all on Windows, so it is
 likely how macOS resizes the window surface frame by frame (live resize), not our
 drawing. Low priority; if it is ever worth looking at, start there. Candidates: the cost of a frame grows with the width (each waveform
