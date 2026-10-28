@@ -6,6 +6,9 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{ErrorKind, FromSample, SampleFormat, SizedSample, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use crate::click::{
+    Beats, ClickChannels, ClickParams, ClickSound, Clicker, CountIn, channels_index, sound_index,
+};
 use crate::limiter::Limiter;
 use crate::mixer::{MAX_BLOCK, Voice};
 use crate::stretch::{MAX_SEMITONES, MAX_TEMPO, MIN_TEMPO, Stretcher};
@@ -17,6 +20,9 @@ const FADE_SECS: f32 = 0.01;
 /// Shortest A-B loop, in seconds. Must stay above the tempo and pitch latency
 /// (about 0.2 s at most) so the displayed position can follow the jumps.
 pub const MIN_LOOP_SECS: f64 = 0.5;
+
+/// Click level before the user changes it: -6 dB.
+pub const DEFAULT_CLICK_GAIN: f32 = 0.5;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -85,6 +91,25 @@ struct Shared {
     /// Buffer underruns reported by the device. Counted here because the report can
     /// arrive on the audio thread, where logging is not allowed.
     xruns: AtomicU64,
+    click: ClickParams,
+    /// Set while a count-in plays, before the song starts.
+    counting_in: AtomicBool,
+}
+
+impl Shared {
+    fn new() -> Self {
+        let shared = Self {
+            master_gain: AtomicF32::new(1.0),
+            tempo: AtomicF32::new(1.0),
+            ..Default::default()
+        };
+        shared.click.gain.store(DEFAULT_CLICK_GAIN);
+        shared
+            .click
+            .channels
+            .store(channels_index(ClickChannels::default()), Ordering::Relaxed);
+        shared
+    }
 }
 
 /// Audio output. Owns the cpal stream; dropping the engine stops playback.
@@ -120,11 +145,7 @@ impl Engine {
             config.channels
         );
 
-        let shared = Arc::new(Shared {
-            master_gain: AtomicF32::new(1.0),
-            tempo: AtomicF32::new(1.0),
-            ..Default::default()
-        });
+        let shared = Arc::new(Shared::new());
         let (commands, command_rx) = RingBuffer::new(64);
         let (garbage_tx, garbage) = RingBuffer::new(64);
         let state = CallbackState {
@@ -135,9 +156,13 @@ impl Engine {
             // Allocates: done here, on the UI thread, never in the callback.
             stretcher: Stretcher::new(config.sample_rate),
             limiter: Limiter::new(config.sample_rate),
+            clicker: Clicker::new(config.sample_rate),
+            count_in: None,
+            was_playing: false,
             fade: 0.0,
             fade_step: 1.0 / (FADE_SECS * config.sample_rate as f32),
             mix: vec![0.0; MAX_BLOCK * 2],
+            clicks: vec![0.0; MAX_BLOCK * 2],
             channels: usize::from(config.channels),
         };
 
@@ -229,6 +254,11 @@ impl Engine {
         self.shared.playing.load(Ordering::Relaxed)
     }
 
+    /// True while the count-in plays: playing, but the song has not started yet.
+    pub fn counting_in(&self) -> bool {
+        self.is_playing() && self.shared.counting_in.load(Ordering::Relaxed)
+    }
+
     pub fn seek(&mut self, frame: usize) {
         let frame = frame.min(self.song.as_ref().map_or(0, |s| s.frames()));
         self.send(Command::Seek(frame));
@@ -283,6 +313,41 @@ impl Engine {
             })
             .unwrap_or(0);
         self.shared.looped.store(packed, Ordering::Relaxed);
+    }
+
+    /// Turns the metronome on or off. It sounds only where the song has beats.
+    pub fn set_click(&self, on: bool) {
+        self.shared.click.on.store(on, Ordering::Relaxed);
+    }
+
+    /// Plays one bar of clicks each time playback starts.
+    pub fn set_count_in(&self, on: bool) {
+        self.shared.click.count_in.store(on, Ordering::Relaxed);
+    }
+
+    /// The song's beats, in frames at the engine's rate; `None` silences the click
+    /// and the count-in.
+    pub fn set_beats(&self, beats: Option<Beats>) {
+        self.shared.click.set_beats(beats);
+    }
+
+    pub fn set_click_sound(&self, sound: ClickSound) {
+        self.shared
+            .click
+            .sound
+            .store(sound_index(sound), Ordering::Relaxed);
+    }
+
+    pub fn set_click_channels(&self, channels: ClickChannels) {
+        self.shared
+            .click
+            .channels
+            .store(channels_index(channels), Ordering::Relaxed);
+    }
+
+    /// Linear gain of the click, independent of the master volume.
+    pub fn set_click_gain(&self, gain: f32) {
+        self.shared.click.gain.store(gain.clamp(0.0, 1.0));
     }
 
     /// Drops songs the audio thread is done with. Call regularly from the UI thread.
@@ -345,11 +410,16 @@ struct CallbackState {
     voice: Option<Box<Voice>>,
     stretcher: Stretcher,
     limiter: Limiter,
+    clicker: Clicker,
+    count_in: Option<CountIn>,
+    /// Whether the previous callback was playing, to tell when playback starts.
+    was_playing: bool,
     /// Pause/resume fade level, 0.0 (silent) to 1.0 (playing).
     fade: f32,
     fade_step: f32,
-    /// Stereo scratch buffer of `MAX_BLOCK` frames.
+    /// Stereo scratch buffers of `MAX_BLOCK` frames: the song and the click.
     mix: Vec<f32>,
+    clicks: Vec<f32>,
     channels: usize,
 }
 
@@ -370,18 +440,50 @@ impl CallbackState {
         // Resuming from silence: the stretcher still holds about 120 ms of the mix from
         // before the pause, with the mute, solo and faders of then. Start over from the
         // position heard at the pause, so the first thing heard is the current mix.
-        if playing && self.fade == 0.0 {
-            self.seek(self.shared.position.load(Ordering::Relaxed) as usize);
+        if playing && !self.was_playing && self.fade == 0.0 && self.voice.is_some() {
+            let target = self.shared.position.load(Ordering::Relaxed) as usize;
+            self.seek(target);
+            if self.shared.click.count_in.load(Ordering::Relaxed) {
+                self.count_in = self.clicker.count_in(self.shared.click.beats(), target);
+            }
         }
+        if !playing {
+            self.count_in = None;
+            self.clicker.stop();
+        }
+        self.was_playing = playing;
 
         for out in data.chunks_mut(MAX_BLOCK * channels) {
             let frames = out.len() / channels;
             let mix = &mut self.mix[..frames * 2];
             mix.fill(0.0);
+            let clicks = &mut self.clicks[..frames * 2];
+            clicks.fill(0.0);
+
+            // The count-in runs until the song frame it counts towards is the one the
+            // stretcher will play first, so its beats and the song's line up.
+            let mut song_start = 0;
+            if let Some(count_in) = &mut self.count_in {
+                let begin = self.stretcher.heard_exact(tempo, self.limiter.latency());
+                let left = ((begin - count_in.heard) / f64::from(tempo)).ceil();
+                song_start = (left.max(0.0) as usize).min(frames);
+                self.clicker.play_count_in(
+                    &self.shared.click,
+                    count_in,
+                    tempo,
+                    &mut clicks[..song_start * 2],
+                );
+                if count_in.heard >= begin {
+                    self.clicker.count_in_done(begin);
+                    self.count_in = None;
+                }
+            }
 
             if let Some(voice) = &mut self.voice
                 && (playing || self.fade > 0.0)
+                && self.count_in.is_none()
             {
+                let mix = &mut mix[song_start * 2..];
                 self.stretcher
                     .render(voice, tempo, semitones, looped.clone(), mix);
                 for frame in mix.as_chunks_mut::<2>().0 {
@@ -405,9 +507,27 @@ impl CallbackState {
                 self.shared
                     .position
                     .store(heard.min(end) as u64, Ordering::Relaxed);
+
+                if playing {
+                    let song_frames = (frames - song_start) as f64 * f64::from(tempo);
+                    self.clicker.play(
+                        &self.shared.click,
+                        self.stretcher.heard_exact(tempo, self.limiter.latency()),
+                        song_frames,
+                        looped.as_ref(),
+                        &mut clicks[song_start * 2..],
+                    );
+                }
+            }
+            if !playing {
+                self.clicker.ring(&self.shared.click, clicks);
             }
             // Always run, so that the lookahead delay drains when playback stops.
             self.limiter.process(mix);
+            // After the limiter, whose delay is already in the heard position.
+            for (m, c) in mix.iter_mut().zip(clicks.iter()) {
+                *m += c;
+            }
 
             for (dst, src) in out.chunks_exact_mut(channels).zip(mix.as_chunks::<2>().0) {
                 // Hard clip as a last line of defense; stems can sum above full scale.
@@ -424,6 +544,9 @@ impl CallbackState {
                 }
             }
         }
+        self.shared
+            .counting_in
+            .store(self.count_in.is_some(), Ordering::Relaxed);
     }
 
     fn handle_commands(&mut self) {
@@ -436,9 +559,14 @@ impl CallbackState {
                         let _ = self.garbage.push(old);
                     }
                     self.fade = 0.0;
+                    self.count_in = None;
                     self.seek(0);
                 }
-                Command::Seek(frame) => self.seek(frame),
+                Command::Seek(frame) => {
+                    // A seek during the count-in starts the song there at once.
+                    self.count_in = None;
+                    self.seek(frame);
+                }
             }
         }
     }
@@ -447,6 +575,7 @@ impl CallbackState {
         if let Some(voice) = &mut self.voice {
             let tempo = self.shared.tempo.load();
             self.stretcher.seek(voice, frame, tempo);
+            self.clicker.seek(frame);
             self.shared.position.store(frame as u64, Ordering::Relaxed);
         }
     }
@@ -468,11 +597,7 @@ mod tests {
             RATE,
             vec![("sine".into(), sine), ("silence".into(), silence)],
         ));
-        let shared = Arc::new(Shared {
-            master_gain: AtomicF32::new(1.0),
-            tempo: AtomicF32::new(1.0),
-            ..Default::default()
-        });
+        let shared = Arc::new(Shared::new());
         let (_, commands) = RingBuffer::new(1);
         let (garbage, _) = RingBuffer::new(1);
         let mut state = CallbackState {
@@ -482,13 +607,124 @@ mod tests {
             voice: Some(Box::new(Voice::new(song.clone()))),
             stretcher: Stretcher::new(RATE),
             limiter: Limiter::new(RATE),
+            clicker: Clicker::new(RATE),
+            count_in: None,
+            was_playing: false,
             fade: 0.0,
             fade_step: 1.0 / (FADE_SECS * RATE as f32),
             mix: vec![0.0; MAX_BLOCK * 2],
+            clicks: vec![0.0; MAX_BLOCK * 2],
             channels: 2,
         };
         state.seek(0);
         (state, song)
+    }
+
+    /// A callback whose song is a sine starting at `onset`, with a grid of a beat
+    /// every `beat` frames from 0, positioned at `from`.
+    fn click_callback(onset: usize, beat: f64, from: usize) -> CallbackState {
+        let sine = (0..RATE as usize * 4)
+            .flat_map(|i| {
+                let phase = i as f32 * 440.0 * std::f32::consts::TAU / RATE as f32;
+                [if i < onset { 0.0 } else { 0.5 * phase.sin() }; 2]
+            })
+            .collect::<Vec<f32>>();
+        let (mut state, _) = callback();
+        let song = Arc::new(Song::new(RATE, vec![("sine".into(), sine)]));
+        state.voice = Some(Box::new(Voice::new(song)));
+        state.shared.click.set_beats(Some(Beats {
+            start: 0.0,
+            beat,
+            per_bar: 4,
+        }));
+        state.shared.click.gain.store(1.0);
+        state.seek(from);
+        state
+    }
+
+    /// Plays `blocks` callbacks of 256 frames and returns the left channel.
+    fn record(state: &mut CallbackState, blocks: usize) -> Vec<f32> {
+        state.shared.playing.store(true, Ordering::Relaxed);
+        let mut out = vec![0.0f32; 256 * 2];
+        let mut left = Vec::new();
+        for _ in 0..blocks {
+            state.process(&mut out);
+            left.extend(out.iter().step_by(2));
+        }
+        left
+    }
+
+    /// Output frames where the level crosses `threshold` after at least 100 ms
+    /// below it.
+    fn onsets(left: &[f32], threshold: f32) -> Vec<usize> {
+        let mut found = Vec::new();
+        let mut quiet = usize::MAX / 2;
+        for (i, s) in left.iter().enumerate() {
+            if s.abs() < threshold {
+                quiet += 1;
+            } else {
+                if quiet >= RATE as usize / 10 {
+                    found.push(i);
+                }
+                quiet = 0;
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn click_lands_with_the_beat_that_is_heard() {
+        // Song and grid both start a beat at 1 s; play from 0.5 s at several tempos.
+        for tempo in [0.5, 1.0, 1.25] {
+            let song_onset = {
+                let mut state = click_callback(48_000, 48_000.0, 24_000);
+                state.shared.tempo.store(tempo);
+                // At 60 % of the sine's level: at slow tempos the stretcher spreads an
+                // attack over about 10 ms, and the click lands in its middle.
+                onsets(&record(&mut state, 300), 0.3)[0]
+            };
+            let click_onset = {
+                let mut state = click_callback(usize::MAX, 48_000.0, 24_000);
+                state.shared.tempo.store(tempo);
+                state.shared.click.on.store(true, Ordering::Relaxed);
+                onsets(&record(&mut state, 300), 0.1)[0]
+            };
+            // Within 2 ms of each other.
+            let error = song_onset.abs_diff(click_onset);
+            assert!(
+                error < 96,
+                "tempo {tempo}: song {song_onset}, click {click_onset}"
+            );
+        }
+    }
+
+    #[test]
+    fn count_in_plays_a_bar_then_the_song() {
+        // A beat every 0.25 s; start on a beat at 1 s.
+        let beat = 12_000;
+        let clicks = {
+            let mut state = click_callback(usize::MAX, beat as f64, 48_000);
+            state.shared.click.on.store(true, Ordering::Relaxed);
+            state.shared.click.count_in.store(true, Ordering::Relaxed);
+            onsets(&record(&mut state, 300), 1e-3)
+        };
+        // Four beats of count-in, then the click goes on at the same pace.
+        assert!(clicks.len() >= 7, "{clicks:?}");
+        for (k, at) in clicks.iter().enumerate() {
+            assert!(at.abs_diff(k * beat) < 96, "{clicks:?}");
+        }
+        // With the click silent, the song starts after one bar.
+        let mut state = click_callback(48_000, beat as f64, 48_000);
+        state.shared.click.count_in.store(true, Ordering::Relaxed);
+        state.shared.click.gain.store(0.0);
+        state.shared.playing.store(true, Ordering::Relaxed);
+        let mut out = vec![0.0f32; 256 * 2];
+        state.process(&mut out);
+        assert!(state.shared.counting_in.load(Ordering::Relaxed));
+        let left = record(&mut state, 300);
+        let start = onsets(&left, 0.1)[0] + 256;
+        assert!(start.abs_diff(4 * beat) < 96, "song started at {start}");
+        assert!(!state.shared.counting_in.load(Ordering::Relaxed));
     }
 
     /// Runs `blocks` callbacks of 512 frames and returns the loudest sample.

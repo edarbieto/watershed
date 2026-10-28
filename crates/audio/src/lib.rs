@@ -5,9 +5,10 @@
 //! allocates or frees memory. Mixer parameters are plain atomics.
 //!
 //! Signal path: stems → mixer → tempo and pitch (Signalsmith Stretch) → master gain
-//! → limiter → device.
+//! → limiter → plus the metronome click → device.
 
 mod atomic;
+mod click;
 mod engine;
 mod limiter;
 mod mixer;
@@ -16,6 +17,7 @@ mod song;
 mod stretch;
 
 pub use atomic::AtomicF32;
+pub use click::{Beats, ClickChannels, ClickSound};
 pub use engine::{Engine, EngineError, MIN_LOOP_SECS, Notify, OutputDevice, output_devices};
 pub use samples::Samples;
 pub use song::{Song, Track, TrackParams};

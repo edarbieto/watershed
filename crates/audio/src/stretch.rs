@@ -181,15 +181,22 @@ impl Stretcher {
     /// the stretcher (e.g. a limiter). Output latency counts at the current tempo.
     /// Assumes a loop is longer than that latency (about 0.2 s at most).
     pub fn heard(&self, tempo: f32, extra: usize) -> usize {
+        (self.heard_exact(tempo, extra).max(0.0) as usize).max(self.floor)
+    }
+
+    /// Like [`Stretcher::heard`], but fractional and without holding the seek target
+    /// while the latency fills: after a seek it starts the output latency before the
+    /// target, and reaches it when the target is really heard.
+    pub fn heard_exact(&self, tempo: f32, extra: usize) -> f64 {
         let behind =
             self.input_latency as f64 + (self.output_latency + extra) as f64 * f64::from(tempo);
-        let fed = (self.fed - behind).max(0.0) as usize;
-        let (start, song) = if fed >= self.pass.0 {
+        let fed = self.fed - behind;
+        let (start, song) = if fed >= self.pass.0 as f64 {
             self.pass
         } else {
             self.previous_pass
         };
-        (song + fed.saturating_sub(start)).max(self.floor)
+        song as f64 + (fed - start as f64)
     }
 }
 
