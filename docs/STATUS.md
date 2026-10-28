@@ -75,8 +75,9 @@ Last updated: 2026-10-28.
   still has to listen to them (see "Click and count-in" below).
 - **Phase 3.5, key detection: done.** Checked by the user against the songs they
   know (see "Key detection" below): meant as a rough hint, and that is enough.
-- **Phase 3.5, dynamic tempo: done, to test by the user** (see "Dynamic tempo"
-  below).
+- **Phase 3.5, dynamic tempo: done, being tuned with the user** (see "Dynamic
+  tempo" below). First test: works; Change's intro was wrong, now fixed with a
+  tempo curve; the middle section and the ending still to check by ear.
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -981,20 +982,39 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
 ## Dynamic tempo
 
 - **Beat tracking** (`OnsetEnvelope::track_beats` in `tempo.rs`): on the summed onset
-  envelope the loader already keeps, scaled to a standard deviation of 1. First the
-  exact pace within ±10 % of the song's BPM (the user's value only picks the beat,
-  not half or double: from 130 on Change it dropped 34 beats before this), then
-  Ellis's (2007) dynamic programming: score(t) = onset(t) + max over lags in
+  envelope the loader already keeps, scaled by its standard deviation over the
+  8 s around each frame (floor: 5 % of the song's), so a guitar alone counts as
+  much as the band. First the exact pace within ±10 % of the song's BPM (the
+  user's value only picks the beat, not half or double: from 130 on Change it
+  dropped 34 beats before this). Then a **tempo curve** (`tempo_curve`): for each
+  8 s window every 1 s, tempos within ±15 % scored on the window's
+  autocorrelation (4 beat periods), relative to the window's best and times the
+  window's onset strength (local / global deviation, at most 1), chained by
+  Viterbi with a cost of 55 · ln(ratio)² per change. Then Ellis's (2007) dynamic
+  programming with the local period p(t): score(t) = onset(t) + max over lags in
   [p/2, 2p] of score(t − lag) − 680 · ln(lag / p)², followed back from the best end.
   Each beat is then refined to a fraction of a frame (parabola through the peak) and
   smoothed by a straight line through the 8 beats around it, **weighted by their
   onsets** (without the weights, beats placed in a silent intro pulled the first
   real ones by up to 9 ms). With clicks, steady or speeding up 120 → 132 BPM, and
-  from a BPM 6 % off: within 2.3 ms (tests). Takes 10–25 ms per song in release.
+  from a BPM 6 % off: within 2.3 ms; a quiet intro at 122 BPM into a loud band at
+  134: within 10 ms (tests). Takes 20–40 ms per song in release.
+- **Change's intro** (found by the user): the first two bars are 122 BPM (bar 1 at
+  0.25 s, saved in that song's session), then a little faster, then the band at the
+  drums' tempo. The intro guitar plays dotted quarters (0.735 s apart = 122 BPM),
+  about 20 times quieter than the band. Before the curve the tracker filled it at
+  137. Tried and dropped: a narrower curve (±6–8 %) and ignoring weak windows
+  (both put the intro back at ~137). Now: bars 1–2 at 122.5–123 (within 17 ms of
+  the user's 122 grid), bars 3–8 at 122–125, the band from bar 9 (0:16) at 131 →
+  134 → 137. Same result from a BPM of 122 or 137.
+- **Still to check by ear on Change:** the middle section (guitar riff almost alone,
+  ~2:42–2:57; the curve dips to ~125 there, the riff's notes are 0.70 s apart
+  against 0.735 in the intro) and the ending (4:40 on, the curve rises to ~150).
 - **Measured** (`cargo run --release -p watershed-dsp --example beats -- <stems>`;
-  spread of the local tempo from its 5th to 95th percentile): Karaoke 1.0 %, No
-  Dejes Que 1.4 %, Cada hogar 1.6 %, On Most Surfaces 1.7 %, Afuera 1.8 %, Change
-  **5.9 %** (≈135 → 143 BPM: speeds up around 1:52–2:20 and 3:15–4:20). Against
+  spread of the local tempo from its 5th to 95th percentile): Karaoke 0.9 %, No
+  Dejes Que 1.5 %, Afuera 1.8 %, Cada hogar 2.2 %, On Most Surfaces 2.3 %, Change
+  **18.7 %** (122 in the intro, 136–143 with the band, speeding up around
+  1:52–2:20 and 3:15–4:20). Against
   the steady grid, the tracked beats of steady songs drift slowly: Afuera ends 80 ms
   early, No Dejes Que goes from −67 to +61 ms. That is the band (or a BPM a hair
   off), and what this feature is for.
