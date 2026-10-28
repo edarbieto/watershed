@@ -37,6 +37,8 @@ const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 /// How far the skip buttons and arrow keys move, in seconds.
 const SKIP_SECS: f64 = 5.0;
 const SIDE_PANEL_WIDTH: f32 = 280.0;
+/// Narrowest waveform the minimum window size leaves room for.
+const MIN_WAVEFORM_WIDTH: f32 = 200.0;
 /// Below this, the song title is left out of the top bar (it is in the window title).
 const MIN_TITLE_WIDTH: f32 = 100.0;
 /// Number keys jump to markers 1 to 9, like Reaper.
@@ -128,6 +130,12 @@ pub struct WatershedApp {
     /// Per track: whether it can be dragged in time. Locked again on every load.
     movable: Vec<bool>,
     settings_open: bool,
+    /// Widths the top bar and the transport bar need to show every control without
+    /// overlap, measured while drawing them.
+    top_bar_width: f32,
+    transport_width: f32,
+    /// Minimum window size last sent to the window.
+    min_size: egui::Vec2,
 }
 
 impl WatershedApp {
@@ -166,6 +174,9 @@ impl WatershedApp {
             renaming: None,
             movable: Vec::new(),
             settings_open: false,
+            top_bar_width: 0.0,
+            transport_width: 0.0,
+            min_size: egui::Vec2::ZERO,
         }
     }
 
@@ -751,13 +762,15 @@ impl WatershedApp {
             if ui
                 .add_enabled(self.loaded.is_some(), egui::Button::new("Reload"))
                 .on_hover_text(
-                    "Read the song folder again, for added, removed or renamed stems                      (F5). Tracks that are still there keep their settings.",
+                    "Read the song folder again, for added, removed or renamed stems (F5). \
+                     Tracks that are still there keep their settings.",
                 )
                 .clicked()
             {
                 self.reload(ui.ctx());
             }
 
+            let left = ui.min_rect().width();
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui
                     .selectable_label(self.settings_open, "⚙")
@@ -783,6 +796,7 @@ impl WatershedApp {
                 self.device_picker(ui);
                 ui.label("Output");
                 self.usage_label(ui);
+                self.top_bar_width = left + ui.spacing().item_spacing.x + ui.min_rect().width();
                 // Last, so a long title gets what is left and is cut short instead
                 // of overlapping the controls on the right. The window title has it
                 // too, for when there is no room here.
@@ -796,6 +810,21 @@ impl WatershedApp {
                 }
             });
         });
+    }
+
+    /// Keeps the window from getting smaller than its contents need, so controls
+    /// never overlap. `tracks` is the size the track area needs.
+    fn update_min_size(&mut self, ctx: &egui::Context, tracks: egui::Vec2) {
+        let width = self
+            .top_bar_width
+            .max(self.transport_width)
+            .max(tracks.x)
+            .ceil();
+        let size = egui::vec2(width, tracks.y.ceil());
+        if (size - self.min_size).abs().max_elem() >= 1.0 {
+            self.min_size = size;
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(size));
+        }
     }
 
     /// CPU, GPU and RAM used by the process, refreshed every [`usage::INTERVAL`].
@@ -1115,14 +1144,20 @@ impl WatershedApp {
             {
                 action = Some(Action::ClearLoop);
             }
-            if has_ends {
+            // The space is kept when there is no loop, so the bar (and the minimum
+            // window size) does not change width when one is set.
+            let ends = if has_ends {
                 let end = |t: Option<f64>| t.map_or("?".to_owned(), format_time);
-                ui.label(
-                    RichText::new(format!("{} → {}", end(self.loops.a), end(self.loops.b)))
-                        .monospace()
-                        .weak(),
-                );
-            }
+                format!("{} → {}", end(self.loops.a), end(self.loops.b))
+            } else {
+                String::new()
+            };
+            let width = text_width(ui, RichText::new("00:00.0 → 00:00.0").monospace());
+            add_with_width(
+                ui,
+                width,
+                egui::Label::new(RichText::new(ends).monospace().weak()),
+            );
 
             ui.separator();
             let mut percent = engine.tempo() * 100.0;
@@ -1158,12 +1193,14 @@ impl WatershedApp {
             }
             ui.label("Pitch");
 
+            let used = ui.min_rect().width();
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
                     RichText::new(format!("{} Hz", engine.sample_rate()))
                         .weak()
                         .small(),
                 );
+                self.transport_width = used + ui.spacing().item_spacing.x + ui.min_rect().width();
             });
         });
         if let Some(action) = action {
@@ -1645,26 +1682,48 @@ impl eframe::App for WatershedApp {
         self.update_playhead();
 
         self.settings_window(ui.ctx());
-        egui::Panel::top("top_bar").show(ui, |ui| {
+        let top_bar = egui::Panel::top("top_bar").show(ui, |ui| {
+            let margins = panel_margins(ui);
             ui.add_space(4.0);
             self.top_bar(ui);
+            self.top_bar_width += margins;
             ui.add_space(2.0);
         });
-        egui::Panel::bottom("transport").show(ui, |ui| {
+        let transport = egui::Panel::bottom("transport").show(ui, |ui| {
+            let margins = panel_margins(ui);
             ui.add_space(4.0);
             self.transport(ui);
+            self.transport_width += margins;
             if let Some(error) = &self.error {
                 ui.colored_label(ui.visuals().error_fg_color, error);
             }
             ui.add_space(2.0);
         });
-        if self.loaded.is_some() {
+        let side_width = if self.loaded.is_some() {
             egui::Panel::right("side_panel")
                 .resizable(true)
                 .default_size(SIDE_PANEL_WIDTH)
-                .show(ui, |ui| self.side_panel(ui));
-        }
+                .show(ui, |ui| self.side_panel(ui))
+                .response
+                .rect
+                .width()
+        } else {
+            0.0
+        };
+        let bars_height = top_bar.response.rect.height() + transport.response.rect.height();
+        let mut tracks_size = egui::Vec2::ZERO;
         egui::CentralPanel::default_margins().show(ui, |ui| {
+            // Room for the track controls and a narrow waveform, the ruler, one row
+            // and the scrollbar, plus the panel's margins.
+            let margins = ui.ctx().content_rect().size()
+                - egui::vec2(side_width, bars_height)
+                - ui.max_rect().size();
+            let spacing = ui.spacing().item_spacing.y;
+            tracks_size = margins
+                + egui::vec2(
+                    side_width + CONTROLS_WIDTH + MIN_WAVEFORM_WIDTH,
+                    bars_height + RULER_HEIGHT + ROW_HEIGHT + SCROLLBAR_HEIGHT + 3.0 * spacing,
+                );
             self.separation_status(ui);
             if let Some(loading) = &self.loading {
                 ui.horizontal(|ui| {
@@ -1681,6 +1740,7 @@ impl eframe::App for WatershedApp {
             }
             self.tracks(ui);
         });
+        self.update_min_size(ui.ctx(), tracks_size);
         self.sync_loop(ui);
         self.autosave_session(ui.ctx());
 
@@ -1812,6 +1872,35 @@ fn track_name(
 
 /// Sliders only sense drags, so `Response::double_clicked` is always false on them.
 /// This adds click sensing to the same widget to detect a double-click for reset.
+/// Adds `widget`, then empty space up to `width` if it is narrower.
+fn add_with_width(ui: &mut egui::Ui, width: f32, widget: impl egui::Widget) -> egui::Response {
+    let response = ui.add(widget);
+    let rest = width - response.rect.width();
+    if rest > 0.0 {
+        ui.add_space(rest);
+    }
+    response
+}
+
+/// Width of `text` on one line.
+fn text_width(ui: &egui::Ui, text: RichText) -> f32 {
+    egui::WidgetText::from(text)
+        .into_galley(
+            ui,
+            Some(egui::TextWrapMode::Extend),
+            f32::INFINITY,
+            egui::TextStyle::Body,
+        )
+        .size()
+        .x
+}
+
+/// Horizontal space a panel takes around its contents. Call it before adding them:
+/// contents wider than the panel widen its rectangle.
+fn panel_margins(ui: &egui::Ui) -> f32 {
+    ui.ctx().content_rect().width() - ui.max_rect().width()
+}
+
 /// The song's BPM at the current tempo, with buttons to correct it.
 fn bpm_controls(ui: &mut egui::Ui, bpm: &mut Bpm, tempo: f64, enabled: bool) {
     ui.add_enabled_ui(enabled, |ui| {
@@ -1820,27 +1909,30 @@ fn bpm_controls(ui: &mut egui::Ui, bpm: &mut Bpm, tempo: f64, enabled: bool) {
             .map_or("No steady beat found.".to_owned(), |e| {
                 format!("Estimated: {e:.1} BPM at 100 %.")
             });
+        // One width for any value, so the bar does not change width.
+        let width = text_width(ui, RichText::new("000 BPM")) + 2.0 * ui.spacing().button_padding.x;
         match bpm.value() {
             Some(value) => {
                 let mut shown = value * tempo;
-                let response = ui
-                    .add(
-                        egui::DragValue::new(&mut shown)
-                            .range(bpm::MIN_BPM * tempo..=bpm::MAX_BPM * tempo)
-                            .speed(0.2)
-                            .fixed_decimals(0)
-                            .suffix(" BPM"),
-                    )
-                    .on_hover_text(format!(
-                        "Beats per minute at the current tempo, approximate. Drag or click \
+                let response = add_with_width(
+                    ui,
+                    width,
+                    egui::DragValue::new(&mut shown)
+                        .range(bpm::MIN_BPM * tempo..=bpm::MAX_BPM * tempo)
+                        .speed(0.2)
+                        .fixed_decimals(0)
+                        .suffix(" BPM"),
+                )
+                .on_hover_text(format!(
+                    "Beats per minute at the current tempo, approximate. Drag or click \
                          to type the right value.\n{estimate}"
-                    ));
+                ));
                 if response.changed() {
                     bpm.set(shown / tempo);
                 }
             }
             None => {
-                ui.label(RichText::new("– BPM").weak())
+                add_with_width(ui, width, egui::Label::new(RichText::new("– BPM").weak()))
                     .on_hover_text(format!("{estimate} Tap the beat to set it."));
             }
         }
@@ -1874,12 +1966,16 @@ fn bpm_controls(ui: &mut egui::Ui, bpm: &mut Bpm, tempo: f64, enabled: bool) {
         {
             bpm.tap(Instant::now(), tempo);
         }
-        if bpm.user().is_some()
-            && let Some(estimate) = bpm.estimate()
-            && ui
-                .small_button("↺")
-                .on_hover_text(format!("Back to the estimate, {estimate:.0} BPM at 100 %"))
-                .clicked()
+        // Always there, so the bar keeps its width.
+        let hint = bpm
+            .estimate()
+            .map_or("Back to the estimate".to_owned(), |e| {
+                format!("Back to the estimate, {e:.0} BPM at 100 %")
+            });
+        if ui
+            .add_enabled(bpm.user().is_some(), egui::Button::new("↺").small())
+            .on_hover_text(hint)
+            .clicked()
         {
             bpm.reset();
         }
