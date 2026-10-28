@@ -4,7 +4,8 @@
 //! energy from one short frame to the next, summed over frequencies: "spectral
 //! flux"), and the beat period, the delay at which that envelope best matches
 //! itself (autocorrelation). Given a tempo, [`OnsetEnvelope::first_beat`] finds
-//! where the beats fall.
+//! where the beats of a steady grid fall, and [`OnsetEnvelope::track_beats`] follows
+//! every beat of a song whose tempo moves.
 
 use realfft::RealFftPlanner;
 
@@ -40,6 +41,15 @@ const START_THRESHOLD: f64 = 0.3;
 /// The first beat may come this early before the first onset, in beats, so a beat
 /// detected a hair late still counts as the first.
 const FIRST_BEAT_SLACK: f64 = 0.33;
+/// How strongly the beat tracker keeps to the tempo: the penalty for a gap between
+/// beats of `lag` frames is `TIGHTNESS · ln(lag / period)²`, against onsets scaled to
+/// a standard deviation of 1. Ellis's value; at 100 it locked onto double tempo.
+const TIGHTNESS: f64 = 680.0;
+/// Beats each tracked beat is smoothed over.
+const SMOOTH_BEATS: usize = 8;
+/// Weight in the smoothing of a beat with no onset, against onsets scaled to a
+/// standard deviation of 1: enough to keep a line through a silent stretch.
+const SILENT_WEIGHT: f64 = 0.01;
 
 /// How much the onsets of some audio rise, per short frame.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -229,6 +239,114 @@ impl OnsetEnvelope {
             first
         })
     }
+
+    /// Seconds of every beat over the whole envelope, for a song whose tempo moves
+    /// around `bpm`. Beat tracking by dynamic programming (Ellis, 2007): each frame
+    /// scores its onset plus the best score of a beat between half and twice a
+    /// period earlier, minus a penalty that grows as that gap strays from the
+    /// period; the best path is then followed back from the end. The beats found
+    /// fall on envelope frames (10 ms), so they are smoothed by a straight line
+    /// through each [`SMOOTH_BEATS`] around them: the tempo can drift, the jitter
+    /// goes. Empty when [`OnsetEnvelope::bpm`] would give none.
+    pub fn track_beats(&self, bpm: f64) -> Vec<f64> {
+        let rate = self.rate;
+        if rate <= 0.0 || bpm <= 0.0 || (self.values.len() as f64) < MIN_SECS * rate {
+            return Vec::new();
+        }
+        let mut onsets = peaks_only(&self.values, (MEAN_WINDOW_SECS * rate) as usize);
+        // On a common scale, so the penalty weighs the same on any song.
+        let n = onsets.len() as f64;
+        let mean = onsets.iter().sum::<f64>() / n;
+        let deviation = (onsets.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if deviation <= 0.0 {
+            return Vec::new();
+        }
+        for value in &mut onsets {
+            *value /= deviation;
+        }
+
+        let period = 60.0 / bpm * rate;
+        let min_lag = ((period / 2.0).round() as usize).max(1);
+        let max_lag = ((period * 2.0).round() as usize).max(min_lag);
+        let penalty: Vec<f64> = (min_lag..=max_lag)
+            .map(|lag| TIGHTNESS * (lag as f64 / period).ln().powi(2))
+            .collect();
+        let mut score = onsets.clone();
+        let mut previous = vec![usize::MAX; onsets.len()];
+        for t in min_lag..onsets.len() {
+            let mut best = f64::MIN;
+            for (lag, penalty) in (min_lag..=max_lag.min(t)).zip(&penalty) {
+                let candidate = score[t - lag] - penalty;
+                if candidate > best {
+                    best = candidate;
+                    previous[t] = t - lag;
+                }
+            }
+            score[t] += best;
+        }
+
+        // The path ends at the best score within the last period.
+        let tail = onsets.len().saturating_sub(period.ceil() as usize);
+        let mut at = (tail..onsets.len())
+            .max_by(|&a, &b| score[a].total_cmp(&score[b]))
+            .unwrap_or(0);
+        let mut frames = vec![at];
+        while previous[at] != usize::MAX {
+            at = previous[at];
+            frames.push(at);
+        }
+        frames.reverse();
+
+        let raw: Vec<f64> = frames
+            .iter()
+            .map(|&f| self.start + (f as f64 + peak_offset(&onsets, f)) / rate)
+            .collect();
+        let weights: Vec<f64> = frames.iter().map(|&f| onsets[f] + SILENT_WEIGHT).collect();
+        smooth(&raw, &weights, SMOOTH_BEATS)
+    }
+}
+
+/// Where the peak around `values[i]` really is, in frames from `i` (-0.5 to 0.5):
+/// the top of the parabola through it and its neighbours.
+fn peak_offset(values: &[f64], i: usize) -> f64 {
+    let (Some(&before), Some(&after)) = (
+        i.checked_sub(1).and_then(|j| values.get(j)),
+        values.get(i + 1),
+    ) else {
+        return 0.0;
+    };
+    let at = values[i];
+    let curve = before - 2.0 * at + after;
+    if curve >= 0.0 {
+        return 0.0;
+    }
+    (0.5 * (before - after) / curve).clamp(-0.5, 0.5)
+}
+
+/// Each of `beats` moved onto the straight line that best fits the `window` beats
+/// around it (fewer at the ends), by least squares over the beat number. Each beat
+/// counts as much as its `weights`, so beats in silence, placed only by the tempo,
+/// do not pull the ones on real onsets.
+fn smooth(beats: &[f64], weights: &[f64], window: usize) -> Vec<f64> {
+    let half = window / 2;
+    (0..beats.len())
+        .map(|i| {
+            let range = i.saturating_sub(half)..(i + half + 1).min(beats.len());
+            let points = || range.clone().map(|k| (k as f64, beats[k], weights[k]));
+            let total: f64 = points().map(|(_, _, w)| w).sum();
+            let mean_k = points().map(|(k, _, w)| k * w).sum::<f64>() / total;
+            let mean_t = points().map(|(_, t, w)| t * w).sum::<f64>() / total;
+            let (mut cov, mut var) = (0.0, 0.0);
+            for (k, t, w) in points() {
+                cov += w * (k - mean_k) * (t - mean_t);
+                var += w * (k - mean_k).powi(2);
+            }
+            if var <= 0.0 {
+                return beats[i];
+            }
+            mean_t + cov / var * (i as f64 - mean_k)
+        })
+        .collect()
 }
 
 /// `values` minus their local mean, negatives dropped.
@@ -357,6 +475,70 @@ mod tests {
         }
     }
 
+    /// Interleaved stereo clicks at the given times in seconds, over quiet noise.
+    fn clicks_at(times: &[f64], sample_rate: u32, secs: f64) -> Vec<f32> {
+        let rate = f64::from(sample_rate);
+        let mut seed = 7u32;
+        let mut noise = move || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) as f32 / (1 << 23) as f32 - 1.0
+        };
+        let mut next = 0;
+        let mut last = f64::NEG_INFINITY;
+        (0..(secs * rate) as usize)
+            .flat_map(|i| {
+                let t = i as f64 / rate;
+                while next < times.len() && times[next] <= t {
+                    last = times[next];
+                    next += 1;
+                }
+                let s = noise() * (0.01 + (-(t - last) * 60.0).exp() as f32);
+                [s, s]
+            })
+            .collect()
+    }
+
+    /// The largest distance from each of `expected` (seconds) to the nearest of
+    /// `found`, between `from` and `to` seconds.
+    fn worst_miss(expected: &[f64], found: &[f64], from: f64, to: f64) -> f64 {
+        expected
+            .iter()
+            .filter(|t| (from..to).contains(*t))
+            .map(|t| found.iter().map(|f| (f - t).abs()).fold(f64::MAX, f64::min))
+            .fold(0.0, f64::max)
+    }
+
+    #[test]
+    fn tracks_steady_beats() {
+        let beat = 60.0 / 120.0;
+        let times: Vec<f64> = (0..60).map(|k| 1.0 + k as f64 * beat).collect();
+        let audio = clicks_at(&times, 48_000, 31.0);
+        let found = OnsetEnvelope::compute(&audio, 48_000).track_beats(120.0);
+        let miss = worst_miss(&times, &found, 1.0, 30.0);
+        assert!(miss < 0.003, "missed by {miss} s");
+    }
+
+    #[test]
+    fn follows_a_song_that_speeds_up() {
+        // From 120 to 132 BPM over 40 s, steadily, starting with the first estimate
+        // in between.
+        let mut times = vec![0.5];
+        while *times.last().unwrap() < 40.0 {
+            let t = *times.last().unwrap();
+            times.push(t + 60.0 / (120.0 + 12.0 * t / 40.0));
+        }
+        let audio = clicks_at(&times, 44_100, 41.0);
+        let envelope = OnsetEnvelope::compute(&audio, 44_100);
+        let bpm = envelope.bpm().expect("an estimate");
+        let found = envelope.track_beats(bpm);
+        let miss = worst_miss(&times, &found, 1.0, 39.0);
+        assert!(miss < 0.003, "{bpm} BPM: missed by {miss} s");
+        // A steady grid would be off by far more.
+        let first = envelope.first_beat(bpm).unwrap();
+        let steady: Vec<f64> = (0..100).map(|k| first + k as f64 * 60.0 / bpm).collect();
+        assert!(worst_miss(&times, &steady, 1.0, 39.0) > 0.05);
+    }
+
     #[test]
     fn silence_and_short_audio_give_none() {
         assert_eq!(
@@ -366,6 +548,9 @@ mod tests {
         let short = clicks(120.0, 48_000, 5.0);
         assert_eq!(OnsetEnvelope::compute(&short, 48_000).bpm(), None);
         assert_eq!(OnsetEnvelope::default().bpm(), None);
+        assert!(OnsetEnvelope::default().track_beats(120.0).is_empty());
+        let silence = OnsetEnvelope::compute(&vec![0.0; 48_000 * 2 * 20], 48_000);
+        assert!(silence.track_beats(120.0).is_empty());
     }
 
     #[test]
