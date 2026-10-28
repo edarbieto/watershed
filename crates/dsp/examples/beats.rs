@@ -53,6 +53,16 @@ fn main() {
         beats.len()
     );
 
+    if let Some(end) = envelope.rhythm_end() {
+        let length = envelope.values.len() as f64 / envelope.rate;
+        println!(
+            "rhythm ends at {}:{:04.1} of {}:{:04.1}",
+            (end / 60.0) as u32,
+            end % 60.0,
+            (length / 60.0) as u32,
+            length % 60.0
+        );
+    }
     let tempos: Vec<f64> = beats.windows(2).map(|w| 60.0 / (w[1] - w[0])).collect();
     if tempos.is_empty() {
         return;

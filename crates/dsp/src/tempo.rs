@@ -9,6 +9,11 @@
 
 use realfft::RealFftPlanner;
 
+/// The rhythm ends after the last onset this strong, as a fraction of the 95th
+/// percentile of all onsets.
+const END_THRESHOLD: f64 = 0.3;
+/// Beats whose pace goes on after the rhythm ends: two bars of 4.
+const END_BEATS: usize = 8;
 /// Weight of a vocal stem in the sum of a song's envelopes, against 1 for the
 /// other stems. Singing follows the beat loosely: on its own the vocal stem gave a
 /// wrong tempo on several test songs, and in Change's soft bridge, where it is the
@@ -256,8 +261,25 @@ impl OnsetEnvelope {
         })
     }
 
+    /// Seconds where the song's rhythm ends: after the last strong onset (at least
+    /// [`END_THRESHOLD`] of the 95th percentile, the loudest within
+    /// [`END_WINDOW_SECS`]), only quieter ones follow: notes ringing out, feedback, a
+    /// fade. `None` for an envelope too short to tell.
+    pub fn rhythm_end(&self) -> Option<f64> {
+        let rate = self.rate;
+        if rate <= 0.0 || (self.values.len() as f64) < MIN_SECS * rate {
+            return None;
+        }
+        let onsets = peaks_only(&self.values, (MEAN_WINDOW_SECS * rate) as usize);
+        let mut sorted = onsets.clone();
+        sorted.sort_by(f64::total_cmp);
+        let strong = sorted[(sorted.len() * 95 / 100).min(sorted.len() - 1)];
+        let last = onsets.iter().rposition(|&v| v >= END_THRESHOLD * strong)?;
+        Some(self.start + last as f64 / rate)
+    }
+
     /// Seconds of every beat over the whole envelope, for a song whose tempo moves
-    /// around `bpm` (within 25 % or so). First a tempo curve ([`tempo_curve`]), so
+    /// around `bpm` (within 25 % or so). Steady after [`OnsetEnvelope::rhythm_end`]. First a tempo curve ([`tempo_curve`]), so
     /// a slow intro has its own pace; then beat tracking by dynamic programming
     /// (Ellis, 2007): each frame scores its onset plus the best score of a beat
     /// between half and twice the local period earlier, minus a penalty that grows
@@ -338,7 +360,30 @@ impl OnsetEnvelope {
             .map(|&f| self.start + (f as f64 + peak_offset(&onsets, f)) / rate)
             .collect();
         let weights: Vec<f64> = frames.iter().map(|&f| onsets[f] + SILENT_WEIGHT).collect();
-        smooth(&raw, &weights, SMOOTH_BEATS)
+        let mut beats = smooth(&raw, &weights, SMOOTH_BEATS);
+        if let Some(end) = self.rhythm_end() {
+            hold_after(&mut beats, end);
+        }
+        beats
+    }
+}
+
+/// Past `end` (seconds), where nothing but notes ringing out can be tracked, the
+/// beats go on steadily at the pace of the [`END_BEATS`] before it (their median
+/// gap, so one odd beat in a last fill does not set it), as far as they went.
+fn hold_after(beats: &mut Vec<f64>, end: f64) {
+    let last = beats.partition_point(|&t| t <= end);
+    if last < 2 || last == beats.len() {
+        return;
+    }
+    let from = last.saturating_sub(END_BEATS + 1);
+    let mut gaps: Vec<f64> = beats[from..last].windows(2).map(|w| w[1] - w[0]).collect();
+    gaps.sort_by(f64::total_cmp);
+    let gap = gaps[gaps.len() / 2];
+    let until = beats[beats.len() - 1];
+    beats.truncate(last);
+    while beats[beats.len() - 1] + gap <= until + gap / 2.0 {
+        beats.push(beats[beats.len() - 1] + gap);
     }
 }
 
@@ -781,6 +826,35 @@ mod tests {
         // As many beats as the song has, so the bars after the bridge line up.
         let count = |beats: &[f64]| beats.iter().filter(|t| (1.0..58.0).contains(*t)).count();
         assert_eq!(count(&found), count(&beats));
+    }
+
+    #[test]
+    fn rings_out_at_the_last_pace() {
+        // Speeding up to 132 BPM over 30 s, then a chord ringing out for 12 s.
+        let mut times = vec![0.5];
+        while *times.last().unwrap() < 30.0 {
+            let t = *times.last().unwrap();
+            times.push(t + 60.0 / (120.0 + 12.0 * t / 30.0));
+        }
+        let rate = 48_000;
+        let mut audio = clicks_at(&times, rate, 42.0);
+        let tail = 30 * rate as usize;
+        for (i, frame) in audio.chunks_mut(2).skip(tail).enumerate() {
+            let t = i as f64 / f64::from(rate);
+            let ring = 0.3 * (-t / 4.0).exp() * (std::f64::consts::TAU * 220.0 * t).sin();
+            frame[0] += ring as f32;
+            frame[1] += ring as f32;
+        }
+        let envelope = OnsetEnvelope::compute(&audio, rate);
+        let end = envelope.rhythm_end().unwrap();
+        assert!((29.5..30.6).contains(&end), "ends at {end}");
+        let found = envelope.track_beats(126.0);
+        let after: Vec<f64> = found.iter().copied().filter(|&t| t > 31.0).collect();
+        assert!(after.len() > 10 && *after.last().unwrap() > 40.0);
+        for w in after.windows(2) {
+            let bpm = 60.0 / (w[1] - w[0]);
+            assert!((bpm - 132.0).abs() < 1.0, "{bpm} BPM after the end");
+        }
     }
 
     #[test]
