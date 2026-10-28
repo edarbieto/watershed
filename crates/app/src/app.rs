@@ -1471,7 +1471,9 @@ impl WatershedApp {
             .map(|(i, m)| ((m.time * rate) as usize, format!("{} {}", i + 1, m.name)))
             .collect();
         let visible = (self.view.start * rate) as usize..(self.view.end() * rate) as usize;
-        self.grid.update_estimate(self.bpm.value(), &loaded.onsets);
+        let dragging = ui.ctx().dragged_id().is_some();
+        self.grid
+            .update_estimate(self.bpm.value(), &loaded.onsets, dragging);
         let grid_lines: Vec<GridLine> = match self.grid_beats() {
             Some(beats) => {
                 // The waveforms take the width beside the track controls.

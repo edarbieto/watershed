@@ -1,6 +1,7 @@
 //! Tracks the beats of some audio files, as if they were the stems of one song, and
 //! prints how the local tempo moves: `cargo run --release -p watershed-dsp --example
-//! beats -- [--bpm 138] drums.flac bass.flac ...`. Files named `vocals` weigh less.
+//! beats -- [--bpm 138] [--bar-one 0.25] drums.flac bass.flac ...`. Files named
+//! `vocals` weigh less.
 
 use std::time::Instant;
 
@@ -11,13 +12,10 @@ const BEATS_PER_LINE: usize = 16;
 
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let mut bpm = None;
-    if let Some(i) = args.iter().position(|a| a == "--bpm") {
-        bpm = args.get(i + 1).and_then(|v| v.parse::<f64>().ok());
-        args.drain(i..(i + 2).min(args.len()));
-    }
+    let bpm = take_option(&mut args, "--bpm");
+    let bar_one = take_option(&mut args, "--bar-one");
     if args.is_empty() {
-        eprintln!("usage: beats [--bpm <bpm>] <audio file>...");
+        eprintln!("usage: beats [--bpm <bpm>] [--bar-one <seconds>] <audio file>...");
         std::process::exit(2);
     }
     let mut envelope = OnsetEnvelope::default();
@@ -46,7 +44,7 @@ fn main() {
         return;
     };
     let start = Instant::now();
-    let beats = envelope.track_beats(bpm);
+    let beats = envelope.track_beats(bpm, bar_one);
     let elapsed = start.elapsed();
     println!(
         "{bpm:.1} BPM, {} beats tracked in {elapsed:.1?}",
@@ -75,8 +73,8 @@ fn main() {
         "local tempo: p5 {p5:.1}, median {median:.1}, p95 {p95:.1} BPM; spread {:.1} %",
         (p95 - p5) / median * 100.0
     );
-    // How far the tracked beats are from a steady grid at `bpm`, from its first beat.
-    let first = envelope.first_beat(bpm);
+    // How far the tracked beats are from a steady grid at `bpm`, from bar 1.
+    let first = bar_one.or_else(|| envelope.first_beat(bpm));
     let beat = 60.0 / bpm;
     println!("  time     tempo   vs steady grid");
     for (line, chunk) in tempos.chunks(BEATS_PER_LINE).enumerate() {
@@ -103,4 +101,12 @@ fn main() {
             secs % 60.0
         );
     }
+}
+
+/// The number after `name` in `args`, taking both out.
+fn take_option(args: &mut Vec<String>, name: &str) -> Option<f64> {
+    let i = args.iter().position(|a| a == name)?;
+    let value = args.get(i + 1).and_then(|v| v.parse::<f64>().ok());
+    args.drain(i..(i + 2).min(args.len()));
+    value
 }

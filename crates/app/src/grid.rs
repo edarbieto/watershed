@@ -37,13 +37,17 @@ pub struct Grid {
     estimate: Option<(f64, f64)>,
     /// Follow the song's own beats instead of a steady BPM.
     pub dynamic: bool,
-    /// The beats tracked in the audio, for the BPM they were tracked around.
-    tracked: Option<(f64, Tracked)>,
+    /// The beats tracked in the audio.
+    tracked: Option<Tracked>,
 }
 
 /// The song's own beats and how much its tempo moves.
 #[derive(Debug)]
 struct Tracked {
+    /// The BPM they were tracked around.
+    bpm: f64,
+    /// The user's bar 1 they were counted from, if any.
+    bar_one: Option<f64>,
     /// Seconds of every beat, from the start of the song.
     beats: Vec<f64>,
     /// The local tempo's 5th and 95th percentile, in BPM, when they spread more
@@ -52,7 +56,7 @@ struct Tracked {
 }
 
 impl Tracked {
-    fn new(beats: Vec<f64>) -> Self {
+    fn new(bpm: f64, bar_one: Option<f64>, beats: Vec<f64>) -> Self {
         let mut tempos: Vec<f64> = beats.windows(2).map(|w| 60.0 / (w[1] - w[0])).collect();
         tempos.sort_by(f64::total_cmp);
         let at = |q: f64| tempos[((tempos.len() - 1) as f64 * q).round() as usize];
@@ -60,7 +64,12 @@ impl Tracked {
             .then(|| (at(0.05), at(0.5), at(0.95)))
             .filter(|(low, median, high)| (high - low) / median > MOVING_SPREAD)
             .map(|(low, _, high)| (low, high));
-        Self { beats, moving }
+        Self {
+            bpm,
+            bar_one,
+            beats,
+            moving,
+        }
     }
 }
 
@@ -126,8 +135,9 @@ impl Grid {
     }
 
     /// Estimates bar 1 again if the BPM changed since, and tracks the beats again if
-    /// it changed by more than [`RETRACK`].
-    pub fn update_estimate(&mut self, bpm: Option<f64>, onsets: &OnsetEnvelope) {
+    /// it changed by more than [`RETRACK`], or, when dynamic, from the user's bar 1
+    /// if it moved (not while `dragging`: tracking takes too long to do every frame).
+    pub fn update_estimate(&mut self, bpm: Option<f64>, onsets: &OnsetEnvelope, dragging: bool) {
         let Some(bpm) = bpm else {
             self.estimate = None;
             self.tracked = None;
@@ -136,26 +146,28 @@ impl Grid {
         if self.estimate.is_none_or(|(for_bpm, _)| for_bpm != bpm) {
             self.estimate = onsets.first_beat(bpm).map(|start| (bpm, start));
         }
-        if self
-            .tracked
-            .as_ref()
-            .is_none_or(|(for_bpm, _)| (bpm / for_bpm - 1.0).abs() > RETRACK)
-        {
-            self.tracked = Some((bpm, Tracked::new(onsets.track_beats(bpm))));
+        let bar_one = if self.dynamic { self.user_start } else { None };
+        let retrack = self.tracked.as_ref().is_none_or(|tracked| {
+            (bpm / tracked.bpm - 1.0).abs() > RETRACK
+                || (self.dynamic && !dragging && tracked.bar_one != bar_one)
+        });
+        if retrack {
+            let beats = onsets.track_beats(bpm, bar_one);
+            self.tracked = Some(Tracked::new(bpm, bar_one, beats));
         }
     }
 
     /// The slowest and fastest local tempo (5th and 95th percentile, in BPM at the
     /// original speed) when the song's tempo moves.
     pub fn tempo_range(&self) -> Option<(f64, f64)> {
-        self.tracked.as_ref()?.1.moving
+        self.tracked.as_ref()?.moving
     }
 
     /// Whether the song's own beats are known, so the grid can follow them.
     pub fn can_follow(&self) -> bool {
         self.tracked
             .as_ref()
-            .is_some_and(|(_, tracked)| tracked.beats.len() >= 2)
+            .is_some_and(|tracked| tracked.beats.len() >= 2)
     }
 
     /// The beats of the grid at `bpm` in seconds, from bar 1, listed up to `end`:
@@ -167,7 +179,7 @@ impl Grid {
         }
         let start = self.start()?;
         match &self.tracked {
-            Some((_, tracked)) if self.dynamic && tracked.beats.len() >= 2 => {
+            Some(tracked) if self.dynamic && tracked.beats.len() >= 2 => {
                 let beats = &tracked.beats;
                 let after = beats.partition_point(|&t| t < start);
                 let nearest = match (after.checked_sub(1), beats.get(after)) {
@@ -296,7 +308,7 @@ mod tests {
     fn estimate_follows_the_bpm_and_the_user_wins() {
         let mut grid = Grid::default();
         let onsets = OnsetEnvelope::default();
-        grid.update_estimate(Some(120.0), &onsets);
+        grid.update_estimate(Some(120.0), &onsets, false);
         assert_eq!(grid.start(), None, "no audio, no estimate");
         grid.set_start(2.5);
         assert_eq!(grid.start(), Some(2.5));
@@ -311,7 +323,7 @@ mod tests {
         // Speeding up from 120 BPM; bar 1 set a little after the third beat.
         let tracked = vec![0.0, 0.5, 0.98, 1.44, 1.88, 2.3];
         let mut grid = grid(1.0, 2);
-        grid.tracked = Some((120.0, Tracked::new(tracked)));
+        grid.tracked = Some(Tracked::new(120.0, None, tracked));
         let steady = grid.beats(120.0, 3.0).unwrap();
         assert_eq!(steady.time(1), 1.5);
         grid.dynamic = true;
@@ -330,18 +342,35 @@ mod tests {
     #[test]
     fn tells_when_the_tempo_moves() {
         let steady: Vec<f64> = (0..100).map(|k| k as f64 * 0.5).collect();
-        assert_eq!(Tracked::new(steady).moving, None);
+        assert_eq!(Tracked::new(120.0, None, steady).moving, None);
         // From 120 to 132 BPM.
         let mut beats = vec![0.0];
         for k in 0..100 {
             let bpm = 120.0 + 12.0 * k as f64 / 100.0;
             beats.push(beats[k] + 60.0 / bpm);
         }
-        let (low, high) = Tracked::new(beats).moving.unwrap();
+        let (low, high) = Tracked::new(120.0, None, beats).moving.unwrap();
         assert!(
             (low - 120.6).abs() < 0.2 && (high - 131.4).abs() < 0.2,
             "{low} {high}"
         );
-        assert_eq!(Tracked::new(Vec::new()).moving, None);
+        assert_eq!(Tracked::new(120.0, None, Vec::new()).moving, None);
+    }
+
+    #[test]
+    fn dynamic_beats_count_from_the_users_bar_one_once_it_settles() {
+        let onsets = OnsetEnvelope::default();
+        let tracked_from = |grid: &Grid| grid.tracked.as_ref().map(|t| t.bar_one);
+        let mut grid = grid(1.0, 4);
+        grid.update_estimate(Some(120.0), &onsets, false);
+        assert_eq!(tracked_from(&grid), Some(None), "steady: tracked freely");
+        grid.dynamic = true;
+        grid.update_estimate(Some(120.0), &onsets, false);
+        assert_eq!(tracked_from(&grid), Some(Some(1.0)));
+        grid.set_start(1.5);
+        grid.update_estimate(Some(120.0), &onsets, true);
+        assert_eq!(tracked_from(&grid), Some(Some(1.0)), "not while dragging");
+        grid.update_estimate(Some(120.0), &onsets, false);
+        assert_eq!(tracked_from(&grid), Some(Some(1.5)));
     }
 }
