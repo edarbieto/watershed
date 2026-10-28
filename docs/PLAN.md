@@ -358,12 +358,37 @@ RAM first, then disk. In this order:
   `config.toml`). Without a BPM, both are disabled. As built: three sounds like
   Ableton's (**Click**, **Metronome**, **Wood**); click and count-in on/off per song in
   the session, sound, channels and volume global in `config.toml`.
-- [ ] **Key detection** (e.g. "A major / F# minor"): chroma (energy per pitch class)
+- [x] **Key detection** (e.g. "A major / F# minor"): chroma (energy per pitch class)
   from the pitched stems, without drums, compared against major and minor key
   profiles (Krumhansl–Schmuckler). Relative keys share the same notes, so the
   major/minor choice is the weak point: show the best guess with its relative, and
   let the user correct it (saved in the session). Shares the STFT with BPM. Pitch
-  shifting updates the displayed key.
+  shifting updates the displayed key. As built: its own STFT (a longer window than
+  the onsets need, to tell semitones apart in the bass), with the tuning measured
+  first; the relative and the runner-up are offered in the key menu.
+- [ ] **Dynamic tempo (tempo map), idea from the user.** Many songs are not played
+  to a fixed tempo: 90s grunge and metal drift (Deftones' "Change" speeds up over
+  the song), songs like Opeth's change tempo on purpose, while today's Latin pop is
+  made on a grid. A **Dynamic** switch beside the BPM (off by default) makes the grid,
+  snap, click and count-in follow the song's own beats instead of one BPM; a small
+  marker (e.g. a star) beside the BPM shows when the song's tempo moves, and the BPM
+  shown is then the local one. **Feasible:** a quick experiment (Python, on the drum
+  stems; beat tracking by dynamic programming, Ellis 2007, on the same onset
+  envelope) found Change going from ~133 to ~145 BPM (5.8 % between the 5th and 95th
+  percentile of an 8-beat average) while Afuera, On Most Surfaces, Karaoke and No
+  Dejes Que stay within 1–3.6 %. The work: beat tracking in Rust (the envelope is
+  there), a tempo map as a list of beat times in the session (the user can still
+  move bar 1), the grid and the click reading beat times instead of `start + k ×
+  beat`. Open points: songs with a free section (the tracker must be able to stop),
+  and user corrections of single beats (later, if needed).
+- [ ] **Song info panel, idea from the user.** An ⓘ button opens a dialog with
+  statistics about the song: length, BPM and key, stems, and **tempo steadiness**:
+  how closely the song keeps one tempo. Not a grade: a programmed song scores ~100 %,
+  a 90s band playing live drifts, and a song that changes tempo on purpose shows
+  sections instead of "errors". Measures from the same beat tracking: beat-to-beat
+  jitter (short term, the feel), drift of the local tempo (long term, the speeding
+  up), and tempo changes found as steps. Comes after the dynamic tempo, which
+  computes them.
 - [x] **Smooth UI when the window is maximized or resized on macOS.** Our drawing was
   not the cause (2–3 ms per frame at any size). Window managers that move and resize
   through the accessibility API (Rectangle) showed the move and the resize as two

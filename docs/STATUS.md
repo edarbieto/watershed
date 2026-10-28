@@ -73,6 +73,8 @@ Last updated: 2026-10-28.
 - **Phase 3.5, click and count-in: done.** Tested by the user: timing, count-in and
   controls work. The three sounds were then remodelled on Ableton Live's; the user
   still has to listen to them (see "Click and count-in" below).
+- **Phase 3.5, key detection: built, waiting for the user** (see "Key detection"
+  below).
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -85,9 +87,9 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Click and count-in:** tested by the user, timing and controls all fine; the
-   sounds were redone after Live's (see "Click and count-in"), to listen again.
-   Then **key detection**.
+1. **Key detection:** the user checks the estimates against the keys they know
+   (checklist in "Key detection"); that gives the ground truth to tune it. Then the
+   two new ideas in `PLAN.md`: **dynamic tempo** and the **song info panel**.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -974,6 +976,38 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
    the wraps.
 6. Grid off or no BPM: both buttons greyed out, silence. Close and reopen the song:
    Click and Count-in are kept; restart the app: sound, channels and volume are kept.
+
+## Key detection
+
+- **`watershed_dsp::Chroma`** (`key.rs`): STFT with a ~0.34 s window (16384 at 48
+  kHz, hop half of it), 55 Hz–2 kHz, magnitudes summed into a **10-cent chroma**
+  (120 steps); every frame normalized to count the same, frames below −50 dBFS
+  skipped. The **tuning** is the circular mean of where energy falls within the
+  semitone, taken out before folding to 12 pitch classes (a song at A = 448.6 Hz
+  is read right, tested). The key: Pearson correlation with the 24 rotated
+  Krumhansl–Kessler profiles; also the runner-up, the confidence and the tuning.
+  ~30 ms per stem. `Key` prints and parses `"Eb"`, `"F#m"` (ASCII, any font).
+  Example: `cargo run --release -p watershed-dsp --example key -- stems…`.
+- **Loader:** one chroma per stem, summed, from the stems that also feed the tempo
+  minus the drums.
+- **UI:** a **Key** button after Pitch shows the key as heard (transposed by the
+  pitch control); hover gives the confidence (clear ≥ 0.8, likely ≥ 0.6, else
+  uncertain), the relative and the runner-up. Its menu: the estimate, the relative,
+  and all 24 keys. Stored at the original pitch in the session (`key = "F#m"`).
+- **On the test songs** (drums left out), with keys found on the web where any:
+  Afuera **Bm** (0.86; tabs say Bm ✓), No Dejes Que **G** (0.78; the chords G–Am–Bm–C
+  agree, a karaoke site says D), Change **F** (0.59; sites say Cm, uncertain),
+  On Most Surfaces Gm (0.63), Karaoke Eb (0.71), Cada hogar Gm (0.47). Variants
+  tried: Temperley and Sha'ath (KeyFinder) profiles, square-root magnitudes,
+  frames weighted by loudness. All agree on Afuera and Karaoke and move around on
+  the low-confidence ones; plain magnitudes with K–K were kept. Too few known keys
+  to tune further without overfitting: the user's answers are the next input.
+
+**Test checklist:**
+1. For the songs you know: is the key right? If not, is it the relative (same
+   notes), a fifth away, or something else? The menu shows what it guessed second.
+2. Transpose ±2 semitones: the key follows (Bm → C#m).
+3. Correct a key, close and reopen the song: it is kept; "Estimate" goes back.
 
 ## Window size and maximizing
 

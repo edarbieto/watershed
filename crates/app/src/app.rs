@@ -9,6 +9,7 @@ use watershed_storage::{Config, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
 use crate::grid::{self, Grid};
+use crate::key::{self, SongKey};
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
 use crate::markers::Markers;
@@ -117,6 +118,7 @@ pub struct WatershedApp {
     markers: Markers,
     bpm: Bpm,
     grid: Grid,
+    song_key: SongKey,
     metronome: Metronome,
     /// Bar 1 when a drag of the bar ruler began.
     grid_drag_origin: Option<f64>,
@@ -175,6 +177,7 @@ impl WatershedApp {
             markers: Markers::default(),
             bpm: Bpm::default(),
             grid: Grid::default(),
+            song_key: SongKey::default(),
             metronome: Metronome::default(),
             grid_drag_origin: None,
             view: View::new(0.0),
@@ -452,6 +455,7 @@ impl WatershedApp {
         self.markers = Markers::from_session(&session.markers);
         self.bpm = Bpm::new(loaded.bpm, session.bpm);
         self.grid = Grid::from_session(&session);
+        self.song_key = SongKey::new(loaded.key.clone(), session.key.as_deref());
         self.metronome = Metronome::from_session(&session);
         self.view = View::new(loaded.song.duration_secs());
         self.last_loop = None;
@@ -492,6 +496,7 @@ impl WatershedApp {
             beats_per_bar: self.grid.beats_per_bar,
             beat_unit: self.grid.beat_unit,
             grid_start: self.grid.user_start(),
+            key: self.song_key.user(),
             click: self.metronome.click,
             count_in: self.metronome.count_in,
             ..Session::default()
@@ -1233,6 +1238,12 @@ impl WatershedApp {
                 engine.set_semitones(semitones);
             }
             ui.label("Pitch");
+            key::controls(
+                ui,
+                &mut self.song_key,
+                engine.semitones().round() as i32,
+                enabled,
+            );
 
             ui.separator();
             if metronome::controls(ui, &mut self.metronome, &mut self.config, has_beats) {

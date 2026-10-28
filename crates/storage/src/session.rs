@@ -43,6 +43,10 @@ pub struct Session {
     /// Where bar 1 starts, set by the user; `None` uses the estimate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grid_start: Option<f64>,
+    /// Key of the song at its original pitch, set by the user (e.g. `"F#m"`, `"Eb"`);
+    /// `None` uses the estimate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     /// Metronome while playing, following the grid.
     pub click: bool,
     /// One bar of clicks before playback starts.
@@ -68,6 +72,7 @@ impl Default for Session {
             beats_per_bar: 4,
             beat_unit: 4,
             grid_start: None,
+            key: None,
             click: false,
             count_in: false,
         }
@@ -236,6 +241,7 @@ mod tests {
             beats_per_bar: 7,
             beat_unit: 8,
             grid_start: Some(3.25),
+            key: Some("F#m".into()),
             click: true,
             count_in: true,
             ..Session::default()

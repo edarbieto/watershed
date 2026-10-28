@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 use eframe::egui::{self, Color32};
 use watershed_audio::{Samples, Song};
-use watershed_dsp::{OnsetEnvelope, Peaks};
+use watershed_dsp::{Chroma, KeyEstimate, OnsetEnvelope, Peaks};
 use watershed_storage::Session;
 
 use crate::stems::{StemKind, default_names, song_title, track_colors};
@@ -34,6 +34,8 @@ pub struct LoadedSong {
     pub bpm: Option<f64>,
     /// Onsets of all stems, kept to place the beat grid at any BPM.
     pub onsets: OnsetEnvelope,
+    /// Estimated key, from the pitched stems.
+    pub key: Option<KeyEstimate>,
 }
 
 /// A load in progress.
@@ -126,7 +128,7 @@ fn load(
 
     // Each stem is packed and its peaks computed in its own thread, so the
     // full-size f32 copies never all exist at once.
-    type Decoded = (Samples, [Peaks; 2], Option<OnsetEnvelope>);
+    type Decoded = (Samples, [Peaks; 2], Option<OnsetEnvelope>, Option<Chroma>);
     let decoded: Vec<Result<Decoded, String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
             .iter()
@@ -136,6 +138,8 @@ fn load(
                 // sum was right where single stems, drums included, were sometimes
                 // off by half. The instrumental repeats the others.
                 let for_tempo = *kind != StemKind::Instrumental || kinds.len() == 1;
+                // The key comes from the pitched stems: drums only blur it.
+                let for_key = for_tempo && (*kind != StemKind::Drums || kinds.len() == 1);
                 scope.spawn(move || {
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
                     let audio =
@@ -148,9 +152,11 @@ fn load(
                     let peaks = Peaks::stereo(&audio.samples, Peaks::DEFAULT_FRAMES_PER_BUCKET);
                     let onsets = for_tempo
                         .then(|| OnsetEnvelope::compute(&audio.samples, audio.sample_rate));
+                    let chroma =
+                        for_key.then(|| Chroma::compute(&audio.samples, audio.sample_rate));
                     let samples = Samples::from_f32(&audio.samples);
                     done.fetch_add(1, Ordering::Relaxed);
-                    Ok((samples, peaks, onsets))
+                    Ok((samples, peaks, onsets, chroma))
                 })
             })
             .collect();
@@ -164,11 +170,15 @@ fn load(
     let mut samples = Vec::with_capacity(decoded.len());
     let mut peaks = Vec::with_capacity(decoded.len());
     let mut onsets = OnsetEnvelope::default();
-    for (track_samples, track_peaks, track_onsets) in decoded {
+    let mut chroma = Chroma::default();
+    for (track_samples, track_peaks, track_onsets, track_chroma) in decoded {
         samples.push(track_samples);
         peaks.push(track_peaks);
         if let Some(track_onsets) = track_onsets {
             onsets.add(&track_onsets);
+        }
+        if let Some(track_chroma) = track_chroma {
+            chroma.add(&track_chroma);
         }
     }
     let default_names = default_names(&files, &kinds);
@@ -200,5 +210,6 @@ fn load(
         stem_gain: session.stem_gain,
         bpm: onsets.bpm(),
         onsets,
+        key: chroma.key(),
     })
 }

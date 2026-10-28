@@ -1,8 +1,9 @@
 //! Audio decoding, FLAC and Ogg Vorbis writing, resampling, waveform peaks, tempo
-//! estimation and (later) STFT/iSTFT and chunking.
+//! and key estimation and (later) STFT/iSTFT and chunking.
 
 mod decode;
 mod flac;
+mod key;
 mod peaks;
 mod resample;
 mod tempo;
@@ -10,6 +11,7 @@ mod vorbis;
 
 pub use decode::{DecodeError, decode_file};
 pub use flac::{FlacError, gain_to_fit, write_flac};
+pub use key::{Chroma, Key, KeyEstimate};
 pub use peaks::Peaks;
 pub use resample::{ResampleError, resample};
 pub use tempo::OnsetEnvelope;
