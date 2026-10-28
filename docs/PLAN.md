@@ -71,9 +71,9 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
   tempo to correct it. Shown next to the tempo slider as the BPM at the current tempo.
 - [x] **Pitch lock per track**: transposition skips drum tracks by default (pitch-shifted
   drums sound wrong and gain nothing). See Phase 3.5.
-- [ ] **Time signature**, 4/4 by default, set by the user. See Phase 3.5.
-- [ ] **Beat grid**: vertical lines on the tracks at every beat, stronger on each bar,
-  like a DAW. See Phase 3.5.
+- [x] **Time signature**, 4/4 by default, set by the user. See Phase 3.5.
+- [x] **Beat grid**: vertical lines on the tracks at every beat, stronger on each bar,
+  like a DAW, and a bar ruler (`1`, `1.2`, …) under the time ruler. See Phase 3.5.
 - [ ] **Click** (metronome) while playing, to the left, right or both channels, and a
   **count-in** before playback. See Phase 3.5.
 
@@ -327,11 +327,11 @@ RAM first, then disk. In this order:
   formats decode to float, so they need no common gain against clipping. Only new
   separations use the setting; existing folders are not converted.
 - [x] **Approximate BPM** (section 3.1).
-- [ ] **Time signature.** Detecting it reliably is out of reach (and songs like
+- [x] **Time signature.** Detecting it reliably is out of reach (and songs like
   Opeth's change it often), so it is **4/4 by default** and the user sets it:
   numerator and denominator (e.g. 3/4, 6/8, 7/8), saved in the session. One per song
   for now.
-- [ ] **Beat grid.** Vertical lines over the tracks at every beat, stronger at the
+- [x] **Beat grid.** Vertical lines over the tracks at every beat, stronger at the
   start of each bar, like a DAW; thinned out when zoomed out so they never crowd. The
   estimate gives only the BPM, so the grid also needs the beat **phase** (where the
   first beat falls): estimated from the same onset envelope (the offset that best
@@ -339,7 +339,10 @@ RAM first, then disk. In this order:
   the playhead, or dragging the grid). The downbeat (which beat is "1") cannot be
   told reliably either: the user sets it the same way. Saved in the session. A song
   whose tempo drifts (live recordings) will slide off the grid; a tempo map is out of
-  scope.
+  scope. As built (with the user): a **bar ruler** under the time ruler, like
+  Ableton's, which can be dragged; nothing is drawn before bar 1, so a free intro
+  stays clear; and a **Grid** switch turns the grid off and greys out the BPM, for
+  songs without a steady beat.
 - [ ] **Click and count-in.** A metronome that follows the grid while playing, on/off,
   with the first beat of each bar accented. The user chooses where it sounds: **left,
   right or both** channels (e.g. the click in one ear and the song in the other).

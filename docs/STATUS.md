@@ -68,6 +68,8 @@ Last updated: 2026-10-28.
   of 149 MB for the 4:03 test song; on Metal it took about the usual time (not timed).
 - **Phase 3.5, approximate BPM: done.** Tested by the user: passes the checklist
   (see "Approximate BPM" below).
+- **Phase 3.5, time signature and beat grid: done, to be tested by the user** (see
+  "Beat grid" below).
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -80,11 +82,12 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Phase 3.5, next items** in the order of `PLAN.md`: time signature, beat grid,
-   click and count-in (left, right or both channels), key detection.
-2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
+1. **Test the beat grid** (checklist in "Beat grid").
+2. **Phase 3.5, next items** in the order of `PLAN.md`: click and count-in (left,
+   right or both channels), then key detection.
+3. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
-3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
+4. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
    the Rectangle test **on battery**, with both renderers.
 3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
@@ -854,6 +857,42 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
 3. Tap (button or T) along with the music, also at 75 %: the BPM settles on the beat.
 4. Close and reopen the song: your value is kept; ↺ goes back to the estimate.
 5. Loading feels as fast as before.
+
+## Beat grid
+
+- **Bar 1** (`OnsetEnvelope::first_beat` in `tempo.rs`): for the song's BPM, the
+  phase where a pulse train best lines up with the onsets (searched in quarter
+  envelope frames, ~2.5 ms), then the first beat at or just before the first clear
+  onset (30 % of the 95th percentile), so silence at the start is skipped. An attack
+  shows in the envelope ~1.5 hops before the end of the window it enters: measured
+  with clicks, now within ±2.3 ms (`finds_the_first_beat_after_silence`). An attack
+  at 0:00 falls in the first window, which cannot see it, so a beat there counts too.
+  The loader keeps the summed envelope (`LoadedSong::onsets`, ~100 values per
+  second), so bar 1 is estimated again when the user changes the BPM.
+- **Grid** (`grid.rs`): bars and beats from bar 1, nothing before it (a free intro
+  stays clear). Lines are thinned out when zoomed out: every beat if they are 12
+  points apart, else every 1, 2, 4… bars; bar numbers at least 32 points apart;
+  beat labels (`12.3`) from 40 points. Drawn behind the waveforms (bars stronger)
+  and in a **bar ruler** under the time ruler.
+- **Controls**, beside the bar ruler: **Grid** on/off (off hides the grid and greys
+  out the BPM and tap tempo), the time signature (beats per bar 1–32, beat unit 2, 4,
+  8 or 16; the BPM counts the beat unit), and **1 here** (bar 1 at the playhead).
+  Dragging the bar ruler moves the grid; a double-click goes back to the estimate.
+- **Session:** `grid`, `beats_per_bar`, `beat_unit`, `grid_start` (only when set by
+  the user).
+- First beats found on the test songs: Afuera 1.125 s, On Most Surfaces 1.081 s,
+  Karaoke 0.334 s, Cada hogar 0.551 s, No Dejes Que 0.341 s. On Afuera, zoomed in,
+  the bar lines fall on the kick and the guitar enters right on bar 17.
+
+**Test checklist** (for the user):
+1. Open songs you know and zoom in: do the bar lines fall on the "1"? If the grid is
+   a beat or two off, drag the bar ruler or use "1 here".
+2. A song with a free intro: put bar 1 where the beat starts; nothing is drawn
+   before it.
+3. Change the time signature (3/4, 6/8): the bars regroup.
+4. ½ / ×2 on the BPM: the grid follows.
+5. Grid off: the grid and the bar ruler empty, BPM greyed out. Close and reopen the
+   song: everything is kept.
 
 ## Window size and maximizing
 
