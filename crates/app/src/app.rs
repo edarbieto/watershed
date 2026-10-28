@@ -1486,12 +1486,13 @@ impl WatershedApp {
             .inner;
         // The grid controls sit beside the bar ruler.
         let grid = &mut self.grid;
+        let mut snap = self.config.snap_to_grid;
         let bar_ruler_response = ui
             .horizontal(|ui| {
                 ui.allocate_ui_with_layout(
                     egui::vec2(CONTROLS_WIDTH, BAR_RULER_HEIGHT),
                     Layout::left_to_right(Align::Center),
-                    |ui| grid_controls(ui, grid, has_bpm, playhead_secs),
+                    |ui| grid_controls(ui, grid, &mut snap, has_bpm, playhead_secs),
                 );
                 ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), BAR_RULER_HEIGHT),
@@ -1655,6 +1656,10 @@ impl WatershedApp {
                 &overlay,
             )
         });
+        if snap != self.config.snap_to_grid {
+            self.config.snap_to_grid = snap;
+            self.config.save();
+        }
         let grid_shown = self.grid.enabled && has_bpm;
         let bar_action = wave_x.and_then(|x_range| {
             bar_ruler(
@@ -1719,6 +1724,16 @@ impl WatershedApp {
 
         match wave_action {
             Some(WaveformAction::Seek(frame)) => {
+                // To the nearest line drawn, so the zoom sets the precision.
+                let frame = if self.config.snap_to_grid {
+                    grid_lines
+                        .iter()
+                        .map(|line| line.frame)
+                        .min_by_key(|line| line.abs_diff(frame))
+                        .unwrap_or(frame)
+                } else {
+                    frame
+                };
                 if let Some(engine) = &mut self.engine {
                     engine.seek(frame);
                 }
@@ -1997,7 +2012,13 @@ fn panel_margins(ui: &egui::Ui) -> f32 {
 }
 
 /// The grid switch, the time signature and "1 here", beside the bar ruler.
-fn grid_controls(ui: &mut egui::Ui, grid: &mut Grid, has_bpm: bool, playhead_secs: f64) {
+fn grid_controls(
+    ui: &mut egui::Ui,
+    grid: &mut Grid,
+    snap: &mut bool,
+    has_bpm: bool,
+    playhead_secs: f64,
+) {
     ui.checkbox(&mut grid.enabled, "Grid").on_hover_text(
         "Beat grid, bar ruler and BPM. Turn it off for songs without a steady beat.",
     );
@@ -2031,7 +2052,53 @@ fn grid_controls(ui: &mut egui::Ui, grid: &mut Grid, has_bpm: bool, playhead_sec
         {
             grid.set_start(playhead_secs);
         }
+        if magnet_button(ui, *snap)
+            .on_hover_text(
+                "Snap: a click on a waveform moves the playhead to the nearest grid line \
+                 (beats or bars, as zoomed). The time ruler never snaps.",
+            )
+            .clicked()
+        {
+            *snap = !*snap;
+        }
     });
+}
+
+/// A toggle drawn as a horseshoe magnet (egui's fonts have no magnet emoji).
+fn magnet_button(ui: &mut egui::Ui, on: bool) -> egui::Response {
+    let size = egui::vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let visuals = ui.style().interact_selectable(&response, on);
+    let painter = ui.painter();
+    if on || response.hovered() {
+        painter.rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
+    }
+    // An upside-down U: two legs going up from a half circle, tips marked.
+    let color = visuals.text_color();
+    let center = rect.center() + egui::vec2(0.0, 1.5);
+    let radius = rect.width() * 0.22;
+    let leg = rect.height() * 0.22;
+    let stroke = egui::Stroke::new(2.5, color);
+    let mut points: Vec<egui::Pos2> = (0..=12)
+        .map(|i| {
+            let angle = std::f32::consts::PI * i as f32 / 12.0;
+            center + egui::vec2(-radius * angle.cos(), radius * angle.sin())
+        })
+        .collect();
+    points.insert(0, center + egui::vec2(-radius, -leg));
+    points.push(center + egui::vec2(radius, -leg));
+    painter.add(egui::Shape::line(points, stroke));
+    let tip = egui::Stroke::new(2.5, color.gamma_multiply(0.5));
+    for x in [-radius, radius] {
+        painter.line_segment(
+            [
+                center + egui::vec2(x, -leg - 2.5),
+                center + egui::vec2(x, -leg),
+            ],
+            tip,
+        );
+    }
+    response
 }
 
 /// The song's BPM at the current tempo, with buttons to correct it.

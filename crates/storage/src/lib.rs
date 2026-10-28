@@ -20,7 +20,7 @@ pub fn models_dir() -> Option<PathBuf> {
 }
 
 /// User settings, stored as `config.toml` in the OS config folder.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Id of the last selected output device.
@@ -33,6 +33,21 @@ pub struct Config {
     pub library_folder: Option<PathBuf>,
     /// Format of the stems of new separations.
     pub stem_format: StemFormat,
+    /// Whether a click on a waveform moves the playhead to the nearest grid line.
+    pub snap_to_grid: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            output_device: None,
+            last_folder: None,
+            recent: Vec::new(),
+            library_folder: None,
+            stem_format: StemFormat::default(),
+            snap_to_grid: true,
+        }
+    }
 }
 
 /// The format separated stems are written in.
@@ -154,6 +169,7 @@ mod tests {
             }],
             library_folder: Some(PathBuf::from("library")),
             stem_format: StemFormat::Lossless,
+            snap_to_grid: false,
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), config);
@@ -197,6 +213,9 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::write(&path, "output_device = [").unwrap();
         assert_eq!(Config::load_from(&path), Config::default());
+        // A config from before snapping keeps it on.
+        std::fs::write(&path, "stem_format = \"lossless\"\n").unwrap();
+        assert!(Config::load_from(&path).snap_to_grid);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
