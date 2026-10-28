@@ -91,8 +91,8 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Dynamic tempo:** the user listens to Change again (intro and bridge fixed),
-   then tries **Tool's "46 & 2"**: more tempo changes and time signature changes
+1. **Dynamic tempo:** Change passes (the user listened after the bridge fix); the
+   steady ending is to hear once. Then try **Tool's "46 & 2"**: more tempo changes and time signature changes
    (the drum solo is said to be in 7/8). Ideas discussed, not designed yet:
    time-signature change marks on the bar ruler (from a bar on, n/m), and short
    bars (e.g. one bar of 1/4 for a pause or a pickup). Then the **song info
@@ -1031,14 +1031,23 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   beat at the end of the bridge instead. The test
   `follows_a_sudden_drop_without_gaining_a_beat` (140 → 125 with a dotted riff)
   fails with 8 s windows; a drop to 120 still gains a beat.
-- **Change's ending**: the drums stop at 4:44.5, then guitar feedback (onsets
-  every 0.1 s, no beat); the curve keeps the tempo of the last fill (~150–158).
-  Harmless: there is nothing to click to.
+- **End of the rhythm** (asked by the user: at Change's end "the BPM goes wild"
+  as the instruments ring out). `OnsetEnvelope::rhythm_end`: the last onset at
+  least 30 % of the 95th percentile (log-compressed flux: notes ringing and
+  feedback stay below it, new attacks do not). Past it the beats go on steadily
+  at the median gap of the 8 beats before it (`hold_after`), so one odd beat in a
+  last fill does not set it. Change: the rhythm ends at 4:44.6 (the drums stop),
+  then 148.2 BPM, the pace of the last fill (its beats sit on the drum hits).
+  The other test songs end 3–15 s before their files do.
+- **Checked by the user after the bridge fix:** "almost perfect"; some parts run a
+  little ahead, which makes sense; at 4:05 a short drum fill really speeds up and
+  the tempo relaxes after it.
 - **Measured** (`cargo run --release -p watershed-dsp --example beats -- <stems>`;
   spread of the local tempo from its 5th to 95th percentile): Karaoke 0.9 %, No
-  Dejes Que 1.5 %, Afuera 1.8 %, Cada hogar 1.7 %, On Most Surfaces 2.3 %, Change
-  **17 %** (122 in the intro, 136–143 with the band, speeding up around
-  1:52–2:20 and 3:15–4:20, ~130 in the bridge at 2:31–3:00). Against
+  Dejes Que 1.4 %, Afuera 1.8 %, Cada hogar 1.6 %, On Most Surfaces 1.9 %, Change
+  **15 %** (122 in the intro, 136–143 with the band, speeding up around
+  1:52–2:20 and 3:15–4:20, ~130 in the bridge at 2:31–3:00, 146 in the fill at
+  4:05, 148 in the last fill). Against
   the steady grid, the tracked beats of steady songs drift slowly: Afuera ends 80 ms
   early, No Dejes Que goes from −67 to +61 ms. That is the band (or a BPM a hair
   off), and what this feature is for.
