@@ -75,10 +75,13 @@ Last updated: 2026-10-28.
   still has to listen to them (see "Click and count-in" below).
 - **Phase 3.5, key detection: done.** Checked by the user against the songs they
   know (see "Key detection" below): meant as a rough hint, and that is enough.
-- **Phase 3.5, dynamic tempo: done, being tuned with the user** (see "Dynamic
-  tempo" below). Change passes (checked by the user). Tool's "46 & 2": the start
-  fixed (bar 1 and 79 BPM from the user's marks), the rest left as it is; the user
-  wants to move on to time signature marks.
+- **Phase 3.5, dynamic tempo: closed** (see "Dynamic tempo" below). Change passes
+  (checked by the user), "46 & 2" lines up with its time signature marks. The plan
+  to close it (songs of different genres with tempo and time signature changes)
+  passed with the user's marks: Brubeck's "Blue Rondo à la Turk" (jazz),
+  Radiohead's "Paranoid Android" (prog rock, with tempo marks, Fixed and Fit),
+  Queen and Opeth. The user: "a few things don't quite fit, but that is asking the
+  algorithm for magic"; Opeth's ending is a bit odd. Accepted as is.
 - **Phase 3.5, time signature changes: done.** Tested by the user: "excellent". On
   "46 & 2" they marked the 7/8 parts (10 changes) and, with Dynamic on, everything
   lined up (see "Time signature changes" below).
@@ -100,37 +103,29 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Closing dynamic tempo** (plan agreed with the user): at least **3 songs of
-   different genres** with tempo changes (speeding up, slowing down or both) and
-   time signature changes. If Dynamic plus the user's marks follows all three,
-   dynamic tempo is closed; if not, tune it further. Also to hear once: Change's
-   steady ending. So far: **jazz** (Brubeck, "Blue Rondo à la Turk"): all good.
-   **Prog rock** (Radiohead, "Paranoid Android"): good with its 7/8 marks up to the
-   cut at 3:27, where it slows down beyond the tracker's reach; **tempo changes**
-   (with Fixed and Fit) were built for it, and with them it works. Third song
-   still to pick.
-   Then the **song info panel** (`PLAN.md`), which can reuse the tracked beats.
-   Idea from the user, not designed: cutting pieces of a stem (in "46 & 2" the
-   bass intro came out in the guitar stem).
+1. **Song info panel** (`PLAN.md`), which can reuse the tracked beats. Idea from
+   the user, not designed: cutting pieces of a stem (in "46 & 2" the bass intro
+   came out in the guitar stem). If dynamic tempo needs more later: Opeth's ending,
+   and the Bar-mark idea in "Tempo changes".
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
    the Rectangle test **on battery**, with both renderers.
-3. **Gentler separation (idea, not decided):** the user would like separation not to
+4. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
    e.g. full / balanced / quiet), a lower priority for the separation thread, smaller
    chunks (less GPU memory, same load). Windows showed no memory pressure (no spill
    to shared GPU memory), so this is about heat, fans and a busy GPU, not RAM.
-4. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
+5. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
    separated stems to disk instead of holding all six (fits with the Ogg Vorbis
    work), fewer input copies in the C++ wrapper (~190 MiB), a computed overlap
    counter instead of a buffer (~95 MiB), separating in a child process.
-5. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
+6. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
    (open question below).
-6. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+7. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
-7. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), disk optimization
+8. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), disk optimization
    (design principles), portable builds (section 9).
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
