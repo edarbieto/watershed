@@ -79,8 +79,9 @@ Last updated: 2026-10-28.
   tempo" below). Change passes (checked by the user). Tool's "46 & 2": the start
   fixed (bar 1 and 79 BPM from the user's marks), the rest left as it is; the user
   wants to move on to time signature marks.
-- **Phase 3.5, time signature changes: built, to be tested by the user** (see "Time
-  signature changes" below).
+- **Phase 3.5, time signature changes: done.** Tested by the user: "excellent". On
+  "46 & 2" they marked the 7/8 parts (10 changes) and, with Dynamic on, everything
+  lined up (see "Time signature changes" below).
 - **Keyboard shortcuts window** (asked by the user): `?` (Shift+/ on a US keyboard)
   or the **?** button beside ⚙ lists every shortcut and mouse gesture, by section
   (`shortcuts.rs`, one table to keep up to date when a shortcut is added).
@@ -96,10 +97,11 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Time signature changes: test them** (checklist in "Time signature changes"),
-   then use them on "46 & 2" (its drum solo is said to be in 7/8) with Dynamic on.
-   Also to hear once: Change's steady ending and the start of "46 & 2" with
-   Dynamic.
+1. **Closing dynamic tempo** (plan agreed with the user): at least **3 songs of
+   different genres** with tempo changes (speeding up, slowing down or both) and
+   time signature changes. If Dynamic plus the user's marks follows all three,
+   dynamic tempo is closed; if not, tune it further. Also to hear once: Change's
+   steady ending.
    Then the **song info panel** (`PLAN.md`), which can reuse the tracked beats.
    Idea from the user, not designed: cutting pieces of a stem (in "46 & 2" the
    bass intro came out in the guitar stem).
@@ -1153,6 +1155,11 @@ the bar ruler.
 - `beats` example: `--pace <seconds>:<pace>` (repeatable) adds a change of pace.
 - Checked by Claude on a copy of "46 & 2" with 7/8 at bar 5 and 4/4 two bars later:
   the tags show, bars 5–6 are short, 4/4 again from bar 7.
+- **Tested by the user** on "46 & 2": 7/8 at 0:37 for two bars, and the 7/8 parts
+  from 4:05 to 5:24 (10 changes in all), Dynamic on: the grid and the click line
+  up with the song. The marks are what fixed it: from each 7/8 change the tracker
+  follows eighth notes (a quarter-note pulse does not fit 3.5 quarters a bar), and
+  each change on a note pins a beat that the beats after it count from.
 
 **Test checklist:**
 1. Right-click the bar ruler on a bar line: a tag appears with the current
