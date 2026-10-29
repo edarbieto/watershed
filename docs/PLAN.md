@@ -8,7 +8,7 @@
 | License | `MIT OR Apache-2.0`. No GPL dependencies, so time-stretching uses Signalsmith Stretch (MIT). |
 | Tempo / pitch | Applied to the **stereo mix**, after the mixer, so the cost does not grow with the number of stems. Real-time first; offline pre-render as an option if CPU is not enough. |
 | Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). Lossy formats were first rejected (separation artifacts plus lossy compression plus time-stretching add up); Phase 3.5 adds a choice in the app settings: **Lossy** (the default, about 5× smaller) or **Lossless** (FLAC). The lossy codec is **Ogg Vorbis at ~256 kbps** (q8), chosen with the user over AAC and Opus for DAW compatibility (comparison in `STATUS.md`, "Lossy stem codec"). MP3 is out: its usable encoders are LGPL. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
-| Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, to be validated by a spike. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
+| Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, validated by the spikes and in use since Phase 3. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
 | Stem storage cost | 24-bit FLAC takes ~150–200 MB per 6-stem song; Ogg Vorbis q8 (the default) ~25 MB for the same 4 min song (measured: 24 MB vs 149 MB). |
 | Reference speed | PyTorch + CUDA on the RTX 3050 separates a ~5 min song in 73–100 s. The native `wgpu` backend is measured against this. |
@@ -71,16 +71,23 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
   tempo to correct it. Shown next to the tempo slider as the BPM at the current tempo.
 - [x] **Pitch lock per track**: transposition skips drum tracks by default (pitch-shifted
   drums sound wrong and gain nothing). See Phase 3.5.
-- [x] **Time signature**, 4/4 by default, set by the user. See Phase 3.5.
+- [x] **Time signature**, 4/4 by default, set by the user, with changes along the
+  song. See Phase 3.5.
 - [x] **Beat grid**: vertical lines on the tracks at every beat, stronger on each bar,
   like a DAW, and a bar ruler (`1`, `1.2`, …) under the time ruler. See Phase 3.5.
-- [ ] **Click** (metronome) while playing, to the left, right or both channels, and a
+- [x] **Click** (metronome) while playing, to the left, right or both channels, and a
   **count-in** before playback. See Phase 3.5.
+- [x] **Key** estimated when a song is opened, corrected by the user. See Phase 3.5.
+- [x] **Dynamic tempo** and **tempo changes**: the grid and the click follow the
+  song's own beats, and the user can mark tempo and time signature changes. See
+  Phase 3.5.
+- [x] **Keyboard shortcuts window** (`?`).
 
 ### Sessions
 - [x] Each song folder keeps its **session** in a file next to the stems
-  (`.watershed.toml`): mixer state, tempo and pitch, saved loops, markers, and the
-  common gain factor of separated stems. Reopening the folder restores everything;
+  (`.watershed.toml`): mixer state, tempo and pitch, saved loops, markers, BPM, key,
+  the grid with its tempo and time signature changes, and the common gain factor of
+  separated stems. Reopening the folder restores everything;
   a separated song is such a folder, so it never separates again.
 - [x] Simple session library: recently opened folders, kept in the app config.
 - [ ] Export individual stems or the current mix to WAV.
@@ -91,16 +98,16 @@ It replaces this manual workflow: MVSEP website → download stems → build a f
    energy rises from one frame to the next), which peaks on hits; summed over the
    stems. The plan was the drums stem alone, but on the test songs the sum was more
    reliable (see `STATUS.md`, "Approximate BPM").
-2. Tempo: autocorrelation of that curve over lags of 60–200 BPM; the strongest
+2. Tempo: autocorrelation of that curve over lags of 40–240 BPM; the strongest
    periodic lag is the beat period. A prior centered around 120 BPM picks between
    candidates.
 3. Runs in the loader thread after decoding: well under a second for a song.
 
-Known limits: half/double errors (70 vs 140 BPM), songs with tempo changes or rubato,
-no beat grid (only a number). Mitigations: a ×2 / ÷2 button, tap tempo, store the
-corrected value in the session. Having separated drums makes this much more reliable
-than on a full mix. A beat grid (and snapping loops to beats) would be a larger,
-separate step.
+Known limits: half/double errors (70 vs 140 BPM), songs with tempo changes or rubato.
+Mitigations: a ×2 / ½ button (it also scales the tempo changes), tap tempo, the
+corrected value stored in the session. Having separated drums makes this much more
+reliable than on a full mix. The beat grid, snap, dynamic tempo and tempo changes
+came later in Phase 3.5.
 
 ## 4. Architecture
 
@@ -201,6 +208,7 @@ separate step.
 | Weights | `safetensors`, `burn-import` |
 | Model config | `serde`, `serde_yaml`, `serde_json` / `toml` |
 | Downloads | `ureq` (blocking, rustls), `sha2` for verification |
+| Ogg Vorbis encoding | `vorbis_rs` (bundles libvorbis, BSD) |
 | Time-stretch / pitch | Signalsmith Stretch bindings (MIT) |
 | FLAC encoding | `flac-codec` (pure Rust, 24-bit) |
 | WAV export | `hound` |
@@ -322,15 +330,16 @@ RAM first, then disk. In this order:
 - [x] **Stem output format: Lossy or Lossless.** Two choices in the settings window:
   **Lossy** (default: Ogg Vorbis q8, ~256 kbps, ~46 MB per 6-stem song instead of
   ~190 MB; same RAM, since stems are decoded on load) and **Lossless (FLAC)**. The aim
-  is a quality the ear cannot tell from the WAV. Encoder: libvorbis (BSD, through
+  is a quality the ear cannot tell from the WAV; measured afterwards: 24 MB instead of
+  149 MB for a 4:03 song. Encoder: libvorbis (BSD, through
   `vorbis_rs`, which bundles it); symphonia already decodes it. Lossy
   formats decode to float, so they need no common gain against clipping. Only new
   separations use the setting; existing folders are not converted.
 - [x] **Approximate BPM** (section 3.1).
 - [x] **Time signature.** Detecting it reliably is out of reach (and songs like
   Opeth's change it often), so it is **4/4 by default** and the user sets it:
-  numerator and denominator (e.g. 3/4, 6/8, 7/8), saved in the session. One per song
-  for now.
+  numerator and denominator (e.g. 3/4, 6/8, 7/8), saved in the session. Changes along
+  the song came later (see "Time signature and tempo changes" below).
 - [x] **Beat grid.** Vertical lines over the tracks at every beat, stronger at the
   start of each bar, like a DAW; thinned out when zoomed out so they never crowd. The
   estimate gives only the BPM, so the grid also needs the beat **phase** (where the
@@ -338,8 +347,8 @@ RAM first, then disk. In this order:
   lines a pulse train up with it), and corrected by the user ("first beat here" at
   the playhead, or dragging the grid). The downbeat (which beat is "1") cannot be
   told reliably either: the user sets it the same way. Saved in the session. A song
-  whose tempo drifts (live recordings) will slide off the grid; a tempo map is out of
-  scope. As built (with the user): a **bar ruler** under the time ruler, like
+  whose tempo drifts (live recordings) slides off a steady grid; the dynamic tempo
+  below fixes that. As built (with the user): a **bar ruler** under the time ruler, like
   Ableton's, which can be dragged; nothing is drawn before bar 1, so a free intro
   stays clear; and a **Grid** switch turns the grid off and greys out the BPM, for
   songs without a steady beat. Then **snap**: a magnet toggle (on by default) makes a
@@ -382,6 +391,15 @@ RAM first, then disk. In this order:
   move bar 1), the grid and the click reading beat times instead of `start + k ×
   beat`. Open points: songs with a free section (the tracker must be able to stop),
   and user corrections of single beats (later, if needed).
+- [x] **Time signature and tempo changes.** Marks like Reaper's, on the bar ruler
+  (right-click) or at the playhead (Shift+C): each sets a time signature, a tempo or
+  both from there on, and the tracker counts from them when Dynamic is on. A tempo
+  mark can be **Fixed** (steady at its BPM even with Dynamic on) and **Fit** sets
+  the tempo that fills whole bars up to the next mark. Tested on "46 & 2", "Blue
+  Rondo à la Turk", "Paranoid Android", Queen and Opeth (`STATUS.md`, "Time
+  signature changes" and "Tempo changes").
+- [x] **Keyboard shortcuts window.** `?` or the **?** button lists every shortcut
+  and mouse gesture (`shortcuts.rs`).
 - [ ] **Song info panel, idea from the user.** An ⓘ button opens a dialog with
   statistics about the song: length, BPM and key, stems, and **tempo steadiness**:
   how closely the song keeps one tempo. Not a grade: a programmed song scores ~100 %,

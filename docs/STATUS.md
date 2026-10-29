@@ -72,7 +72,7 @@ Last updated: 2026-10-28.
   **Snap to the grid: done.** Tested by the user: works well (see "Beat grid" below).
 - **Phase 3.5, click and count-in: done.** Tested by the user: timing, count-in and
   controls work. The three sounds were then remodelled on Ableton Live's; the user
-  still has to listen to them (see "Click and count-in" below).
+  listened to them: they are fine (see "Click and count-in" below).
 - **Phase 3.5, key detection: done.** Checked by the user against the songs they
   know (see "Key detection" below): meant as a rough hint, and that is enough.
 - **Phase 3.5, dynamic tempo: closed** (see "Dynamic tempo" below). Change passes
@@ -87,7 +87,10 @@ Last updated: 2026-10-28.
   lined up (see "Time signature changes" below).
 - **Phase 3.5, tempo changes: done.** Tested by the user on "Paranoid Android":
   works, with Fixed and Fit (see "Tempo changes" below). Found with the second
-  song of the dynamic tempo plan.
+  song of the dynamic tempo plan. Fixed later: ½ and ×2 now scale the tempo marks
+  too (on Opeth's "Deliverance" they did nothing after its first tempo mark).
+- **Windows practice session: done.** The user tried Reaper on ASIO and Watershed
+  on shared WASAPI, both on the Yamaha AG03: works.
 - **Keyboard shortcuts window** (asked by the user): `?` (Shift+/ on a US keyboard)
   or the **?** button beside ⚙ lists every shortcut and mouse gesture, by section
   (`shortcuts.rs`, one table to keep up to date when a shortcut is added).
@@ -100,33 +103,31 @@ Last updated: 2026-10-28.
 
 ## Next steps
 
-**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
-names, pitch lock, offsets, settings, stem format and BPM done.
+**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
+the song info panel, which stays in the plan for later. Phase 4 (the native `burn` +
+`wgpu` backend) is the next big block.
 
-1. **Song info panel** (`PLAN.md`), which can reuse the tracked beats. Idea from
-   the user, not designed: cutting pieces of a stem (in "46 & 2" the bass intro
-   came out in the guitar stem). If dynamic tempo needs more later: Opeth's ending,
-   and the Bar-mark idea in "Tempo changes".
-2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
+1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
-3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
+2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
    the Rectangle test **on battery**, with both renderers.
-4. **Gentler separation (idea, not decided):** the user would like separation not to
+3. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
    e.g. full / balanced / quiet), a lower priority for the separation thread, smaller
    chunks (less GPU memory, same load). Windows showed no memory pressure (no spill
    to shared GPU memory), so this is about heat, fans and a busy GPU, not RAM.
-5. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
+4. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
    separated stems to disk instead of holding all six (fits with the Ogg Vorbis
    work), fewer input copies in the C++ wrapper (~190 MiB), a computed overlap
    counter instead of a buffer (~95 MiB), separating in a child process.
-6. **Windows, nice to have:** the practice session with the AG03 and Reaper on ASIO
-   (open question below).
-7. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+5. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
-8. Ideas recorded in `PLAN.md`: approximate BPM (section 3.1), disk optimization
-   (design principles), portable builds (section 9).
+6. Ideas recorded in `PLAN.md`, not scheduled yet: the **song info panel** (it can
+   reuse the tracked beats), disk optimization (design principles), portable builds
+   (section 9). Also from the user, not designed: cutting pieces of a stem (in
+   "46 & 2" the bass intro came out in the guitar stem). If dynamic tempo needs
+   more later: Opeth's ending, and the Bar-mark idea in "Tempo changes".
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
 bindings), CMake 4.4, the Vulkan SDK 1.4.363 and the Visual Studio 2026 Build
@@ -136,9 +137,7 @@ Drive should help.
 
 ## Open questions for the user
 
-- **Windows practice session** (nice to have, not blocking): Reaper on ASIO and
-  Watershed on shared WASAPI, both on the Yamaha AG03. Any clicks or dropouts?
-  Both on shared WASAPI with headphones already works.
+None right now.
 
 ## Tempo, pitch and limiter
 
@@ -1245,6 +1244,14 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
   mark without a tempo, let the tracker estimate its tempo over a wider range.
 - Checked by Claude on a copy of "Paranoid Android" with a 63 BPM mark at 3:27: the
   tag shows, Shift+C opens the new popup, the BPM at 3:20 (in 7/8) reads 85.
+- **½ and ×2 with tempo marks (fixed):** reported by the user on Opeth's
+  "Deliverance": the BPM read close to 200 and ½ / ×2 did not change it. Its bar 1
+  is 7/8, so the BPM counts eighth notes (~200 eighths ≈ 100 quarter notes in its
+  4/4 parts), and its mark at 1:09.7 sets 171.9 BPM (Fixed). The buttons only
+  scaled the song's BPM, while from the first tempo mark on every tempo comes from
+  the marks, so nothing moved after 1:09 (measured on the user's session: before
+  the mark 123 → 72 → 247, after it 172–198 whatever the button). Now ½ and ×2
+  also scale every mark's tempo (`Grid::scale_tempos`).
 
 **Test checklist:**
 1. Paranoid Android, Dynamic on: the mark at the cut (3:27.3) with Tempo, Fixed and

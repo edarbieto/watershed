@@ -72,11 +72,11 @@ machine or regenerate them with the reference tool from any mp3s.
 
 | Path | What |
 |---|---|
-| `crates/app` | `watershed` binary. `app.rs` UI and state, `loader.rs` background loading, `separate.rs` background separation job, `bpm.rs` song BPM (estimate, tap, user value), `stems.rs` stem names/colors, `waveform.rs` widget, `usage.rs` CPU/GPU/RAM display, `alloc.rs` macOS allocator |
-| `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `Samples` (packed 24-bit), `Beats` (beat times for the grid and click), `click.rs`, `mixer.rs` (pure, tested) |
-| `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `resample` (rubato FFT), `Peaks`, `OnsetEnvelope` (tempo estimation, beat tracking); `examples/bpm.rs`, `examples/beats.rs` |
+| `crates/app` | `watershed` binary. `app.rs` UI and state, `loader.rs` background loading, `separate.rs` background separation job, `bpm.rs` song BPM (estimate, tap, user value), `grid.rs` beat grid (bar 1, tempo and time signature changes, dynamic tempo), `key.rs` song key, `metronome.rs` click and count-in settings and controls, `loops.rs`, `markers.rs`, `view.rs` zoom and scroll, `playhead.rs` smooth playhead, `shortcuts.rs` shortcuts window (one table to update when a shortcut is added), `stems.rs` stem names/colors, `waveform.rs` widget, `usage.rs` CPU/GPU/RAM display, `alloc.rs` macOS allocator |
+| `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `Samples` (packed 24-bit), `Beats` (beat times for the grid and click), `click.rs`, `mixer.rs` (pure, tested), `stretch.rs` (Signalsmith, two buses for pitch lock), `limiter.rs`; `examples/play.rs`, `examples/stretch.rs` |
+| `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `write_vorbis` (vorbis_rs), `resample` (rubato FFT), `Peaks`, `OnsetEnvelope` (tempo estimation, beat tracking with anchors), `Chroma`/`Key` (key estimation); `examples/bpm.rs`, `examples/beats.rs`, `examples/key.rs`, `examples/probe.rs` |
 | `crates/storage` | `Config` (TOML in the OS config dir), `Session` (`.watershed.toml`), `models_dir` |
-| `crates/separation` | `trait Separator`, `GgufSeparator`, `separate_song` (song file → folder of FLAC stems + session); `catalog` (`models.toml`: downloadable models, `install` with sha256 check); `bsroformer::Model` (safe wrapper over BSRoformer.cpp + ggml); `cpp/` C wrapper and CMake project; `build.rs`; `vendor/` submodules; `examples/separate.rs` |
+| `crates/separation` | `trait Separator`, `GgufSeparator`, `separate_song` (song file → folder of FLAC stems + session); `catalog` (`models.toml`: downloadable models, `install` with sha256 check), `download` (resumable, mirrors); `bsroformer::Model` (safe wrapper over BSRoformer.cpp + ggml); `cpp/` C wrapper and CMake project; `build.rs`; `vendor/` submodules; `examples/separate.rs` |
 | `tools/reference` | dev-only PyTorch reference separation (uv project) |
 
 Real-time rule: the cpal callback never allocates, frees, locks or does I/O. Songs go
