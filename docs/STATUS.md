@@ -82,6 +82,9 @@ Last updated: 2026-10-28.
 - **Phase 3.5, time signature changes: done.** Tested by the user: "excellent". On
   "46 & 2" they marked the 7/8 parts (10 changes) and, with Dynamic on, everything
   lined up (see "Time signature changes" below).
+- **Phase 3.5, tempo changes: done.** Tested by the user on "Paranoid Android":
+  works, with Fixed and Fit (see "Tempo changes" below). Found with the second
+  song of the dynamic tempo plan.
 - **Keyboard shortcuts window** (asked by the user): `?` (Shift+/ on a US keyboard)
   or the **?** button beside ⚙ lists every shortcut and mouse gesture, by section
   (`shortcuts.rs`, one table to keep up to date when a shortcut is added).
@@ -101,7 +104,11 @@ names, pitch lock, offsets, settings, stem format and BPM done.
    different genres** with tempo changes (speeding up, slowing down or both) and
    time signature changes. If Dynamic plus the user's marks follows all three,
    dynamic tempo is closed; if not, tune it further. Also to hear once: Change's
-   steady ending.
+   steady ending. So far: **jazz** (Brubeck, "Blue Rondo à la Turk"): all good.
+   **Prog rock** (Radiohead, "Paranoid Android"): good with its 7/8 marks up to the
+   cut at 3:27, where it slows down beyond the tracker's reach; **tempo changes**
+   (with Fixed and Fit) were built for it, and with them it works. Third song
+   still to pick.
    Then the **song info panel** (`PLAN.md`), which can reuse the tracked beats.
    Idea from the user, not designed: cutting pieces of a stem (in "46 & 2" the
    bass intro came out in the guitar stem).
@@ -1177,6 +1184,83 @@ the bar ruler.
 6. With Dynamic on, in "46 & 2": a change on a note pins a beat there; a 7/8 part
    follows eighth notes.
 7. Close and reopen: the changes are kept.
+
+## Tempo changes
+
+Asked by the user after "Paranoid Android" lost the beat at 3:27: tempo marks like
+Reaper's. As in Reaper, **one kind of mark** carries a tempo, a time signature or
+both (Shift+C, right-click on the bar ruler); what it does not set goes on as before.
+
+- **Why it was needed:** the tracker's tempo curve looks within ±15 % of the song's
+  BPM. Paranoid Android is 81.8 BPM, its slow part from 3:27 is 62.9 (−23 %): the
+  tracker stayed at ~84 and the beats wandered ±200 ms. Measured with the `beats`
+  example and the user's 7/8 marks: with a tempo mark at 3:27 of 55, 63 or 70 BPM,
+  the slow part reads 62.8–62.9 and holds (±50 ms against a steady grid), so a
+  rough tempo is enough. Where the fast riff comes back (~5:28) another tempo mark
+  (~82) is needed.
+- **Tracker:** `Anchor` has `tempo: Option<f64>`. The tempo curve's Viterbi now
+  runs over ratios (±15 %) to a per-frame tempo: the song's BPM, or the last tempo
+  mark's from its point on, so a mark moves the curve for free. The gap into a mark
+  keeps the tempo before it; the smoothing runs apart on each side of a tempo mark.
+  Test: 120 BPM then 80 (a third slower) with a mark of 85: every beat within
+  10 ms; without the mark it misses by over 50 ms.
+- **Steady grid:** each stretch at its tempo. Tempos count the beat unit of bar 1,
+  like the song's BPM.
+- **BPM shown:** with Dynamic on, or past a tempo mark, the BPM shows the local
+  tempo in bar 1's beat unit. Fixed with it: inside a 7/8 part it read double (the
+  eighth notes' tempo).
+- **Popup:** "From m:ss", a **Tempo** checkbox with its BPM (20–400, typed or
+  dragged) and a **Time signature** checkbox with n/m, a note, Delete. A box turned
+  on starts from what is in force before the mark. A new mark starts with the time
+  signature in force and no tempo, as before. Tags read `63 BPM`, `7/8`,
+  `63 BPM 7/8`, or `Bar` (neither: still starts a bar).
+- **Session:** `[[changes]]` with `time` and optional `bpm`, `beats_per_bar`,
+  `beat_unit`. `[[signatures]]` from the previous version still loads (serde alias)
+  and is written back as `[[changes]]`.
+- `beats` example: `--tempo <seconds>:<bpm>` (repeatable), `--list <from>:<to>`
+  (every beat in that range with its tempo).
+- **First try by the user:** a 70 BPM mark at 3:27.3 "is not followed". Measured
+  apart with librosa (autocorrelation per stem, 10–20 s windows): the band from
+  3:34 is really 63 BPM (drums, guitar and vocals all 63/126); the fast riff comes
+  back at ~5:33 (82). The tracker took 70 as a hint and found 63. The real issue:
+  3:27.3 → 3:34.0 is the band letting a chord ring, **two bars of 4/4** for the
+  user (the "70-something" they heard is the tempo that fits them: 71.6), while at
+  63 the tracker put 7 beats there, so the "1" fell on beat 4 at 3:34.
+- **Fixed and Fit** (asked by the user, "forced"): a tempo mark can be **Fixed**:
+  exactly its BPM up to the next mark, steady, even with Dynamic on (the tracked
+  beats are replaced there). **Fit** (button beside the BPM, when a mark follows)
+  sets the tempo that fills whole bars up to the next mark, rounding the bar count
+  from the current tempo (`Grid::fit_tempo`). Tag: `71.6 BPM fixed`. Session:
+  `fixed = true`. For the cut: 3:27.3 Tempo + Fixed + Fit, 3:34.0 the band at 63
+  (on the drum hit, it holds the "1"), ~5:33 back to 82. `Grid::beats` now builds
+  the beats per stretch: steady (no Dynamic, or Fixed) or tracked (from the beat
+  nearest the stretch's start to before the one nearest the next).
+- Checked by Claude on a copy of the user's session with the 3:27 mark Fixed at 70:
+  bars 73–74 ring, bar 75 starts at 3:34 with the band.
+- **How the user marked it** (works): 3:27.27 `71.36 BPM fixed` (Fit: two bars
+  ringing), 3:33.99 `Bar` (no tempo, no signature: only the band's "1"), 5:36.20
+  `80.17 BPM fixed` (Fit: one bridge bar), 5:39.19 `Bar` (the fast riff). Checked
+  with the `beats` example and these marks: a beat right at 213.992 (the Bar on
+  the drum hit holds it), the slow part at 62.8–62.9, the bridge bar at 80.2, then
+  81.7–82.2. **Caveat:** a Bar mark has no tempo of its own, so the tracker looks
+  around the tempo before it (here the let-ring's 71.36; the band's 63 is 12 %
+  below, inside the ±15 % reach). A let-ring fitted much further from the next
+  part's tempo would need a tempo on that Bar mark. With Dynamic off, that part is
+  drawn at the inherited tempo (71.36), not 63. Idea if it bites: after a Bar
+  mark without a tempo, let the tracker estimate its tempo over a wider range.
+- Checked by Claude on a copy of "Paranoid Android" with a 63 BPM mark at 3:27: the
+  tag shows, Shift+C opens the new popup, the BPM at 3:20 (in 7/8) reads 85.
+
+**Test checklist:**
+1. Paranoid Android, Dynamic on: the mark at the cut (3:27.3) with Tempo, Fixed and
+   Fit: two whole bars ring. The mark at 3:34.0 with ~63: the "1" with the band;
+   the grid and the click follow the slow part.
+2. Where the fast riff comes back (~5:33), another mark with ~82: the grid follows
+   again.
+3. Dynamic off: the grid is steady at each mark's tempo.
+4. A mark with only a time signature behaves as before; with both, the tag shows
+   both.
+5. Close and reopen: the marks are kept (the session now writes `[[changes]]`).
 
 ## Key detection
 
