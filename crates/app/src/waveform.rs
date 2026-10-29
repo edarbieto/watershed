@@ -30,6 +30,29 @@ pub enum BarRulerAction {
     Drag { started: bool, delta_secs: f64 },
     /// Double-clicked: back to the estimated bar 1.
     Reset,
+    /// Right-clicked at this frame: change the time signature there. `at` is where
+    /// the pointer was, for the editor.
+    AddSignature { frame: usize, at: Pos2 },
+    /// Clicked a time signature (`None` is bar 1's): edit it in a popup at `at`.
+    EditSignature { change: Option<usize>, at: Pos2 },
+    /// Dragged a time signature change: move it by this many seconds from where it
+    /// was when the drag began, like [`BarRulerAction::Drag`].
+    MoveSignature {
+        change: usize,
+        started: bool,
+        delta_secs: f64,
+    },
+}
+
+/// A time signature on the bar ruler: bar 1's, or a change later on.
+pub struct SignatureTag {
+    pub frame: usize,
+    /// `"7/8"`.
+    pub label: String,
+    /// Index of the change; `None` for bar 1's.
+    pub change: Option<usize>,
+    /// False for a change before bar 1, which changes nothing.
+    pub in_use: bool,
 }
 
 /// A line of the beat grid: its frame, whether it starts a bar, and its label.
@@ -54,6 +77,8 @@ pub struct Overlay<'a> {
 
 /// Height of the time labels row of the ruler; markers go in the row below.
 const RULER_TIME_HEIGHT: f32 = 15.0;
+/// Height of the time signatures row of the bar ruler; bars go in the row below.
+const SIGNATURE_ROW_HEIGHT: f32 = 14.0;
 
 /// Seconds between labeled ticks on the ruler, from fine to coarse.
 const TICK_STEPS: &[f64] = &[1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0];
@@ -323,16 +348,19 @@ pub fn ruler(
     }
 }
 
-/// Draws the bar ruler (bar numbers, and beats when zoomed in) in the rect of
-/// `response`, with the timeline spanning `x_range`. Dragging it moves the grid;
-/// a double-click puts bar 1 back where it was estimated. `enabled` false draws it
-/// empty and ignores the pointer.
+/// Draws the bar ruler (time signatures in the top row; bar numbers, and beats
+/// when zoomed in, below) in the rect of `response`, with the timeline spanning
+/// `x_range`. Dragging it moves the grid; a double-click puts bar 1 back where it
+/// was estimated; a right-click changes the time signature there. A time signature
+/// is edited with a click and a change moved by dragging it. `enabled` false draws
+/// it empty and ignores the pointer.
 pub fn bar_ruler(
     ui: &egui::Ui,
     response: &egui::Response,
     x_range: Rangef,
     sample_rate: u32,
     overlay: &Overlay,
+    signatures: &[SignatureTag],
     enabled: bool,
 ) -> Option<BarRulerAction> {
     let rect = Rect::from_x_y_ranges(x_range, response.rect.y_range());
@@ -343,10 +371,21 @@ pub fn bar_ruler(
         return None;
     }
     let timeline = Timeline::new(x_range, &overlay.visible);
+    let frames_per_point = timeline.len as f64 / f64::from(x_range.span().max(1.0));
+    let drag_secs = |response: &egui::Response| {
+        let pointer = response.interact_pointer_pos()?;
+        let origin = ui.input(|i| i.pointer.press_origin())?;
+        Some(f64::from(pointer.x - origin.x) * frames_per_point / f64::from(sample_rate.max(1)))
+    };
     let font = FontId::proportional(10.0);
+    let bars_top = rect.top() + SIGNATURE_ROW_HEIGHT;
     for line in overlay.grid {
         let x = timeline.x_of(line.frame);
-        let height = if line.bar { rect.height() } else { 5.0 };
+        let height = if line.bar {
+            rect.bottom() - bars_top
+        } else {
+            5.0
+        };
         painter.vline(
             x,
             rect.bottom() - height..=rect.bottom(),
@@ -357,7 +396,7 @@ pub fn bar_ruler(
         );
         if let Some(label) = &line.label {
             painter.text(
-                Pos2::new(x + 3.0, rect.top() + 1.0),
+                Pos2::new(x + 3.0, bars_top + 1.0),
                 Align2::LEFT_TOP,
                 label,
                 font.clone(),
@@ -375,21 +414,89 @@ pub fn bar_ruler(
         Stroke::new(1.5, ui.visuals().strong_text_color()),
     );
 
+    // Time signatures: a tag each, over the bar line they start at. Tags drawn
+    // later (later in the song) cover earlier ones.
+    let mut action = None;
+    for (index, tag) in signatures.iter().enumerate() {
+        let x = timeline.x_of(tag.frame);
+        let accent = marker_color(ui);
+        let color = if tag.in_use {
+            accent
+        } else {
+            accent.gamma_multiply(0.4)
+        };
+        let galley = painter.layout_no_wrap(tag.label.clone(), font.clone(), color);
+        let tag_rect = Rect::from_min_size(
+            Pos2::new(x, rect.top() + 1.0),
+            galley.size() + vec2(6.0, 1.0),
+        );
+        let visible = tag_rect.intersect(rect);
+        if !visible.is_positive() {
+            continue;
+        }
+        painter.rect_filled(tag_rect, 2.0, ui.visuals().extreme_bg_color);
+        painter.vline(x, rect.top()..=bars_top, Stroke::new(1.5, color));
+        painter.galley(tag_rect.min + vec2(4.0, 0.5), galley, color);
+
+        // Bar 1's is only clicked: dragging it drags the ruler, which moves bar 1.
+        let sense = if tag.change.is_some() {
+            Sense::click_and_drag()
+        } else {
+            Sense::click()
+        };
+        let tag_response = ui
+            .interact(visible, response.id.with(("signature", index)), sense)
+            .on_hover_text(match tag.change {
+                Some(_) => {
+                    "Time signature from here on. Click to change or delete it, drag to move it."
+                }
+                None => "Time signature from bar 1. Click to change it.",
+            });
+        if tag_response.hovered() || tag_response.dragged() {
+            ui.ctx().set_cursor_icon(if tag.change.is_some() {
+                egui::CursorIcon::ResizeHorizontal
+            } else {
+                egui::CursorIcon::PointingHand
+            });
+        }
+        let at = Pos2::new(x, rect.bottom());
+        if tag_response.clicked() {
+            action = Some(BarRulerAction::EditSignature {
+                change: tag.change,
+                at,
+            });
+        } else if let Some(change) = tag.change
+            && tag_response.dragged()
+            && let Some(delta_secs) = drag_secs(&tag_response)
+        {
+            action = Some(BarRulerAction::MoveSignature {
+                change,
+                started: tag_response.drag_started(),
+                delta_secs,
+            });
+        }
+    }
+    if action.is_some() {
+        return action;
+    }
+
     if response.hovered() || response.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
     if response.double_clicked() {
         return Some(BarRulerAction::Reset);
     }
+    if response.secondary_clicked() {
+        let at = response.interact_pointer_pos()?;
+        return Some(BarRulerAction::AddSignature {
+            frame: timeline.frame_at(at.x),
+            at,
+        });
+    }
     if response.dragged() {
-        let pointer = response.interact_pointer_pos()?;
-        let origin = ui.input(|i| i.pointer.press_origin())?;
-        let frames_per_point = timeline.len as f64 / f64::from(x_range.span().max(1.0));
-        let delta_secs =
-            f64::from(pointer.x - origin.x) * frames_per_point / f64::from(sample_rate.max(1));
         return Some(BarRulerAction::Drag {
             started: response.drag_started(),
-            delta_secs,
+            delta_secs: drag_secs(response)?,
         });
     }
     None

@@ -1,11 +1,13 @@
 //! Tracks the beats of some audio files, as if they were the stems of one song, and
 //! prints how the local tempo moves: `cargo run --release -p watershed-dsp --example
-//! beats -- [--bpm 138] [--bar-one 0.25] drums.flac bass.flac ...`. Files named
+//! beats -- [--bpm 138] [--bar-one 0.25] [--pace 61.2:2] drums.flac bass.flac ...`.
+//! `--pace` (repeatable) changes the pace from a time on, as a time signature mark
+//! does: 2 counts eighth notes in a song counted in quarter notes. Files named
 //! `vocals` weigh less.
 
 use std::time::Instant;
 
-use watershed_dsp::{OnsetEnvelope, VOCALS_TEMPO_WEIGHT, decode_file};
+use watershed_dsp::{Anchor, OnsetEnvelope, VOCALS_TEMPO_WEIGHT, decode_file};
 
 /// Beats per printed line of the tempo curve.
 const BEATS_PER_LINE: usize = 16;
@@ -14,8 +16,27 @@ fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let bpm = take_option(&mut args, "--bpm");
     let bar_one = take_option(&mut args, "--bar-one");
+    let mut anchors: Vec<Anchor> = bar_one
+        .map(|time| Anchor { time, pace: 1.0 })
+        .into_iter()
+        .collect();
+    while let Some(i) = args.iter().position(|a| a == "--pace") {
+        let value = args.get(i + 1).cloned().unwrap_or_default();
+        args.drain(i..(i + 2).min(args.len()));
+        let parsed = value
+            .split_once(':')
+            .and_then(|(time, pace)| Some((time.parse().ok()?, pace.parse().ok()?)));
+        let Some((time, pace)) = parsed else {
+            eprintln!("--pace takes <seconds>:<pace>, e.g. 61.2:2");
+            std::process::exit(2);
+        };
+        anchors.push(Anchor { time, pace });
+    }
     if args.is_empty() {
-        eprintln!("usage: beats [--bpm <bpm>] [--bar-one <seconds>] <audio file>...");
+        eprintln!(
+            "usage: beats [--bpm <bpm>] [--bar-one <seconds>] [--pace <seconds>:<pace>]... \
+             <audio file>..."
+        );
         std::process::exit(2);
     }
     let mut envelope = OnsetEnvelope::default();
@@ -44,7 +65,7 @@ fn main() {
         return;
     };
     let start = Instant::now();
-    let beats = envelope.track_beats(bpm, bar_one);
+    let beats = envelope.track_beats(bpm, &anchors);
     let elapsed = start.elapsed();
     println!(
         "{bpm:.1} BPM, {} beats tracked in {elapsed:.1?}",

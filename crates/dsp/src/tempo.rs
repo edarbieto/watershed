@@ -14,19 +14,30 @@ use realfft::RealFftPlanner;
 const END_THRESHOLD: f64 = 0.3;
 /// Beats whose pace goes on after the rhythm ends: two bars of 4.
 const END_BEATS: usize = 8;
-/// Bar 1 holds a beat when an onset at least this strong (scaled like the
+/// An anchor holds a beat when an onset at least this strong (scaled like the
 /// tracker's) is within [`ANCHOR_SNAP_SECS`] of it.
 const ANCHOR_ONSET: f64 = 1.0;
 const ANCHOR_SNAP_SECS: f64 = 0.06;
-/// The score of a beat that cannot be reached from bar 1.
+/// The score of a beat that cannot be reached from the anchor before it.
 const UNREACHABLE: f64 = -1e12;
-/// How much bar 1 weighs in the smoothing, so it stays where the user put it.
+/// How much an anchor weighs in the smoothing, so it stays where the user put it.
 const ANCHOR_WEIGHT: f64 = 1e6;
 /// Weight of a vocal stem in the sum of a song's envelopes, against 1 for the
 /// other stems. Singing follows the beat loosely: on its own the vocal stem gave a
 /// wrong tempo on several test songs, and in Change's soft bridge, where it is the
 /// loudest stem, it pulled the tempo from 130 to 140.
 pub const VOCALS_TEMPO_WEIGHT: f32 = 0.25;
+/// A bar the user marked, for [`OnsetEnvelope::track_beats`]: bar 1, or where the
+/// time signature changes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anchor {
+    /// Seconds from the start of the song.
+    pub time: f64,
+    /// Beats from here on per beat of the BPM given: 2.0 where the beat becomes an
+    /// eighth note in a song counted in quarter notes.
+    pub pace: f64,
+}
+
 /// Envelope frames per second, about.
 const ENVELOPE_RATE: f64 = 100.0;
 /// Compression of the magnitudes before the flux, so quiet hits count too.
@@ -301,11 +312,11 @@ impl OnsetEnvelope {
     /// best path is followed back from the end. The beats found fall on envelope
     /// frames (10 ms), so they are smoothed by a straight line
     /// through each [`SMOOTH_BEATS`] around them: the tempo can drift, the jitter
-    /// goes. With `bar_one` (seconds) on a note, one beat falls right there and the
-    /// beats after it are counted from it: which pulse is the beat is the user's
-    /// call, a riff with strong offbeats can fool the tracker. Empty when
-    /// [`OnsetEnvelope::bpm`] would give none.
-    pub fn track_beats(&self, bpm: f64, bar_one: Option<f64>) -> Vec<f64> {
+    /// goes. From each of `anchors` on, the beats go at its pace; an anchor on a
+    /// note also holds a beat right there, and the beats after it are counted from
+    /// it: which pulse is the beat is the user's call, a riff with strong offbeats
+    /// can fool the tracker. Empty when [`OnsetEnvelope::bpm`] would give none.
+    pub fn track_beats(&self, bpm: f64, anchors: &[Anchor]) -> Vec<f64> {
         let rate = self.rate;
         if rate <= 0.0 || bpm <= 0.0 || (self.values.len() as f64) < MIN_SECS * rate {
             return Vec::new();
@@ -334,24 +345,43 @@ impl OnsetEnvelope {
         let bpm = refine(&acf, rate, max_lag, bpm, TRACK_SPAN);
 
         // Each beat is measured against the tempo of its own section: an intro can
-        // be slower than the rest by 10 %.
-        let periods = tempo_curve(&onsets, &strength, rate, bpm);
+        // be slower than the rest by 10 %. From each anchor on, at its pace.
+        let frame_of = |time: f64| ((time - self.start) * rate).round().max(0.0) as usize;
+        let snap = (ANCHOR_SNAP_SECS * rate).round() as usize;
+        let mut anchors: Vec<Anchor> = anchors
+            .iter()
+            .copied()
+            .filter(|a| a.time.is_finite() && a.pace.is_finite() && a.pace > 0.0)
+            .collect();
+        anchors.sort_by(|a, b| a.time.total_cmp(&b.time));
+        // The gap that ends on an anchor still goes at the pace before it.
+        let mut paces = vec![1.0; onsets.len()];
+        for anchor in &anchors {
+            let from = (frame_of(anchor.time) + snap + 1).min(onsets.len());
+            paces[from..].fill(anchor.pace);
+        }
+        let mut periods = tempo_curve(&onsets, &strength, rate, bpm);
+        for (period, pace) in periods.iter_mut().zip(&paces) {
+            *period /= pace;
+        }
         let longest = periods.iter().fold(0.0f64, |a, &p| a.max(p));
         let ln_lag: Vec<f64> = (0..=(longest * 2.0).ceil() as usize + 1)
             .map(|lag| (lag.max(1) as f64).ln())
             .collect();
-        // Bar 1 holds a beat only when the user put it on a note: a bar 1 placed
-        // anywhere just to line a steady grid up with a later section says nothing
-        // about where the song's first beat is.
-        let snap = (ANCHOR_SNAP_SECS * rate).round() as usize;
-        let anchor = bar_one
-            .map(|t| ((t - self.start) * rate).round())
-            .filter(|&frame| frame >= 0.0 && (frame as usize) < onsets.len())
-            .map(|frame| frame as usize)
-            .filter(|&a| {
-                let near = &onsets[a.saturating_sub(snap)..(a + snap + 1).min(onsets.len())];
-                near.iter().any(|&v| v >= ANCHOR_ONSET)
-            });
+        // An anchor holds a beat only when the user put it on a note: a bar 1
+        // placed anywhere just to line a steady grid up with a later section says
+        // nothing about where the song's first beat is.
+        let held: Vec<(usize, f64)> = anchors
+            .iter()
+            .filter(|a| a.time >= self.start)
+            .map(|a| (frame_of(a.time), a.time))
+            .filter(|&(a, _)| {
+                a < onsets.len()
+                    && onsets[a.saturating_sub(snap)..(a + snap + 1).min(onsets.len())]
+                        .iter()
+                        .any(|&v| v >= ANCHOR_ONSET)
+            })
+            .collect();
         let mut score = onsets.clone();
         let mut previous = vec![usize::MAX; onsets.len()];
         for t in 0..onsets.len() {
@@ -359,9 +389,11 @@ impl OnsetEnvelope {
             let ln_period = period.ln();
             let min_lag = ((period / 2.0).round() as usize).max(1);
             let mut max_lag = ((period * 2.0).round() as usize).min(t);
-            // After bar 1, every path goes back through it.
-            let after_bar_one = anchor.filter(|&a| t > a);
-            if let Some(a) = after_bar_one {
+            // After an anchor, every path goes back through it.
+            let after_anchor = held[..held.partition_point(|&(a, _)| a < t)]
+                .last()
+                .map(|&(a, _)| a);
+            if let Some(a) = after_anchor {
                 max_lag = max_lag.min(t - a);
             }
             let tightness = if onsets[t] < COAST_ONSET {
@@ -379,7 +411,7 @@ impl OnsetEnvelope {
             }
             if best > f64::MIN {
                 score[t] += best;
-            } else if after_bar_one.is_some() {
+            } else if after_anchor.is_some() {
                 score[t] = UNREACHABLE;
             }
         }
@@ -402,13 +434,31 @@ impl OnsetEnvelope {
             .map(|&f| self.start + (f as f64 + peak_offset(&onsets, f)) / rate)
             .collect();
         let mut weights: Vec<f64> = frames.iter().map(|&f| onsets[f] + SILENT_WEIGHT).collect();
-        if let (Some(a), Some(time)) = (anchor, bar_one)
-            && let Some(i) = frames.iter().position(|&f| f == a)
-        {
-            raw[i] = time;
-            weights[i] = ANCHOR_WEIGHT;
+        for &(a, time) in &held {
+            if let Some(i) = frames.iter().position(|&f| f == a) {
+                raw[i] = time;
+                weights[i] = ANCHOR_WEIGHT;
+            }
         }
-        let mut beats = smooth(&raw, &weights, SMOOTH_BEATS);
+        // Smoothed apart where the pace changes, from the beat at the anchor on: a
+        // line through quarter and eighth notes together would fit neither. That
+        // beat also ends the run before it.
+        let mut runs = vec![0];
+        let mut pace = 1.0;
+        for anchor in &anchors {
+            let first = frames.partition_point(|&f| f + snap < frame_of(anchor.time));
+            if anchor.pace != pace && first > runs[runs.len() - 1] && first < frames.len() {
+                runs.push(first);
+            }
+            pace = anchor.pace;
+        }
+        runs.push(frames.len());
+        let mut beats = Vec::with_capacity(raw.len());
+        for run in runs.windows(2) {
+            let to = (run[1] + 1).min(frames.len());
+            let smoothed = smooth(&raw[run[0]..to], &weights[run[0]..to], SMOOTH_BEATS);
+            beats.extend_from_slice(&smoothed[..run[1] - run[0]]);
+        }
         if let Some(end) = self.rhythm_end() {
             hold_after(&mut beats, end);
         }
@@ -779,9 +829,47 @@ mod tests {
         let beat = 60.0 / 120.0;
         let times: Vec<f64> = (0..60).map(|k| 1.0 + k as f64 * beat).collect();
         let audio = clicks_at(&times, 48_000, 31.0);
-        let found = OnsetEnvelope::compute(&audio, 48_000).track_beats(120.0, None);
+        let found = OnsetEnvelope::compute(&audio, 48_000).track_beats(120.0, &[]);
         let miss = worst_miss(&times, &found, 1.0, 30.0);
         assert!(miss < 0.003, "missed by {miss} s");
+    }
+
+    /// An anchor at `time` that keeps the pace.
+    fn anchor(time: f64) -> Anchor {
+        Anchor { time, pace: 1.0 }
+    }
+
+    #[test]
+    fn changes_pace_at_an_anchor() {
+        // 16 quarter notes at 100 BPM, then bars of 7/8 grouped 2 + 2 + 3, whose
+        // notes are not a quarter note apart: only the eighth notes fit them.
+        let quarter = 0.6;
+        let mut notes: Vec<f64> = (0..16).map(|k| 1.0 + k as f64 * quarter).collect();
+        let change = 1.0 + 16.0 * quarter;
+        let eighths: Vec<f64> = (0..49).map(|k| change + k as f64 * quarter / 2.0).collect();
+        notes.extend(
+            eighths
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| [0, 2, 4].contains(&(k % 7)))
+                .map(|(_, t)| *t),
+        );
+        let envelope = OnsetEnvelope::compute(&clicks_at(&notes, 48_000, 26.0), 48_000);
+        let anchors = [
+            anchor(1.0),
+            Anchor {
+                time: change,
+                pace: 2.0,
+            },
+        ];
+        let found = envelope.track_beats(100.0, &anchors);
+        let miss = worst_miss(&notes[..16], &found, 0.0, change);
+        assert!(miss < 0.01, "quarter notes missed by {miss} s");
+        let miss = worst_miss(&eighths, &found, change, 24.5);
+        assert!(miss < 0.01, "eighth notes missed by {miss} s");
+        let within = |from: f64, to: f64| found.iter().filter(|t| (from..to).contains(*t)).count();
+        assert_eq!(within(0.9, change - 0.1), 16);
+        assert_eq!(within(change - 0.1, 24.5), 47);
     }
 
     #[test]
@@ -792,14 +880,14 @@ mod tests {
         let notes: Vec<f64> = (0..80).map(|k| 1.25 + k as f64 * beat / 2.0).collect();
         let envelope = OnsetEnvelope::compute(&clicks_at(&notes, 48_000, 22.0), 48_000);
         for bar_one in [1.25, 1.5] {
-            let found = envelope.track_beats(120.0, Some(bar_one));
+            let found = envelope.track_beats(120.0, &[anchor(bar_one)]);
             let beats: Vec<f64> = (0..36).map(|k| bar_one + k as f64 * beat).collect();
             let miss = worst_miss(&beats, &found, 0.0, 20.0);
             assert!(miss < 0.01, "from {bar_one}: missed by {miss} s");
         }
         // A bar 1 off any note says nothing.
-        let free = envelope.track_beats(120.0, None);
-        assert_eq!(envelope.track_beats(120.0, Some(1.37)), free);
+        let free = envelope.track_beats(120.0, &[]);
+        assert_eq!(envelope.track_beats(120.0, &[anchor(1.37)]), free);
     }
 
     #[test]
@@ -814,11 +902,11 @@ mod tests {
         let audio = clicks_at(&times, 44_100, 41.0);
         let envelope = OnsetEnvelope::compute(&audio, 44_100);
         let bpm = envelope.bpm().expect("an estimate");
-        let found = envelope.track_beats(bpm, None);
+        let found = envelope.track_beats(bpm, &[]);
         let miss = worst_miss(&times, &found, 1.0, 39.0);
         assert!(miss < 0.003, "{bpm} BPM: missed by {miss} s");
         // Also from a tempo a little off, as a tap can give.
-        let found = envelope.track_beats(bpm * 1.06, None);
+        let found = envelope.track_beats(bpm * 1.06, &[]);
         let miss = worst_miss(&times, &found, 1.0, 39.0);
         assert!(miss < 0.003, "{bpm} × 1.06 BPM: missed by {miss} s");
         // A steady grid would be off by far more.
@@ -841,7 +929,7 @@ mod tests {
             *sample *= 0.05;
         }
         let envelope = OnsetEnvelope::compute(&audio, rate);
-        let found = envelope.track_beats(134.0, None);
+        let found = envelope.track_beats(134.0, &[]);
         let intro = worst_miss(&times, &found, 0.5, 11.0);
         let band = worst_miss(&times, &found, 15.0, 44.0);
         assert!(
@@ -884,7 +972,7 @@ mod tests {
         for sample in &mut audio[bridge] {
             *sample *= 0.1;
         }
-        let found = OnsetEnvelope::compute(&audio, rate).track_beats(140.0, None);
+        let found = OnsetEnvelope::compute(&audio, rate).track_beats(140.0, &[]);
         for (from, to) in [(1.0, 19.0), (42.0, 58.0)] {
             let miss = worst_miss(&beats, &found, from, to);
             assert!(miss < 0.01, "{from}–{to} s: missed by {miss} s");
@@ -914,7 +1002,7 @@ mod tests {
         let envelope = OnsetEnvelope::compute(&audio, rate);
         let end = envelope.rhythm_end().unwrap();
         assert!((29.5..30.6).contains(&end), "ends at {end}");
-        let found = envelope.track_beats(126.0, None);
+        let found = envelope.track_beats(126.0, &[]);
         let after: Vec<f64> = found.iter().copied().filter(|&t| t > 31.0).collect();
         assert!(after.len() > 10 && *after.last().unwrap() > 40.0);
         for w in after.windows(2) {
@@ -932,9 +1020,9 @@ mod tests {
         let short = clicks(120.0, 48_000, 5.0);
         assert_eq!(OnsetEnvelope::compute(&short, 48_000).bpm(), None);
         assert_eq!(OnsetEnvelope::default().bpm(), None);
-        assert!(OnsetEnvelope::default().track_beats(120.0, None).is_empty());
+        assert!(OnsetEnvelope::default().track_beats(120.0, &[]).is_empty());
         let silence = OnsetEnvelope::compute(&vec![0.0; 48_000 * 2 * 20], 48_000);
-        assert!(silence.track_beats(120.0, None).is_empty());
+        assert!(silence.track_beats(120.0, &[]).is_empty());
     }
 
     #[test]

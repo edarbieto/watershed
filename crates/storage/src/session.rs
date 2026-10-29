@@ -43,6 +43,9 @@ pub struct Session {
     /// Where bar 1 starts, set by the user; `None` uses the estimate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grid_start: Option<f64>,
+    /// Where the time signature changes after bar 1, in time order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub signatures: Vec<SignatureChange>,
     /// The grid follows the song's own beats instead of a steady BPM.
     pub dynamic_tempo: bool,
     /// Key of the song at its original pitch, set by the user (e.g. `"F#m"`, `"Eb"`);
@@ -74,6 +77,7 @@ impl Default for Session {
             beats_per_bar: 4,
             beat_unit: 4,
             grid_start: None,
+            signatures: Vec::new(),
             dynamic_tempo: false,
             key: None,
             click: false,
@@ -138,6 +142,15 @@ pub struct SavedLoop {
 pub struct Marker {
     pub name: String,
     pub time: f64,
+}
+
+/// A bar where the time signature changes, from there on, like a time signature
+/// marker in a DAW. Fixed to the song's time, like a [`Marker`].
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SignatureChange {
+    pub time: f64,
+    pub beats_per_bar: u32,
+    pub beat_unit: u32,
 }
 
 impl Session {
@@ -244,6 +257,11 @@ mod tests {
             beats_per_bar: 7,
             beat_unit: 8,
             grid_start: Some(3.25),
+            signatures: vec![SignatureChange {
+                time: 61.5,
+                beats_per_bar: 3,
+                beat_unit: 4,
+            }],
             dynamic_tempo: true,
             key: Some("F#m".into()),
             click: true,

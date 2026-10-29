@@ -18,7 +18,7 @@ mod song;
 mod stretch;
 
 pub use atomic::AtomicF32;
-pub use beats::Beats;
+pub use beats::{Beats, Meter};
 pub use click::{ClickChannels, ClickSound};
 pub use engine::{Engine, EngineError, MIN_LOOP_SECS, Notify, OutputDevice, output_devices};
 pub use samples::Samples;

@@ -20,13 +20,13 @@ use crate::stems::song_title;
 use crate::usage::{self, Usage};
 use crate::view::View;
 use crate::waveform::{
-    BarRulerAction, GridLine, Overlay, RulerAction, WaveformAction, bar_ruler, ruler, scrollbar,
-    waveform,
+    BarRulerAction, GridLine, Overlay, RulerAction, SignatureTag, WaveformAction, bar_ruler, ruler,
+    scrollbar, waveform,
 };
 
 const ROW_HEIGHT: f32 = 64.0;
 const RULER_HEIGHT: f32 = 32.0;
-const BAR_RULER_HEIGHT: f32 = 20.0;
+const BAR_RULER_HEIGHT: f32 = 34.0;
 const SCROLLBAR_HEIGHT: f32 = 8.0;
 /// Zoom factor of the zoom buttons and keys.
 const ZOOM_STEP: f64 = 1.5;
@@ -79,6 +79,8 @@ enum Action {
     AddMarker,
     /// Moves the playhead to the marker with this index.
     GoToMarker(usize),
+    /// Changes the time signature at the playhead and opens its editor.
+    AddSignature,
     /// Zooms by this factor (above 1 zooms in) around the playhead.
     Zoom(f64),
     /// Shows the whole song.
@@ -122,6 +124,13 @@ pub struct WatershedApp {
     metronome: Metronome,
     /// Bar 1 when a drag of the bar ruler began.
     grid_drag_origin: Option<f64>,
+    /// Where a time signature change was when a drag of it began.
+    change_drag_origin: Option<f64>,
+    /// The time signature being edited (`None` is bar 1's) and where its popup is.
+    signature_editor: Option<(Option<usize>, egui::Pos2)>,
+    /// A change added with the keyboard, whose editor opens once the bar ruler
+    /// shows where it is.
+    new_signature: Option<usize>,
     /// Visible part of the song.
     view: View,
     /// Playhead position in the previous frame, in seconds, to follow it.
@@ -180,6 +189,9 @@ impl WatershedApp {
             song_key: SongKey::default(),
             metronome: Metronome::default(),
             grid_drag_origin: None,
+            change_drag_origin: None,
+            signature_editor: None,
+            new_signature: None,
             view: View::new(0.0),
             last_position: 0.0,
             playhead: Playhead::default(),
@@ -496,6 +508,7 @@ impl WatershedApp {
             beats_per_bar: self.grid.beats_per_bar,
             beat_unit: self.grid.beat_unit,
             grid_start: self.grid.user_start(),
+            signatures: self.grid.changes().to_vec(),
             dynamic_tempo: self.grid.dynamic,
             key: self.song_key.user(),
             click: self.metronome.click,
@@ -629,6 +642,10 @@ impl WatershedApp {
         {
             engine.toggle();
         }
+        // Reaper's shortcut. Consumed first, so the C below does not see it.
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::C)) {
+            self.apply(Action::AddSignature);
+        }
         let keys = [
             (Key::Home, Action::ToStart),
             (Key::ArrowLeft, Action::Skip(-SKIP_SECS)),
@@ -676,6 +693,11 @@ impl WatershedApp {
             Action::AddMarker => {
                 if self.loaded.is_some() {
                     self.markers.add(position);
+                }
+            }
+            Action::AddSignature => {
+                if self.loaded.is_some() && self.grid.enabled && self.bpm.value().is_some() {
+                    self.new_signature = Some(self.grid.add_change(position));
                 }
             }
             Action::GoToMarker(index) => {
@@ -1446,6 +1468,49 @@ impl WatershedApp {
         }
     }
 
+    /// The popup editing a time signature, opened with `open`, until a click
+    /// outside it.
+    fn signature_popup(&mut self, ui: &egui::Ui, open: bool) {
+        let Some((change, at)) = self.signature_editor else {
+            return;
+        };
+        let id = egui::Id::new("signature_editor");
+        let mut delete = false;
+        let shown = egui::Popup::new(
+            id,
+            ui.ctx().clone(),
+            egui::PopupAnchor::Position(at),
+            ui.layer_id(),
+        )
+        .open_memory(open.then_some(egui::SetOpenCommand::Bool(true)))
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| match change {
+            None => {
+                ui.label(RichText::new("Time signature from bar 1").strong());
+                signature_fields(ui, &mut self.grid.beats_per_bar, &mut self.grid.beat_unit);
+            }
+            Some(index) => {
+                let Some(change) = self.grid.change_mut(index) else {
+                    return;
+                };
+                ui.label(
+                    RichText::new(format!("Time signature from {}", format_time(change.time)))
+                        .strong(),
+                );
+                signature_fields(ui, &mut change.beats_per_bar, &mut change.beat_unit);
+                ui.add_space(4.0);
+                delete = ui.button("Delete").clicked();
+            }
+        });
+        if let (true, Some(index)) = (delete, change) {
+            self.grid.remove_change(index);
+            egui::Popup::close_id(ui.ctx(), id);
+            self.signature_editor = None;
+        } else if shown.is_none() {
+            self.signature_editor = None;
+        }
+    }
+
     fn tracks(&mut self, ui: &mut egui::Ui) {
         let Some(loaded) = &self.loaded else {
             self.welcome(ui);
@@ -1712,6 +1777,7 @@ impl WatershedApp {
             self.config.save();
         }
         let grid_shown = self.grid.enabled && has_bpm;
+        let signatures = signature_tags(&self.grid, rate);
         let bar_action = wave_x.and_then(|x_range| {
             bar_ruler(
                 ui,
@@ -1719,9 +1785,24 @@ impl WatershedApp {
                 x_range,
                 loaded.song.sample_rate,
                 &overlay,
+                &signatures,
                 grid_shown,
             )
         });
+        // To the nearest line drawn, so the zoom sets the precision.
+        let snap = self.config.snap_to_grid;
+        let snap_frame = |frame: usize| {
+            if snap {
+                grid_lines
+                    .iter()
+                    .map(|line| line.frame)
+                    .min_by_key(|line| line.abs_diff(frame))
+                    .unwrap_or(frame)
+            } else {
+                frame
+            }
+        };
+        let mut open_editor = false;
         match bar_action {
             Some(BarRulerAction::Drag {
                 started,
@@ -1735,8 +1816,41 @@ impl WatershedApp {
                 }
             }
             Some(BarRulerAction::Reset) => self.grid.reset_start(),
+            Some(BarRulerAction::AddSignature { frame, at }) => {
+                let index = self.grid.add_change(snap_frame(frame) as f64 / rate);
+                self.signature_editor = Some((Some(index), at));
+                open_editor = true;
+            }
+            Some(BarRulerAction::EditSignature { change, at }) => {
+                self.signature_editor = Some((change, at));
+                open_editor = true;
+            }
+            Some(BarRulerAction::MoveSignature {
+                change,
+                started,
+                delta_secs,
+            }) => {
+                if started {
+                    self.change_drag_origin = self.grid.changes().get(change).map(|c| c.time);
+                }
+                if let Some(origin) = self.change_drag_origin {
+                    self.grid.move_change(change, origin + delta_secs);
+                }
+            }
             None => {}
         }
+        if let (Some(index), Some(x_range)) = (self.new_signature.take(), wave_x)
+            && let Some(change) = self.grid.changes().get(index)
+        {
+            let x = x_range.min
+                + ((change.time - self.view.start) / self.view.span.max(1e-9)) as f32
+                    * x_range.span();
+            let x = x.clamp(x_range.min, x_range.max);
+            self.signature_editor =
+                Some((Some(index), egui::pos2(x, bar_ruler_response.rect.bottom())));
+            open_editor = true;
+        }
+        self.signature_popup(ui, open_editor);
         if let Some(x_range) = wave_x {
             scrollbar(ui, &scrollbar_response, x_range, &mut self.view);
             // Cmd + scroll or a pinch zooms around the pointer; sideways scrolling
@@ -1775,16 +1889,7 @@ impl WatershedApp {
 
         match wave_action {
             Some(WaveformAction::Seek(frame)) => {
-                // To the nearest line drawn, so the zoom sets the precision.
-                let frame = if self.config.snap_to_grid {
-                    grid_lines
-                        .iter()
-                        .map(|line| line.frame)
-                        .min_by_key(|line| line.abs_diff(frame))
-                        .unwrap_or(frame)
-                } else {
-                    frame
-                };
+                let frame = snap_frame(frame);
                 if let Some(engine) = &mut self.engine {
                     engine.seek(frame);
                 }
@@ -2084,7 +2189,10 @@ fn grid_controls(
                 .range(1..=grid::MAX_BEATS_PER_BAR)
                 .speed(0.05),
         )
-        .on_hover_text("Beats per bar");
+        .on_hover_text(
+            "Beats per bar from bar 1. To change the time signature later on, \
+             right-click the bar ruler or press Shift+C at the playhead.",
+        );
         ui.label("/");
         egui::ComboBox::from_id_salt("beat_unit")
             .width(36.0)
@@ -2117,6 +2225,48 @@ fn grid_controls(
             *snap = !*snap;
         }
     });
+}
+
+/// Beats per bar and the beat unit, as in the time signature popup.
+fn signature_fields(ui: &mut egui::Ui, beats_per_bar: &mut u32, beat_unit: &mut u32) {
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::DragValue::new(beats_per_bar)
+                .range(1..=grid::MAX_BEATS_PER_BAR)
+                .speed(0.05),
+        )
+        .on_hover_text("Beats per bar");
+        ui.label("/");
+        for unit in grid::BEAT_UNITS {
+            ui.selectable_value(beat_unit, unit, unit.to_string())
+                .on_hover_text("Note value of a beat");
+        }
+    });
+}
+
+/// The time signatures to show on the bar ruler: bar 1's, then the changes.
+fn signature_tags(grid: &Grid, rate: f64) -> Vec<SignatureTag> {
+    let Some(start) = grid.start() else {
+        return Vec::new();
+    };
+    let label = |beats_per_bar: u32, beat_unit: u32| format!("{beats_per_bar}/{beat_unit}");
+    let bar_one = SignatureTag {
+        frame: (start * rate) as usize,
+        label: label(grid.beats_per_bar, grid.beat_unit),
+        change: None,
+        in_use: true,
+    };
+    let changes = grid
+        .changes()
+        .iter()
+        .enumerate()
+        .map(|(index, change)| SignatureTag {
+            frame: (change.time * rate) as usize,
+            label: label(change.beats_per_bar, change.beat_unit),
+            change: Some(index),
+            in_use: grid.in_use(index),
+        });
+    std::iter::once(bar_one).chain(changes).collect()
 }
 
 /// A toggle drawn as a horseshoe magnet (egui's fonts have no magnet emoji).
