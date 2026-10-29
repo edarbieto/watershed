@@ -258,6 +258,15 @@ impl Grid {
             .any(|c| c.bpm.is_some() && c.time <= secs)
     }
 
+    /// Multiplies the tempo of every change that sets one, as ½ and ×2 do to the
+    /// song's BPM: a half or double beat is so in the whole song, not only up to
+    /// the first tempo change.
+    pub fn scale_tempos(&mut self, factor: f64) {
+        for bpm in self.changes.iter_mut().filter_map(|c| c.bpm.as_mut()) {
+            *bpm = (*bpm * factor).clamp(MIN_BPM, MAX_BPM);
+        }
+    }
+
     /// Adds a time signature change at `secs`, with the signature already in force
     /// there, unless a change is already there. Returns the index of the change
     /// there.
@@ -713,6 +722,11 @@ mod tests {
         assert_eq!(grid.local_bpm(&beats, 8.7), 60.0);
         assert_eq!(grid.in_force(10.0, 120.0).0, 60.0);
         assert!(!grid.tempo_changed_by(3.9) && grid.tempo_changed_by(4.0));
+        // Halving the beat halves the changes' tempos too; the others carry over.
+        grid.scale_tempos(0.5);
+        assert_eq!(grid.changes()[slow].bpm, Some(30.0));
+        assert_eq!(grid.changes()[seven].bpm, None);
+        grid.scale_tempos(2.0);
         // Stored as the session keeps them.
         let stored = grid.session_changes();
         assert_eq!(stored[0].bpm, Some(60.0));

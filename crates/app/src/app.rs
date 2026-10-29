@@ -2510,17 +2510,23 @@ fn bpm_controls(
         let known = bpm.value().is_some();
         if ui
             .add_enabled(known, egui::Button::new("½").small())
-            .on_hover_text("Half the BPM (the estimate can be double the beat)")
+            .on_hover_text(
+                "Half the BPM, and the tempo changes' (the estimate can be double the beat)",
+            )
             .clicked()
         {
             bpm.scale(0.5);
+            grid.scale_tempos(0.5);
         }
         if ui
             .add_enabled(known, egui::Button::new("×2").small())
-            .on_hover_text("Double the BPM (the estimate can be half the beat)")
+            .on_hover_text(
+                "Double the BPM, and the tempo changes' (the estimate can be half the beat)",
+            )
             .clicked()
         {
             bpm.scale(2.0);
+            grid.scale_tempos(2.0);
         }
         let taps = bpm.taps(Instant::now());
         let label = if taps > 0 {
