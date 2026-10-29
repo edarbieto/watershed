@@ -79,6 +79,11 @@ Last updated: 2026-10-28.
   tempo" below). Change passes (checked by the user). Tool's "46 & 2": the start
   fixed (bar 1 and 79 BPM from the user's marks), the rest left as it is; the user
   wants to move on to time signature marks.
+- **Phase 3.5, time signature changes: built, to be tested by the user** (see "Time
+  signature changes" below).
+- **Keyboard shortcuts window** (asked by the user): `?` (Shift+/ on a US keyboard)
+  or the **?** button beside ⚙ lists every shortcut and mouse gesture, by section
+  (`shortcuts.rs`, one table to keep up to date when a shortcut is added).
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
@@ -91,14 +96,10 @@ Last updated: 2026-10-28.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): quick fixes, RAM, stem
 names, pitch lock, offsets, settings, stem format and BPM done.
 
-1. **Time signature marks** (next session, asked by the user): marks on the bar
-   ruler fixed to the song's time like the section markers (`Marker.time`, in
-   seconds), each starting a bar with its own n/m from there on; short bars (one
-   bar of 1/4 for a pause or a pickup); Tool's "46 & 2" drum solo is said to be
-   in 7/8. Each mark should also be a bar 1 for the beat tracker
-   (`track_beats(bpm, bar_one)` takes one today): automatic tracking cannot always
-   tell beats from offbeats (see "Dynamic tempo"), the user's marks can. Also to
-   hear once: Change's steady ending and the start of "46 & 2" with Dynamic.
+1. **Time signature changes: test them** (checklist in "Time signature changes"),
+   then use them on "46 & 2" (its drum solo is said to be in 7/8) with Dynamic on.
+   Also to hear once: Change's steady ending and the start of "46 & 2" with
+   Dynamic.
    Then the **song info panel** (`PLAN.md`), which can reuse the tracked beats.
    Idea from the user, not designed: cutting pieces of a stem (in "46 & 2" the
    bass intro came out in the guitar stem).
@@ -1112,6 +1113,63 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
    the bar ruler: bar 1 moves by whole beats.
 6. ½ and ×2 with Dynamic on: the grid follows (half or double beats).
 7. Close and reopen: Dynamic is kept; loading feels as fast as before.
+
+## Time signature changes
+
+Design agreed with the user: like Reaper's time signature markers, a change holds
+from there on (a short bar is two changes: one to 1/4, one back); the BPM counts
+the beat unit of bar 1's signature and **the note value stays the same** across
+changes (79 BPM in 4/4 → a 7/8 bar is 7 eighth notes at 158); placed and edited on
+the bar ruler.
+
+- **Session:** `[[signatures]]` with `time` (seconds, fixed to the song like the
+  markers), `beats_per_bar` and `beat_unit`. Bar 1's signature stays in
+  `beats_per_bar` / `beat_unit`. Changes before bar 1 are kept but do nothing
+  (drawn faded).
+- **Bar ruler**, now two rows: the time signatures on top (orange tags: bar 1's,
+  then each change), bars below. **Right-click** the ruler: a change there (on the
+  nearest line drawn when the magnet is on), with the signature in force, and its
+  editor opens. **Shift+C** (Reaper's shortcut, asked by the user; C alone still
+  toggles the click): a change exactly at the playhead, like M for markers, and
+  its editor opens over its tag. **Click a tag:** a popup with beats per bar, the beat unit (2, 4,
+  8, 16) and Delete (bar 1's has no Delete). **Drag a change** to move it (not past
+  its neighbours). Dragging elsewhere still moves bar 1.
+- **Steady grid** (`grid.rs`): each stretch starts at its change, at the BPM
+  scaled to its beat unit. A change off the grid cuts the bar before it short; a
+  beat closer than ¼ beat to the change is left out (no slivers). Bars are
+  numbered across changes, a cut bar counting as one.
+- **Dynamic:** each change is an anchor for the tracker, as bar 1 already was
+  (`track_beats(bpm, &[Anchor])`, `Anchor { time, pace }`): from there the beats go
+  at its pace (2 for eighth notes in a song counted in quarters), and on a note it
+  holds a beat and every later path goes through it. The gap ending on an anchor
+  keeps the pace before it, and the smoothing runs separately on each side of a
+  pace change (sharing the anchor's beat). Test: 16 quarter notes, then 7/8 grouped
+  2+2+3: every quarter and eighth note within 10 ms. The grid's bars start at the
+  tracked beat nearest each change. Retracked when a change is added, edited or
+  moved (once a drag ends).
+- **Engine:** `Beats` holds meters (`Meter { from, per_bar }`): accents, bar numbers
+  (`bar_of`) and the count-in's bar length (the meter before the target) follow
+  them. Nothing allocates in the callback.
+- `beats` example: `--pace <seconds>:<pace>` (repeatable) adds a change of pace.
+- Checked by Claude on a copy of "46 & 2" with 7/8 at bar 5 and 4/4 two bars later:
+  the tags show, bars 5–6 are short, 4/4 again from bar 7.
+
+**Test checklist:**
+1. Right-click the bar ruler on a bar line: a tag appears with the current
+   signature and its popup; set 7/8. The bars after it regroup; the bar numbers go
+   on.
+2. Right-click a few bars later and set 4/4 again (a short bar: 1/4 then back).
+   Also with Shift+C at the playhead: the popup opens there and the click does
+   not toggle.
+3. Click a tag: change it, or Delete. Click bar 1's tag: it changes the same
+   signature as the controls beside the ruler.
+4. Drag a tag: the bars follow; it does not pass its neighbours. Dragging the
+   ruler elsewhere still moves bar 1.
+5. Click and count-in across a change: accents on each new "1"; a count-in into a
+   7/8 bar counts the bar before it.
+6. With Dynamic on, in "46 & 2": a change on a note pins a beat there; a 7/8 part
+   follows eighth notes.
+7. Close and reopen: the changes are kept.
 
 ## Key detection
 
