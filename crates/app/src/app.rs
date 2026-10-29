@@ -16,6 +16,7 @@ use crate::markers::Markers;
 use crate::metronome::{self, Metronome};
 use crate::playhead::Playhead;
 use crate::separate::{self, Job, Target};
+use crate::shortcuts;
 use crate::stems::song_title;
 use crate::usage::{self, Usage};
 use crate::view::View;
@@ -152,6 +153,7 @@ pub struct WatershedApp {
     /// Per track: whether it can be dragged in time. Locked again on every load.
     movable: Vec<bool>,
     settings_open: bool,
+    shortcuts_open: bool,
     /// Widths the top bar and the transport bar need to show every control without
     /// overlap, measured while drawing them.
     top_bar_width: f32,
@@ -203,6 +205,7 @@ impl WatershedApp {
             renaming: None,
             movable: Vec::new(),
             settings_open: false,
+            shortcuts_open: false,
             top_bar_width: 0.0,
             transport_width: 0.0,
             min_size: egui::Vec2::ZERO,
@@ -634,6 +637,9 @@ impl WatershedApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
+        if shortcuts::pressed(ui.ctx()) {
+            self.shortcuts_open = !self.shortcuts_open;
+        }
         if ui.input(|i| i.key_pressed(Key::F5)) {
             self.reload(ui.ctx());
         }
@@ -849,6 +855,13 @@ impl WatershedApp {
                     .clicked()
                 {
                     self.settings_open = !self.settings_open;
+                }
+                if ui
+                    .selectable_label(self.shortcuts_open, "?")
+                    .on_hover_text("Keyboard shortcuts (?)")
+                    .clicked()
+                {
+                    self.shortcuts_open = !self.shortcuts_open;
                 }
                 if let Some(engine) = &self.engine {
                     let mut db = gain_to_db(engine.master_gain());
@@ -1936,6 +1949,7 @@ impl eframe::App for WatershedApp {
         self.update_playhead();
 
         self.settings_window(ui.ctx());
+        shortcuts::window(ui.ctx(), &mut self.shortcuts_open);
         let top_bar = egui::Panel::top("top_bar").show(ui, |ui| {
             let margins = panel_margins(ui);
             ui.add_space(4.0);

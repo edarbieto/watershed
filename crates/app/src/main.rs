@@ -13,6 +13,7 @@ mod markers;
 mod metronome;
 mod playhead;
 mod separate;
+mod shortcuts;
 mod stems;
 mod usage;
 mod view;
