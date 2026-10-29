@@ -30,13 +30,13 @@ pub enum BarRulerAction {
     Drag { started: bool, delta_secs: f64 },
     /// Double-clicked: back to the estimated bar 1.
     Reset,
-    /// Right-clicked at this frame: change the time signature there. `at` is where
-    /// the pointer was, for the editor.
-    AddSignature { frame: usize, at: Pos2 },
-    /// Clicked a time signature (`None` is bar 1's): edit it in a popup at `at`.
+    /// Right-clicked at this frame: change the tempo or time signature there. `at`
+    /// is where the pointer was, for the editor.
+    AddChange { frame: usize, at: Pos2 },
+    /// Clicked a tag (`None` is bar 1's time signature): edit it in a popup at `at`.
     EditSignature { change: Option<usize>, at: Pos2 },
-    /// Dragged a time signature change: move it by this many seconds from where it
-    /// was when the drag began, like [`BarRulerAction::Drag`].
+    /// Dragged a change: move it by this many seconds from where it was when the
+    /// drag began, like [`BarRulerAction::Drag`].
     MoveSignature {
         change: usize,
         started: bool,
@@ -44,10 +44,11 @@ pub enum BarRulerAction {
     },
 }
 
-/// A time signature on the bar ruler: bar 1's, or a change later on.
+/// A tag on the bar ruler: bar 1's time signature, or a tempo or time signature
+/// change later on.
 pub struct SignatureTag {
     pub frame: usize,
-    /// `"7/8"`.
+    /// `"7/8"`, `"63 BPM"`.
     pub label: String,
     /// Index of the change; `None` for bar 1's.
     pub change: Option<usize>,
@@ -348,11 +349,11 @@ pub fn ruler(
     }
 }
 
-/// Draws the bar ruler (time signatures in the top row; bar numbers, and beats
-/// when zoomed in, below) in the rect of `response`, with the timeline spanning
-/// `x_range`. Dragging it moves the grid; a double-click puts bar 1 back where it
-/// was estimated; a right-click changes the time signature there. A time signature
-/// is edited with a click and a change moved by dragging it. `enabled` false draws
+/// Draws the bar ruler (tempo and time signature tags in the top row; bar numbers,
+/// and beats when zoomed in, below) in the rect of `response`, with the timeline
+/// spanning `x_range`. Dragging it moves the grid; a double-click puts bar 1 back
+/// where it was estimated; a right-click adds a change there. A tag is edited with
+/// a click and a change moved by dragging it. `enabled` false draws
 /// it empty and ignores the pointer.
 pub fn bar_ruler(
     ui: &egui::Ui,
@@ -414,7 +415,7 @@ pub fn bar_ruler(
         Stroke::new(1.5, ui.visuals().strong_text_color()),
     );
 
-    // Time signatures: a tag each, over the bar line they start at. Tags drawn
+    // Tempo and time signatures: a tag each, over the bar line they start at. Tags drawn
     // later (later in the song) cover earlier ones.
     let mut action = None;
     for (index, tag) in signatures.iter().enumerate() {
@@ -448,7 +449,8 @@ pub fn bar_ruler(
             .interact(visible, response.id.with(("signature", index)), sense)
             .on_hover_text(match tag.change {
                 Some(_) => {
-                    "Time signature from here on. Click to change or delete it, drag to move it."
+                    "Tempo or time signature from here on. Click to change or delete it, drag \
+                     to move it."
                 }
                 None => "Time signature from bar 1. Click to change it.",
             });
@@ -488,7 +490,7 @@ pub fn bar_ruler(
     }
     if response.secondary_clicked() {
         let at = response.interact_pointer_pos()?;
-        return Some(BarRulerAction::AddSignature {
+        return Some(BarRulerAction::AddChange {
             frame: timeline.frame_at(at.x),
             at,
         });

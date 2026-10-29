@@ -28,14 +28,17 @@ const ANCHOR_WEIGHT: f64 = 1e6;
 /// loudest stem, it pulled the tempo from 130 to 140.
 pub const VOCALS_TEMPO_WEIGHT: f32 = 0.25;
 /// A bar the user marked, for [`OnsetEnvelope::track_beats`]: bar 1, or where the
-/// time signature changes.
+/// tempo or the time signature changes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Anchor {
     /// Seconds from the start of the song.
     pub time: f64,
-    /// Beats from here on per beat of the BPM given: 2.0 where the beat becomes an
-    /// eighth note in a song counted in quarter notes.
+    /// Beats from here on per beat of the BPM: 2.0 where the beat becomes an eighth
+    /// note in a song counted in quarter notes.
     pub pace: f64,
+    /// The tempo from here on, in the same beats as the BPM given to the tracker,
+    /// when the user set one: the tracker looks for the beats around it instead.
+    pub tempo: Option<f64>,
 }
 
 /// Envelope frames per second, about.
@@ -345,7 +348,8 @@ impl OnsetEnvelope {
         let bpm = refine(&acf, rate, max_lag, bpm, TRACK_SPAN);
 
         // Each beat is measured against the tempo of its own section: an intro can
-        // be slower than the rest by 10 %. From each anchor on, at its pace.
+        // be slower than the rest by 10 %. From each anchor on, at its pace and
+        // around its tempo, if it has one.
         let frame_of = |time: f64| ((time - self.start) * rate).round().max(0.0) as usize;
         let snap = (ANCHOR_SNAP_SECS * rate).round() as usize;
         let mut anchors: Vec<Anchor> = anchors
@@ -354,13 +358,17 @@ impl OnsetEnvelope {
             .filter(|a| a.time.is_finite() && a.pace.is_finite() && a.pace > 0.0)
             .collect();
         anchors.sort_by(|a, b| a.time.total_cmp(&b.time));
-        // The gap that ends on an anchor still goes at the pace before it.
+        // The gap that ends on an anchor still goes at the pace and tempo before it.
         let mut paces = vec![1.0; onsets.len()];
+        let mut tempos = vec![bpm; onsets.len()];
         for anchor in &anchors {
             let from = (frame_of(anchor.time) + snap + 1).min(onsets.len());
             paces[from..].fill(anchor.pace);
+            if let Some(tempo) = anchor.tempo.filter(|t| t.is_finite() && *t > 0.0) {
+                tempos[from..].fill(tempo);
+            }
         }
-        let mut periods = tempo_curve(&onsets, &strength, rate, bpm);
+        let mut periods = tempo_curve(&onsets, &strength, rate, &tempos);
         for (period, pace) in periods.iter_mut().zip(&paces) {
             *period /= pace;
         }
@@ -440,14 +448,15 @@ impl OnsetEnvelope {
                 weights[i] = ANCHOR_WEIGHT;
             }
         }
-        // Smoothed apart where the pace changes, from the beat at the anchor on: a
-        // line through quarter and eighth notes together would fit neither. That
-        // beat also ends the run before it.
+        // Smoothed apart where the pace or the tempo changes, from the beat at the
+        // anchor on: a line through quarter and eighth notes together would fit
+        // neither. That beat also ends the run before it.
         let mut runs = vec![0];
         let mut pace = 1.0;
         for anchor in &anchors {
             let first = frames.partition_point(|&f| f + snap < frame_of(anchor.time));
-            if anchor.pace != pace && first > runs[runs.len() - 1] && first < frames.len() {
+            let changes = anchor.pace != pace || anchor.tempo.is_some();
+            if changes && first > runs[runs.len() - 1] && first < frames.len() {
                 runs.push(first);
             }
             pace = anchor.pace;
@@ -486,22 +495,25 @@ fn hold_after(beats: &mut Vec<f64>, end: f64) {
 }
 
 /// The local beat period at each frame of `onsets` (scaled as the beat tracker
-/// does), in frames, within [`CURVE_SPAN`] of `bpm`. The tempo of each window of
+/// does), in frames, within [`CURVE_SPAN`] of `tempos` (BPM at each frame: the
+/// song's, or the one the user set from a point on). The tempo of each window of
 /// [`CURVE_WINDOW_SECS`] scores like [`refine`], relative to the window's best and
 /// times its confidence: how strong its onsets are (`strength`, 0 to 1), so a
 /// guitar alone counts but a fade-out barely does, and how much its best tempo
 /// stands out, so noise (feedback ringing out) has no say. Then the path through
 /// the windows with the best total is chosen, paying for each change of tempo
-/// (Viterbi): where no window has a say, the tempo holds.
-fn tempo_curve(onsets: &[f64], strength: &[f64], rate: f64, bpm: f64) -> Vec<f64> {
+/// (Viterbi): where no window has a say, the tempo holds. The path goes through
+/// ratios to `tempos`, so a tempo the user set moves it for free.
+fn tempo_curve(onsets: &[f64], strength: &[f64], rate: f64, tempos: &[f64]) -> Vec<f64> {
     let candidates: Vec<f64> = {
-        let (low, high) = (bpm * (1.0 - CURVE_SPAN), bpm * (1.0 + CURVE_SPAN));
+        let (low, high) = (1.0 - CURVE_SPAN, 1.0 + CURVE_SPAN);
         let steps = ((high / low).ln() / CURVE_STEP).ceil() as usize;
         (0..=steps)
             .map(|i| low * (CURVE_STEP * i as f64).exp())
             .collect()
     };
-    let slowest = 60.0 / candidates[0] * rate;
+    let lowest = tempos.iter().fold(f64::INFINITY, |a, &t| a.min(t));
+    let slowest = 60.0 / (lowest * candidates[0]) * rate;
     let max_lag = (slowest * CURVE_BEATS as f64).ceil() as usize;
     let window = ((CURVE_WINDOW_SECS * rate) as usize).max(max_lag * 2);
     let hop = ((CURVE_HOP_SECS * rate) as usize).max(1);
@@ -514,10 +526,11 @@ fn tempo_curve(onsets: &[f64], strength: &[f64], rate: f64, bpm: f64) -> Vec<f64
             let end = (start + window).min(onsets.len());
             let start = end.saturating_sub(window);
             let acf = autocorrelation(&onsets[start..end], max_lag + 2);
+            let tempo = tempos[center.min(tempos.len() - 1)];
             let scores: Vec<f64> = candidates
                 .iter()
-                .map(|&bpm| {
-                    let beat = 60.0 / bpm * rate;
+                .map(|&ratio| {
+                    let beat = 60.0 / (tempo * ratio) * rate;
                     (1..=CURVE_BEATS)
                         .map(|k| interpolate(&acf, k as f64 * beat))
                         .sum()
@@ -566,16 +579,18 @@ fn tempo_curve(onsets: &[f64], strength: &[f64], rate: f64, bpm: f64) -> Vec<f64
         path[w - 1] = from[w][path[w]];
     }
 
-    // Per frame, between the window centers.
-    let period = |w: usize| 60.0 / candidates[path[w]] * rate;
+    // Per frame, the ratio between the window centers, times the frame's tempo.
+    let ratio = |w: usize| candidates[path[w]];
     (0..onsets.len())
         .map(|t| {
             let w = t / hop;
-            if w + 1 >= centers.len() {
-                return period(w.min(centers.len() - 1));
-            }
-            let frac = (t - centers[w]) as f64 / hop as f64;
-            period(w) * (1.0 - frac) + period(w + 1) * frac
+            let ratio = if w + 1 >= centers.len() {
+                ratio(w.min(centers.len() - 1))
+            } else {
+                let frac = (t - centers[w]) as f64 / hop as f64;
+                ratio(w) * (1.0 - frac) + ratio(w + 1) * frac
+            };
+            60.0 / (tempos[t] * ratio) * rate
         })
         .collect()
 }
@@ -836,7 +851,11 @@ mod tests {
 
     /// An anchor at `time` that keeps the pace.
     fn anchor(time: f64) -> Anchor {
-        Anchor { time, pace: 1.0 }
+        Anchor {
+            time,
+            pace: 1.0,
+            tempo: None,
+        }
     }
 
     #[test]
@@ -860,6 +879,7 @@ mod tests {
             Anchor {
                 time: change,
                 pace: 2.0,
+                tempo: None,
             },
         ];
         let found = envelope.track_beats(100.0, &anchors);
@@ -870,6 +890,32 @@ mod tests {
         let within = |from: f64, to: f64| found.iter().filter(|t| (from..to).contains(*t)).count();
         assert_eq!(within(0.9, change - 0.1), 16);
         assert_eq!(within(change - 0.1, 24.5), 47);
+    }
+
+    #[test]
+    fn follows_a_tempo_the_user_set() {
+        // 120 BPM, then from 15 s 80 BPM: a third slower, beyond the tempo curve's
+        // reach around 120. A tempo a little off is enough to find it.
+        let mut notes: Vec<f64> = (0..28).map(|k| 1.0 + k as f64 * 0.5).collect();
+        let change = 1.0 + 28.0 * 0.5;
+        let slow: Vec<f64> = (0..20).map(|k| change + k as f64 * 0.75).collect();
+        notes.extend(&slow);
+        let envelope = OnsetEnvelope::compute(&clicks_at(&notes, 48_000, 30.0), 48_000);
+        let without = envelope.track_beats(120.0, &[]);
+        assert!(worst_miss(&slow, &without, change, 28.5) > 0.05);
+        let anchors = [Anchor {
+            time: change,
+            pace: 1.0,
+            tempo: Some(85.0),
+        }];
+        let found = envelope.track_beats(120.0, &anchors);
+        let miss = worst_miss(&notes, &found, 1.0, 28.5);
+        assert!(miss < 0.01, "missed by {miss} s");
+        let within = found
+            .iter()
+            .filter(|t| (change - 0.1..28.5).contains(*t))
+            .count();
+        assert_eq!(within, 19);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 mod session;
 
-pub use session::{Marker, SESSION_FILE, SavedLoop, Session, SignatureChange, TrackState};
+pub use session::{GridChange, Marker, SESSION_FILE, SavedLoop, Session, TrackState};
 
 fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "Watershed")

@@ -43,9 +43,10 @@ pub struct Session {
     /// Where bar 1 starts, set by the user; `None` uses the estimate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grid_start: Option<f64>,
-    /// Where the time signature changes after bar 1, in time order.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub signatures: Vec<SignatureChange>,
+    /// Where the tempo or the time signature changes after bar 1, in time order.
+    /// Called `signatures` before tempo changes existed.
+    #[serde(alias = "signatures", skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<GridChange>,
     /// The grid follows the song's own beats instead of a steady BPM.
     pub dynamic_tempo: bool,
     /// Key of the song at its original pitch, set by the user (e.g. `"F#m"`, `"Eb"`);
@@ -77,7 +78,7 @@ impl Default for Session {
             beats_per_bar: 4,
             beat_unit: 4,
             grid_start: None,
-            signatures: Vec::new(),
+            changes: Vec::new(),
             dynamic_tempo: false,
             key: None,
             click: false,
@@ -144,13 +145,28 @@ pub struct Marker {
     pub time: f64,
 }
 
-/// A bar where the time signature changes, from there on, like a time signature
-/// marker in a DAW. Fixed to the song's time, like a [`Marker`].
+/// A bar where the tempo, the time signature or both change, from there on, like
+/// Reaper's tempo/time signature markers. Fixed to the song's time, like a
+/// [`Marker`]. What is `None` goes on as before it.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SignatureChange {
+pub struct GridChange {
     pub time: f64,
-    pub beats_per_bar: u32,
-    pub beat_unit: u32,
+    /// Counted in the beat unit of bar 1's time signature, like [`Session::bpm`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<f64>,
+    /// The time signature: both or neither.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beats_per_bar: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beat_unit: Option<u32>,
+    /// Exactly `bpm` up to the next change, even where the grid follows the
+    /// song's own beats.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fixed: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 impl Session {
@@ -257,11 +273,22 @@ mod tests {
             beats_per_bar: 7,
             beat_unit: 8,
             grid_start: Some(3.25),
-            signatures: vec![SignatureChange {
-                time: 61.5,
-                beats_per_bar: 3,
-                beat_unit: 4,
-            }],
+            changes: vec![
+                GridChange {
+                    time: 61.5,
+                    bpm: None,
+                    beats_per_bar: Some(3),
+                    beat_unit: Some(4),
+                    fixed: false,
+                },
+                GridChange {
+                    time: 90.0,
+                    bpm: Some(63.5),
+                    beats_per_bar: None,
+                    beat_unit: None,
+                    fixed: true,
+                },
+            ],
             dynamic_tempo: true,
             key: Some("F#m".into()),
             click: true,
@@ -291,6 +318,23 @@ mod tests {
         assert_eq!(attributes & 0x2, 0x2, "not hidden: {attributes:#x}");
         assert_eq!(Session::load_from(&path), Some(session));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reads_signature_changes_from_before_tempo_changes() {
+        let session: Session =
+            toml::from_str("[[signatures]]\ntime = 12.5\nbeats_per_bar = 7\nbeat_unit = 8\n")
+                .expect("valid session");
+        assert_eq!(
+            session.changes,
+            [GridChange {
+                time: 12.5,
+                bpm: None,
+                beats_per_bar: Some(7),
+                beat_unit: Some(8),
+                fixed: false,
+            }]
+        );
     }
 
     #[test]

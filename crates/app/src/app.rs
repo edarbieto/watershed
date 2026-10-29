@@ -8,7 +8,7 @@ use watershed_dsp::Peaks;
 use watershed_storage::{Config, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
-use crate::grid::{self, Grid};
+use crate::grid::{self, Change, Grid};
 use crate::key::{self, SongKey};
 use crate::loader::{self, LoadedSong, Loading};
 use crate::loops::Loops;
@@ -80,8 +80,8 @@ enum Action {
     AddMarker,
     /// Moves the playhead to the marker with this index.
     GoToMarker(usize),
-    /// Changes the time signature at the playhead and opens its editor.
-    AddSignature,
+    /// Changes the tempo or time signature at the playhead and opens its editor.
+    AddChange,
     /// Zooms by this factor (above 1 zooms in) around the playhead.
     Zoom(f64),
     /// Shows the whole song.
@@ -511,7 +511,7 @@ impl WatershedApp {
             beats_per_bar: self.grid.beats_per_bar,
             beat_unit: self.grid.beat_unit,
             grid_start: self.grid.user_start(),
-            signatures: self.grid.changes().to_vec(),
+            changes: self.grid.session_changes(),
             dynamic_tempo: self.grid.dynamic,
             key: self.song_key.user(),
             click: self.metronome.click,
@@ -650,7 +650,7 @@ impl WatershedApp {
         }
         // Reaper's shortcut. Consumed first, so the C below does not see it.
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::C)) {
-            self.apply(Action::AddSignature);
+            self.apply(Action::AddChange);
         }
         let keys = [
             (Key::Home, Action::ToStart),
@@ -701,7 +701,7 @@ impl WatershedApp {
                     self.markers.add(position);
                 }
             }
-            Action::AddSignature => {
+            Action::AddChange => {
                 if self.loaded.is_some() && self.grid.enabled && self.bpm.value().is_some() {
                     self.new_signature = Some(self.grid.add_change(position));
                 }
@@ -1152,11 +1152,13 @@ impl WatershedApp {
     fn transport(&mut self, ui: &mut egui::Ui) {
         let mut action = None;
         let has_beats = self.metronome_beats().is_some();
-        // The tempo of the beat being heard, when the grid follows the song's beats.
+        // The tempo of the beat being heard, when the grid follows the song's beats
+        // or a tempo change set it.
+        let position = self.position_secs();
         let local_bpm = self
             .grid_beats()
-            .filter(|_| self.grid.dynamic)
-            .map(|beats| 60.0 / beats.beat_at(self.position_secs()));
+            .filter(|_| self.grid.dynamic || self.grid.tempo_changed_by(position))
+            .map(|beats| self.grid.local_bpm(&beats, position));
         ui.horizontal(|ui| {
             let Some(engine) = &mut self.engine else {
                 ui.label("No audio output");
@@ -1503,14 +1505,86 @@ impl WatershedApp {
                 signature_fields(ui, &mut self.grid.beats_per_bar, &mut self.grid.beat_unit);
             }
             Some(index) => {
+                let Some(time) = self.grid.changes().get(index).map(|c| c.time) else {
+                    return;
+                };
+                // What a box turned on starts from: what is in force before it.
+                let Some(song_bpm) = self.bpm.value() else {
+                    return;
+                };
+                let (tempo_before, signature_before) = self.grid.in_force(time, song_bpm);
+                let tempo = self.grid.changes()[index].bpm.unwrap_or(tempo_before);
+                let fit = self.grid.fit_tempo(index, tempo);
                 let Some(change) = self.grid.change_mut(index) else {
                     return;
                 };
-                ui.label(
-                    RichText::new(format!("Time signature from {}", format_time(change.time)))
-                        .strong(),
-                );
-                signature_fields(ui, &mut change.beats_per_bar, &mut change.beat_unit);
+                // The note wraps instead of widening the popup.
+                ui.set_max_width(CHANGE_POPUP_WIDTH);
+                ui.label(RichText::new(format!("From {}", format_time(time))).strong());
+                egui::Grid::new("change_fields")
+                    .num_columns(2)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        let mut has_tempo = change.bpm.is_some();
+                        if ui.checkbox(&mut has_tempo, "Tempo").changed() {
+                            change.bpm = has_tempo.then_some(tempo_before);
+                            change.fixed &= has_tempo;
+                        }
+                        ui.add_enabled_ui(has_tempo, |ui| {
+                            ui.horizontal(|ui| {
+                                let mut bpm = change.bpm.unwrap_or(tempo_before);
+                                let response = ui.add(
+                                    egui::DragValue::new(&mut bpm)
+                                        .range(grid::MIN_BPM..=grid::MAX_BPM)
+                                        .speed(0.1)
+                                        .fixed_decimals(1)
+                                        .suffix(" BPM"),
+                                );
+                                if response.changed() {
+                                    change.bpm = Some(bpm);
+                                }
+                                if let Some(fit) = fit
+                                    && ui
+                                        .small_button("Fit")
+                                        .on_hover_text(format!(
+                                            "{fit:.1} BPM: whole bars up to the next mark"
+                                        ))
+                                        .clicked()
+                                {
+                                    change.bpm = Some(fit);
+                                }
+                            });
+                        });
+                        ui.end_row();
+
+                        ui.label("");
+                        ui.add_enabled_ui(has_tempo, |ui| {
+                            ui.checkbox(&mut change.fixed, "Fixed").on_hover_text(
+                                "Exactly this tempo up to the next mark, even with Dynamic \
+                                 on: for a stretch with no beat to follow, like the band \
+                                 letting a chord ring.",
+                            );
+                        });
+                        ui.end_row();
+
+                        let mut has_signature = change.signature.is_some();
+                        if ui.checkbox(&mut has_signature, "Time signature").changed() {
+                            change.signature = has_signature.then_some(signature_before);
+                        }
+                        ui.add_enabled_ui(has_signature, |ui| {
+                            let mut signature = change.signature.unwrap_or(signature_before);
+                            signature_fields(
+                                ui,
+                                &mut signature.beats_per_bar,
+                                &mut signature.beat_unit,
+                            );
+                            if has_signature {
+                                change.signature = Some(signature);
+                            }
+                        });
+                        ui.end_row();
+                    });
+                ui.label(RichText::new(CHANGE_NOTE).weak().small());
                 ui.add_space(4.0);
                 delete = ui.button("Delete").clicked();
             }
@@ -1829,7 +1903,7 @@ impl WatershedApp {
                 }
             }
             Some(BarRulerAction::Reset) => self.grid.reset_start(),
-            Some(BarRulerAction::AddSignature { frame, at }) => {
+            Some(BarRulerAction::AddChange { frame, at }) => {
                 let index = self.grid.add_change(snap_frame(frame) as f64 / rate);
                 self.signature_editor = Some((Some(index), at));
                 open_editor = true;
@@ -2111,6 +2185,9 @@ fn file_name(path: &std::path::Path) -> String {
 const VOLUME_HINT: &str = "Double-click to reset to 0 dB";
 const SETTINGS_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Comma);
+const CHANGE_POPUP_WIDTH: f32 = 300.0;
+const CHANGE_NOTE: &str = "The tempo counts the beats of bar 1's time signature. \
+    With Dynamic on, roughly is enough: the beats are found around it.";
 const STEM_FORMAT_NOTE: &str = "For new separations. Both sound the same as the \
     original to the ear. Ogg Vorbis opens in Reaper, Cubase, Ableton, FL Studio and \
     Bitwig; FLAC in any DAW, Logic and Pro Tools included.";
@@ -2204,7 +2281,7 @@ fn grid_controls(
                 .speed(0.05),
         )
         .on_hover_text(
-            "Beats per bar from bar 1. To change the time signature later on, \
+            "Beats per bar from bar 1. To change the tempo or time signature later on, \
              right-click the bar ruler or press Shift+C at the playhead.",
         );
         ui.label("/");
@@ -2258,6 +2335,28 @@ fn signature_fields(ui: &mut egui::Ui, beats_per_bar: &mut u32, beat_unit: &mut 
     });
 }
 
+/// What a change shows on the bar ruler: `"63 BPM 7/8"` (`"71.6 BPM fixed"` when
+/// fixed), either part alone, or
+/// `"Bar"` when it changes neither (it still starts a bar).
+fn change_label(change: &Change) -> String {
+    let tempo = change.bpm.map(|bpm| {
+        let fixed = if change.fixed { " fixed" } else { "" };
+        if (bpm - bpm.round()).abs() < 0.05 {
+            format!("{bpm:.0} BPM{fixed}")
+        } else {
+            format!("{bpm:.1} BPM{fixed}")
+        }
+    });
+    let signature = change
+        .signature
+        .map(|s| format!("{}/{}", s.beats_per_bar, s.beat_unit));
+    match (tempo, signature) {
+        (Some(tempo), Some(signature)) => format!("{tempo} {signature}"),
+        (Some(part), None) | (None, Some(part)) => part,
+        (None, None) => "Bar".into(),
+    }
+}
+
 /// The time signatures to show on the bar ruler: bar 1's, then the changes.
 fn signature_tags(grid: &Grid, rate: f64) -> Vec<SignatureTag> {
     let Some(start) = grid.start() else {
@@ -2276,7 +2375,7 @@ fn signature_tags(grid: &Grid, rate: f64) -> Vec<SignatureTag> {
         .enumerate()
         .map(|(index, change)| SignatureTag {
             frame: (change.time * rate) as usize,
-            label: label(change.beats_per_bar, change.beat_unit),
+            label: change_label(change),
             change: Some(index),
             in_use: grid.in_use(index),
         });

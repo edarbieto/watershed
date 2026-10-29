@@ -1,12 +1,12 @@
 //! The beat grid: bars and beats from the song's BPM, a time signature and where
-//! bar 1 starts, with time signature changes later on, like a DAW's time signature
-//! markers. Steady, or dynamic: following the song's own beats, tracked from the
+//! bar 1 starts, with tempo and time signature changes later on, like Reaper's
+//! tempo/time signature markers. Steady, or dynamic: following the song's own beats, tracked from the
 //! audio, for songs whose tempo moves. Nothing is drawn before bar 1, so a free intro
 //! stays clear. Times are in seconds of the song.
 
 use watershed_audio::{Beats, Meter};
 use watershed_dsp::{Anchor, OnsetEnvelope};
-use watershed_storage::{Session, SignatureChange};
+use watershed_storage::{GridChange, Session};
 
 /// Lines closer than this, in points, are thinned out.
 const MIN_LINE_SPACING: f32 = 12.0;
@@ -25,12 +25,46 @@ const MOVING_SPREAD: f64 = 0.03;
 /// The tracker finds the exact pace itself (within 10 %), so dragging the BPM does
 /// not need it, and it takes 20–40 ms.
 const RETRACK: f64 = 0.05;
-/// A signature change closer than this to another one is not added: the existing
-/// one is reused, as with markers. Changes this close after bar 1 are left out.
+/// A change closer than this to another one is not added: the existing one is
+/// reused, as with markers. Changes this close after bar 1 are left out.
 const MIN_CHANGE_GAP: f64 = 0.1;
 /// On a steady grid, a beat closer than this fraction of a beat to the next change
 /// is left out: the bar before it ends on a longer beat instead of a sliver.
 const MIN_LAST_BEAT: f64 = 0.25;
+/// Range of the tempo of a change, in BPM.
+pub const MIN_BPM: f64 = 20.0;
+pub const MAX_BPM: f64 = 400.0;
+
+/// A time signature: beats per bar, and the note value of a beat.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Signature {
+    pub beats_per_bar: u32,
+    pub beat_unit: u32,
+}
+
+/// Where the tempo, the time signature or both change, from there on. What is
+/// `None` goes on as before it; a change with neither still starts a bar there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Change {
+    pub time: f64,
+    /// Counted in the beat unit of bar 1, like the song's BPM.
+    pub bpm: Option<f64>,
+    pub signature: Option<Signature>,
+    /// Exactly `bpm` up to the next change, even with Dynamic on: for a stretch
+    /// without a pulse to track, like a chord ringing out.
+    pub fixed: bool,
+}
+
+/// A stretch of the grid with one tempo and time signature, from `time` to the
+/// next one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Segment {
+    time: f64,
+    bpm: f64,
+    signature: Signature,
+    /// Steady at `bpm` even when the grid follows the song's beats.
+    fixed: bool,
+}
 
 #[derive(Debug)]
 pub struct Grid {
@@ -39,8 +73,8 @@ pub struct Grid {
     /// The time signature from bar 1. Its beat unit is the one the BPM counts.
     pub beats_per_bar: u32,
     pub beat_unit: u32,
-    /// Where the time signature changes after bar 1, in time order.
-    changes: Vec<SignatureChange>,
+    /// Where the tempo or the time signature changes after bar 1, in time order.
+    changes: Vec<Change>,
     /// Where bar 1 starts, set by the user.
     user_start: Option<f64>,
     /// Bar 1 as estimated from the audio, and the BPM it was estimated for.
@@ -56,8 +90,8 @@ pub struct Grid {
 struct Tracked {
     /// The BPM they were tracked around.
     bpm: f64,
-    /// The bars they were counted from: the user's bar 1 and the signature
-    /// changes, when dynamic.
+    /// The bars they were counted from: the user's bar 1 and the changes, when
+    /// dynamic.
     anchors: Vec<Anchor>,
     /// Seconds of every beat, from the start of the song.
     beats: Vec<f64>,
@@ -111,14 +145,24 @@ pub struct Line {
 
 impl Grid {
     pub fn from_session(session: &Session) -> Self {
-        let mut changes: Vec<SignatureChange> = session
-            .signatures
+        let mut changes: Vec<Change> = session
+            .changes
             .iter()
             .filter(|c| c.time.is_finite() && c.time >= 0.0)
-            .map(|c| SignatureChange {
-                beats_per_bar: c.beats_per_bar.clamp(1, MAX_BEATS_PER_BAR),
-                beat_unit: valid_unit(c.beat_unit),
-                ..*c
+            .map(|c| Change {
+                time: c.time,
+                bpm: c
+                    .bpm
+                    .filter(|b| b.is_finite())
+                    .map(|b| b.clamp(MIN_BPM, MAX_BPM)),
+                signature: c
+                    .beats_per_bar
+                    .zip(c.beat_unit)
+                    .map(|(per_bar, unit)| Signature {
+                        beats_per_bar: per_bar.clamp(1, MAX_BEATS_PER_BAR),
+                        beat_unit: valid_unit(unit),
+                    }),
+                fixed: c.fixed,
             })
             .collect();
         changes.sort_by(|a, b| a.time.total_cmp(&b.time));
@@ -153,17 +197,70 @@ impl Grid {
         self.user_start = None;
     }
 
-    /// The time signature changes, in time order, to save in the session.
-    pub fn changes(&self) -> &[SignatureChange] {
+    /// The tempo and time signature changes, in time order.
+    pub fn changes(&self) -> &[Change] {
         &self.changes
     }
 
-    pub fn change_mut(&mut self, index: usize) -> Option<&mut SignatureChange> {
+    /// The changes as the session stores them.
+    pub fn session_changes(&self) -> Vec<GridChange> {
+        self.changes
+            .iter()
+            .map(|c| GridChange {
+                time: c.time,
+                bpm: c.bpm,
+                beats_per_bar: c.signature.map(|s| s.beats_per_bar),
+                beat_unit: c.signature.map(|s| s.beat_unit),
+                fixed: c.fixed,
+            })
+            .collect()
+    }
+
+    pub fn change_mut(&mut self, index: usize) -> Option<&mut Change> {
         self.changes.get_mut(index)
     }
 
-    /// Adds a signature change at `secs`, with the signature already in force
-    /// there, unless one is already there. Returns the index of the change there.
+    /// The tempo and time signature in force at `secs` (before any change there),
+    /// with `bpm` the song's.
+    pub fn in_force(&self, secs: f64, bpm: f64) -> (f64, Signature) {
+        let mut tempo = bpm;
+        let mut signature = Signature {
+            beats_per_bar: self.beats_per_bar,
+            beat_unit: self.beat_unit,
+        };
+        for change in self.changes.iter().take_while(|c| c.time < secs) {
+            tempo = change.bpm.unwrap_or(tempo);
+            signature = change.signature.unwrap_or(signature);
+        }
+        (tempo, signature)
+    }
+
+    /// The tempo that makes whole bars of change `index`'s time signature fill the
+    /// time up to the next change, the number of bars rounded from `bpm` (the
+    /// tempo it has, or the one in force): two bars of 4/4 in 6.7 s is 71.6 BPM.
+    /// `None` for the last change.
+    pub fn fit_tempo(&self, index: usize, bpm: f64) -> Option<f64> {
+        let change = self.changes.get(index)?;
+        let next = self.changes.get(index + 1)?;
+        let (_, before) = self.in_force(change.time, bpm);
+        let signature = change.signature.unwrap_or(before);
+        // A bar's length in beats of bar 1's unit, which the BPM counts.
+        let bar = f64::from(signature.beats_per_bar) / self.pace(signature.beat_unit);
+        let secs = next.time - change.time;
+        let bars = (secs * bpm / 60.0 / bar).round().max(1.0);
+        Some((bars * bar * 60.0 / secs).clamp(MIN_BPM, MAX_BPM))
+    }
+
+    /// Whether a change at or before `secs` set the tempo.
+    pub fn tempo_changed_by(&self, secs: f64) -> bool {
+        self.changes
+            .iter()
+            .any(|c| c.bpm.is_some() && c.time <= secs)
+    }
+
+    /// Adds a time signature change at `secs`, with the signature already in force
+    /// there, unless a change is already there. Returns the index of the change
+    /// there.
     pub fn add_change(&mut self, secs: f64) -> usize {
         let secs = secs.max(0.0);
         if let Some(index) = self
@@ -174,19 +271,14 @@ impl Grid {
             return index;
         }
         let index = self.changes.partition_point(|c| c.time < secs);
-        let (beats_per_bar, beat_unit) = match index.checked_sub(1) {
-            Some(before) => (
-                self.changes[before].beats_per_bar,
-                self.changes[before].beat_unit,
-            ),
-            None => (self.beats_per_bar, self.beat_unit),
-        };
+        let (_, signature) = self.in_force(secs, 0.0);
         self.changes.insert(
             index,
-            SignatureChange {
+            Change {
                 time: secs,
-                beats_per_bar,
-                beat_unit,
+                bpm: None,
+                signature: Some(signature),
+                fixed: false,
             },
         );
         index
@@ -223,22 +315,30 @@ impl Grid {
         }
     }
 
-    /// The signature from bar 1 at `start`, then each change after it before `end`:
-    /// the stretches of the grid, each to the next one.
-    fn segments(&self, start: f64, end: f64) -> Vec<SignatureChange> {
-        let bar_one = SignatureChange {
+    /// The stretches of the grid: from bar 1 at `start` at the song's `bpm`, then
+    /// from each change after it before `end`, with what it does not change carried
+    /// over. A change before bar 1 counts from bar 1 on.
+    fn segments(&self, start: f64, end: f64, bpm: f64) -> Vec<Segment> {
+        let (bpm, signature) = self.in_force(start + MIN_CHANGE_GAP, bpm);
+        let mut segments = vec![Segment {
             time: start,
-            beats_per_bar: self.beats_per_bar,
-            beat_unit: self.beat_unit,
-        };
-        std::iter::once(bar_one)
-            .chain(
-                self.changes
-                    .iter()
-                    .filter(|c| c.time >= start + MIN_CHANGE_GAP && c.time < end)
-                    .copied(),
-            )
-            .collect()
+            bpm,
+            signature,
+            fixed: false,
+        }];
+        for change in &self.changes {
+            if change.time < start + MIN_CHANGE_GAP || change.time >= end {
+                continue;
+            }
+            let last = segments[segments.len() - 1];
+            segments.push(Segment {
+                time: change.time,
+                bpm: change.bpm.unwrap_or(last.bpm),
+                signature: change.signature.unwrap_or(last.signature),
+                fixed: change.fixed && change.bpm.is_some(),
+            });
+        }
+        segments
     }
 
     /// Beats of `beat_unit` per beat of the BPM: 2 for eighth notes in a song
@@ -248,27 +348,39 @@ impl Grid {
     }
 
     /// The bars the tracker counts from when dynamic: the user's bar 1, and each
-    /// signature change at its pace.
+    /// change at its pace and with its tempo, if it sets one.
     fn anchors(&self) -> Vec<Anchor> {
         if !self.dynamic {
             return Vec::new();
         }
         let start = self.start().unwrap_or(0.0);
-        let bar_one = self.user_start.map(|time| Anchor { time, pace: 1.0 });
-        let changes = self.segments(start, f64::INFINITY).into_iter().skip(1);
+        let bar_one = self.user_start.map(|time| Anchor {
+            time,
+            pace: 1.0,
+            tempo: None,
+        });
+        // The song's BPM does not matter here: only the tempos the changes set go
+        // to the tracker.
+        let segments = self.segments(start, f64::INFINITY, 0.0);
+        let changes = self
+            .changes
+            .iter()
+            .filter(|c| c.time >= start + MIN_CHANGE_GAP)
+            .zip(segments.iter().skip(1));
         bar_one
             .into_iter()
-            .chain(changes.map(|c| Anchor {
-                time: c.time,
-                pace: self.pace(c.beat_unit),
+            .chain(changes.map(|(change, segment)| Anchor {
+                time: change.time,
+                pace: self.pace(segment.signature.beat_unit),
+                tempo: change.bpm,
             }))
             .collect()
     }
 
     /// Estimates bar 1 again if the BPM changed since, and tracks the beats again if
     /// it changed by more than [`RETRACK`], or, when dynamic, if the user's bar 1 or
-    /// the signature changes moved (not while `dragging`: tracking takes too long to
-    /// do every frame).
+    /// the changes moved (not while `dragging`: tracking takes too long to do every
+    /// frame).
     pub fn update_estimate(&mut self, bpm: Option<f64>, onsets: &OnsetEnvelope, dragging: bool) {
         let Some(bpm) = bpm else {
             self.estimate = None;
@@ -301,59 +413,72 @@ impl Grid {
             .is_some_and(|tracked| tracked.beats.len() >= 2)
     }
 
-    /// The beats of the grid at `bpm` in seconds, from bar 1, listed up to `end`:
-    /// the song's own when dynamic (bar 1 and each signature change on the beat
+    /// The beats of the grid at the song's `bpm` in seconds, from bar 1, listed up
+    /// to `end`: the song's own when dynamic (bar 1 and each change on the beat
     /// nearest to it), else steady. `None` when off or bar 1 is unknown.
     pub fn beats(&self, bpm: f64, end: f64) -> Option<Beats> {
         if !self.enabled || bpm <= 0.0 {
             return None;
         }
         let start = self.start()?;
-        let segments = self.segments(start, end);
-        match &self.tracked {
-            Some(tracked) if self.dynamic && tracked.beats.len() >= 2 => {
-                let beats = &tracked.beats;
-                let first = nearest(beats, start);
-                let mut meters = vec![Meter {
-                    from: 0,
-                    per_bar: self.beats_per_bar,
-                }];
-                for segment in &segments[1..] {
-                    let from = nearest(beats, segment.time).saturating_sub(first);
-                    let per_bar = segment.beats_per_bar;
-                    match meters.last_mut() {
-                        // Two changes on one beat: the later one wins.
-                        Some(last) if last.from >= from => last.per_bar = per_bar,
-                        _ => meters.push(Meter { from, per_bar }),
+        let segments = self.segments(start, end, bpm);
+        let tracked = self
+            .tracked
+            .as_ref()
+            .map(|t| t.beats.as_slice())
+            .filter(|beats| self.dynamic && beats.len() >= 2);
+        let mut times: Vec<f64> = Vec::new();
+        let mut meters: Vec<Meter> = Vec::new();
+        for (k, segment) in segments.iter().enumerate() {
+            let next = segments.get(k + 1);
+            let from = times.len();
+            match tracked.filter(|_| !segment.fixed) {
+                // The song's own beats, from the one nearest to the segment's start
+                // to before the one nearest to the next segment's.
+                Some(beats) => {
+                    let first = nearest(beats, segment.time);
+                    let last = next.map_or(beats.len(), |next| nearest(beats, next.time));
+                    for &beat in beats.get(first..last).unwrap_or_default() {
+                        if times.last().is_none_or(|&t| beat > t) {
+                            times.push(beat);
+                        }
                     }
                 }
-                Beats::with_meters(beats[first..].to_vec(), meters)
-                    .or_else(|| Beats::new(beats[first - 1..].to_vec(), self.beats_per_bar))
-            }
-            _ => {
-                let mut times = Vec::new();
-                let mut meters = Vec::new();
-                for (k, segment) in segments.iter().enumerate() {
-                    let beat = 60.0 / bpm / self.pace(segment.beat_unit);
-                    let count = match segments.get(k + 1) {
+                None => {
+                    let beat = 60.0 / segment.bpm / self.pace(segment.signature.beat_unit);
+                    let count = match next {
                         Some(next) => {
                             ((next.time - segment.time) / beat - MIN_LAST_BEAT).ceil() as usize
                         }
                         // Up to a beat past the end.
                         None => ((end - segment.time) / beat).ceil() as usize + 1,
                     };
-                    meters.push(Meter {
-                        from: times.len(),
-                        per_bar: segment.beats_per_bar,
-                    });
-                    times.extend((0..count.max(1)).map(|i| segment.time + i as f64 * beat));
+                    let steady = (0..count.max(1)).map(|i| segment.time + i as f64 * beat);
+                    for beat in steady {
+                        if times.last().is_none_or(|&t| beat > t) {
+                            times.push(beat);
+                        }
+                    }
                 }
-                if times.len() < 2 {
-                    times.push(times.first()? + 60.0 / bpm);
-                }
-                Beats::with_meters(times, meters)
+            }
+            let per_bar = segment.signature.beats_per_bar;
+            match meters.last_mut() {
+                // Two changes on one beat: the later one wins.
+                Some(last) if last.from == from => last.per_bar = per_bar,
+                _ => meters.push(Meter { from, per_bar }),
             }
         }
+        if times.len() < 2 {
+            times.push(times.first()? + 60.0 / bpm);
+        }
+        Beats::with_meters(times, meters)
+    }
+
+    /// The tempo of the beat of `beats` at `secs`, in the beat unit of bar 1 like
+    /// the song's BPM: a 7/8 bar at 79 BPM reads 79, not the 158 of its eighths.
+    pub fn local_bpm(&self, beats: &Beats, secs: f64) -> f64 {
+        let (_, signature) = self.in_force(secs, 0.0);
+        60.0 / beats.beat_at(secs) / self.pace(signature.beat_unit)
     }
 }
 
@@ -549,10 +674,89 @@ mod tests {
         assert_eq!(tracked_from(&grid), [(1.5, 1.0)]);
         // A change to 7/8 counts eighth notes from there.
         let index = grid.add_change(20.0);
-        grid.change_mut(index).unwrap().beats_per_bar = 7;
-        grid.change_mut(index).unwrap().beat_unit = 8;
+        set_signature(&mut grid, index, 7, 8);
         grid.update_estimate(Some(120.0), &onsets, false);
         assert_eq!(tracked_from(&grid), [(1.5, 1.0), (20.0, 2.0)]);
+        // A tempo change goes to the tracker, at the pace in force.
+        let index = grid.add_change(30.0);
+        grid.change_mut(index).unwrap().signature = None;
+        grid.change_mut(index).unwrap().bpm = Some(90.0);
+        grid.update_estimate(Some(120.0), &onsets, false);
+        let anchors = &grid.tracked.as_ref().unwrap().anchors;
+        assert_eq!((anchors[2].pace, anchors[2].tempo), (2.0, Some(90.0)));
+    }
+
+    /// Sets the time signature of change `index`.
+    fn set_signature(grid: &mut Grid, index: usize, beats_per_bar: u32, beat_unit: u32) {
+        grid.change_mut(index).unwrap().signature = Some(Signature {
+            beats_per_bar,
+            beat_unit,
+        });
+    }
+
+    #[test]
+    fn tempo_changes_set_the_beat() {
+        // 120 BPM in 4/4 from 0 s, 60 BPM from 4 s, then 7/8 at that tempo from 8 s.
+        let mut grid = grid(0.0, 4);
+        let slow = grid.add_change(4.0);
+        let change = grid.change_mut(slow).unwrap();
+        (change.bpm, change.signature) = (Some(60.0), None);
+        let seven = grid.add_change(8.0);
+        assert_eq!(grid.changes()[seven].bpm, None, "the tempo carries over");
+        set_signature(&mut grid, seven, 7, 8);
+        let beats = grid.beats(120.0, 12.0).unwrap();
+        let times: Vec<f64> = beats.within(3.0..9.5).map(|(_, t)| t).collect();
+        assert_eq!(times, [3.0, 3.5, 4.0, 5.0, 6.0, 7.0, 8.0, 8.5, 9.0]);
+        // Read in the beat unit of bar 1: the 7/8 eighths are still 60 BPM.
+        assert_eq!(grid.local_bpm(&beats, 1.0), 120.0);
+        assert_eq!(grid.local_bpm(&beats, 5.2), 60.0);
+        assert_eq!(grid.local_bpm(&beats, 8.7), 60.0);
+        assert_eq!(grid.in_force(10.0, 120.0).0, 60.0);
+        assert!(!grid.tempo_changed_by(3.9) && grid.tempo_changed_by(4.0));
+        // Stored as the session keeps them.
+        let stored = grid.session_changes();
+        assert_eq!(stored[0].bpm, Some(60.0));
+        assert_eq!(
+            (stored[0].beats_per_bar, stored[1].beats_per_bar),
+            (None, Some(7))
+        );
+    }
+
+    #[test]
+    fn a_fixed_tempo_fits_whole_bars_up_to_the_next_mark() {
+        // Like Paranoid Android's cut: the band at 82 BPM, a chord ringing from
+        // 207.3 s to 214.0 s (the tracker finds 63 there, 7 beats), then the band
+        // at 63 BPM.
+        let mut tracked: Vec<f64> = (0..8).map(|k| 201.5 + k as f64 * 60.0 / 82.0).collect();
+        tracked.extend((0..7).map(|k| 207.3 + k as f64 * 60.0 / 62.9));
+        // The band's first hit holds a beat, as the tracker does on a note.
+        tracked.extend((0..30).map(|k| 214.0 + k as f64 * 60.0 / 63.0));
+        let mut grid = grid(201.5, 4);
+        grid.dynamic = true;
+        grid.tracked = Some(Tracked::new(82.0, Vec::new(), tracked));
+        let ring = grid.add_change(207.3);
+        let band = grid.add_change(214.0);
+        grid.change_mut(band).unwrap().bpm = Some(63.0);
+        // Two bars of 4/4 in 6.7 s.
+        let fit = grid.fit_tempo(ring, 63.0).unwrap();
+        assert!((fit - 71.64).abs() < 0.01, "{fit}");
+        assert_eq!(grid.fit_tempo(band, 63.0), None, "nothing after the last");
+        let change = grid.change_mut(ring).unwrap();
+        (change.bpm, change.fixed) = (Some(fit), true);
+        let beats = grid.beats(82.0, 240.0).unwrap();
+        let bars: Vec<f64> = lines(&beats, 207.0, 216.0, 100.0)
+            .iter()
+            .filter(|l| l.bar)
+            .map(|l| (l.secs * 1000.0).round() / 1000.0)
+            .collect();
+        // Two whole bars ringing, then the band's bar 1 right on its mark.
+        assert_eq!(bars, [207.3, 210.65, 214.0]);
+        assert!(grid.session_changes()[0].fixed);
+        // Not fixed: the tracked beats, 7 of them, so the bar after is cut.
+        grid.change_mut(ring).unwrap().fixed = false;
+        let beats = grid.beats(82.0, 240.0).unwrap();
+        let count = beats.within(207.2..213.9).count();
+        assert_eq!(count, 7);
     }
 
     #[test]
@@ -560,15 +764,17 @@ mod tests {
         // 120 BPM in 4/4 from 0 s; one bar of 2/4 at 8 s, then 7/8 from 9 s.
         let mut grid = grid(0.0, 4);
         let short = grid.add_change(8.0);
-        grid.change_mut(short).unwrap().beats_per_bar = 2;
+        set_signature(&mut grid, short, 2, 4);
         let seven = grid.add_change(9.0);
         assert_eq!(
-            (grid.changes()[1].beats_per_bar, grid.changes()[1].beat_unit),
-            (2, 4),
+            grid.changes()[1].signature,
+            Some(Signature {
+                beats_per_bar: 2,
+                beat_unit: 4
+            }),
             "starts with the signature in force"
         );
-        let change = grid.change_mut(seven).unwrap();
-        (change.beats_per_bar, change.beat_unit) = (7, 8);
+        set_signature(&mut grid, seven, 7, 8);
         let beats = grid.beats(120.0, 14.0).unwrap();
         let found: Vec<(f64, Option<String>)> = lines(&beats, 7.0, 12.6, 100.0)
             .into_iter()
@@ -587,7 +793,7 @@ mod tests {
         // 120 BPM in 4/4; a change to 3/4 at 3.3 s, 0.3 s into bar 2's beat 3.
         let mut grid = grid(0.0, 4);
         let index = grid.add_change(3.3);
-        grid.change_mut(index).unwrap().beats_per_bar = 3;
+        set_signature(&mut grid, index, 3, 4);
         let beats = grid.beats(120.0, 6.0).unwrap();
         let bars: Vec<f64> = lines(&beats, 0.0, 6.0, 100.0)
             .iter()
@@ -627,8 +833,7 @@ mod tests {
         grid.dynamic = true;
         grid.tracked = Some(Tracked::new(120.0, Vec::new(), tracked));
         let index = grid.add_change(4.02);
-        let change = grid.change_mut(index).unwrap();
-        (change.beats_per_bar, change.beat_unit) = (7, 8);
+        set_signature(&mut grid, index, 7, 8);
         let beats = grid.beats(120.0, 8.0).unwrap();
         let bars: Vec<f64> = lines(&beats, 0.0, 8.0, 100.0)
             .iter()

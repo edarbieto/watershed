@@ -26,7 +26,10 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("T", "Tap tempo"),
             ("C", "Click on or off"),
-            ("Shift+C", "Change the time signature at the playhead"),
+            (
+                "Shift+C",
+                "Change the tempo or time signature at the playhead",
+            ),
         ],
     ),
     (
@@ -47,10 +50,10 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
             ),
             (
                 "Right-click the bar ruler",
-                "Change the time signature there",
+                "Change the tempo or time signature there",
             ),
             (
-                "Click a time signature",
+                "Click a tempo or time signature",
                 "Change or delete it (drag to move it)",
             ),
             ("Double-click a fader or pan", "Back to its default"),

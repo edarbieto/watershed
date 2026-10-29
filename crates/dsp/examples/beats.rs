@@ -1,9 +1,11 @@
 //! Tracks the beats of some audio files, as if they were the stems of one song, and
 //! prints how the local tempo moves: `cargo run --release -p watershed-dsp --example
-//! beats -- [--bpm 138] [--bar-one 0.25] [--pace 61.2:2] drums.flac bass.flac ...`.
-//! `--pace` (repeatable) changes the pace from a time on, as a time signature mark
-//! does: 2 counts eighth notes in a song counted in quarter notes. Files named
-//! `vocals` weigh less.
+//! beats -- [--bpm 138] [--bar-one 0.25] [--pace 61.2:2] [--tempo 207:63] drums.flac
+//! bass.flac ...`. `--pace` (repeatable) changes the pace from a time on, as a time
+//! signature change does: 2 counts eighth notes in a song counted in quarter notes.
+//! `--tempo` (repeatable) sets the tempo from a time on, as a tempo change does.
+//! `--list 200:230` prints every beat between those seconds. Files named `vocals`
+//! weigh less.
 
 use std::time::Instant;
 
@@ -16,26 +18,39 @@ fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let bpm = take_option(&mut args, "--bpm");
     let bar_one = take_option(&mut args, "--bar-one");
+    let list = take_pair(&mut args, "--list");
     let mut anchors: Vec<Anchor> = bar_one
-        .map(|time| Anchor { time, pace: 1.0 })
+        .map(|time| Anchor {
+            time,
+            pace: 1.0,
+            tempo: None,
+        })
         .into_iter()
         .collect();
-    while let Some(i) = args.iter().position(|a| a == "--pace") {
-        let value = args.get(i + 1).cloned().unwrap_or_default();
-        args.drain(i..(i + 2).min(args.len()));
-        let parsed = value
-            .split_once(':')
-            .and_then(|(time, pace)| Some((time.parse().ok()?, pace.parse().ok()?)));
-        let Some((time, pace)) = parsed else {
-            eprintln!("--pace takes <seconds>:<pace>, e.g. 61.2:2");
-            std::process::exit(2);
-        };
-        anchors.push(Anchor { time, pace });
+    while let Some((time, pace)) = take_pair(&mut args, "--pace") {
+        anchors.push(Anchor {
+            time,
+            pace,
+            tempo: None,
+        });
+    }
+    while let Some((time, tempo)) = take_pair(&mut args, "--tempo") {
+        // At the pace in force there.
+        let pace = anchors
+            .iter()
+            .filter(|a| a.time <= time)
+            .max_by(|a, b| a.time.total_cmp(&b.time))
+            .map_or(1.0, |a| a.pace);
+        anchors.push(Anchor {
+            time,
+            pace,
+            tempo: Some(tempo),
+        });
     }
     if args.is_empty() {
         eprintln!(
             "usage: beats [--bpm <bpm>] [--bar-one <seconds>] [--pace <seconds>:<pace>]... \
-             <audio file>..."
+             [--tempo <seconds>:<bpm>]... <audio file>..."
         );
         std::process::exit(2);
     }
@@ -71,6 +86,16 @@ fn main() {
         "{bpm:.1} BPM, {} beats tracked in {elapsed:.1?}",
         beats.len()
     );
+    if let Some((from, to)) = list {
+        let mut last = None;
+        for &beat in beats.iter().filter(|&&t| (from..to).contains(&t)) {
+            match last {
+                Some(last) => println!("  {beat:9.3}  {:6.1} BPM", 60.0 / (beat - last)),
+                None => println!("  {beat:9.3}"),
+            }
+            last = Some(beat);
+        }
+    }
 
     if let Some(end) = envelope.rhythm_end() {
         let length = envelope.values.len() as f64 / envelope.rate;
@@ -125,6 +150,21 @@ fn main() {
 }
 
 /// The number after `name` in `args`, taking both out.
+/// The `<seconds>:<value>` after `name`, removed from `args`.
+fn take_pair(args: &mut Vec<String>, name: &str) -> Option<(f64, f64)> {
+    let i = args.iter().position(|a| a == name)?;
+    let value = args.get(i + 1).cloned().unwrap_or_default();
+    args.drain(i..(i + 2).min(args.len()));
+    let parsed = value
+        .split_once(':')
+        .and_then(|(time, value)| Some((time.parse().ok()?, value.parse().ok()?)));
+    if parsed.is_none() {
+        eprintln!("{name} takes <seconds>:<value>, e.g. 61.2:2");
+        std::process::exit(2);
+    }
+    parsed
+}
+
 fn take_option(args: &mut Vec<String>, name: &str) -> Option<f64> {
     let i = args.iter().position(|a| a == name)?;
     let value = args.get(i + 1).and_then(|v| v.parse::<f64>().ok());
