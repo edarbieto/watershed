@@ -8,6 +8,7 @@ dependencies = [
     "numpy",
     "soundfile",
     "soxr",
+    "safetensors",
     "pyyaml",
     "omegaconf",
     "ml_collections",

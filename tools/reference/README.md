@@ -51,3 +51,14 @@ Measured speed (BS-RoFormer SW):
   stems of the song are scaled down by the same factor, so their balance is kept.
 - The model has no declared license. It is downloaded from a public mirror and is
   not part of this repository.
+
+## Tensors for validating the Rust model
+
+```sh
+uv run dump_tensors.py path/to/song.mp3 --out fixtures/chunk.safetensors
+```
+
+Runs one chunk of the song (from 60 s by default, `--start` changes it) through the
+model on the CPU in f32 and saves the input, each layer's output and the final audio,
+~2 GB in all. `*.safetensors` is ignored by git.
+`crates/roformer/examples/chunk.rs` compares the Rust model against this file.
