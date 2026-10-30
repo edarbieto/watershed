@@ -1,0 +1,26 @@
+[package]
+name = "watershed-roformer"
+description = "BS-RoFormer on burn + wgpu, the native separation backend."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+burn = { workspace = true, features = ["wgpu"] }
+pytorch-reader.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+burn = { workspace = true, features = ["metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+burn = { workspace = true, features = ["vulkan"] }
+
+[dev-dependencies]
+anyhow.workspace = true
+safetensors.workspace = true
+
+[lints]
+workspace = true
