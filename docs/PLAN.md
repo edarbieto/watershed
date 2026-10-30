@@ -420,10 +420,37 @@ RAM first, then disk. In this order:
   labels never overlap; below it the window cannot shrink.
 
 ### Phase 4: Native `burn` + `wgpu` backend
-- [ ] STFT/iSTFT + overlapping chunking in Rust.
-- [ ] BS-RoFormer in burn + weight loading + equivalence tests against PyTorch.
-- [ ] MelBand-RoFormer.
-- [ ] Remove the temporary backend from the distribution.
+Speed is the risk everything else depends on, so it is measured first; STFT and
+chunking come after it. A chunk is 13.35 s of audio (1151 STFT frames) and a 5 min
+song is about 47 chunks.
+
+- [x] **4.0 Reference:** `tools/reference/dump_tensors.py` saves the input and each
+  layer's output for a real chunk, on PyTorch CPU in f32. The files stay out of git.
+- [ ] **4.1 Speed spike:** new `crates/roformer` crate, no C++: BS-RoFormer with the
+  STFT outside the model, `.ckpt` loading, time for one chunk. **Gate:** at most
+  3.3 s per chunk on the M5 Pro (2× ggml Metal, ~1.6 s today) and 4.2 s on the
+  RTX 3050 (2× PyTorch CUDA; ggml Vulkan takes ~2.9 s today). If it misses, first
+  optimize kernels and chunk size; if it still misses, GGUF stays and this phase is
+  rethought. **M5 Pro: passed, 2.6 s in f16** (4.2 s in f32). RTX 3050: to measure.
+- [ ] **4.2 Equivalence:** layer by layer (band split, each block, masks), relative
+  error ≤ 1e-3 per layer. A tiny random-weights model stays in the repo for CI, which
+  has neither a GPU nor the `.ckpt`. The limit applies to f32 (2.6e-6 on the masks);
+  f16 is 3e-3 and is judged by the SDR of the audio in 4.3.
+- [ ] **4.3 STFT and chunking:** STFT/iSTFT in `crates/dsp` with `realfft`, overlap-add
+  as in MSST's `demix` (reflect padding, fades of 1/10 of a chunk, DC set to zero).
+  Matches `torch.stft` and `demix`; SDR ≥ 60 dB against PyTorch on a whole song in
+  f32. f16 will not reach that: its limit is set once it is measured, with the q8
+  GGUF's 31–43 dB as the reference for inaudible.
+- [ ] **4.4 Integration:** `BurnSeparator` implements `Separator`: `.yaml` reading,
+  catalog with architecture and config, progress and cancel per chunk. Backend
+  selectable, GGUF still the default.
+- [ ] **4.5 Measurement:** time, RAM and VRAM per song, Vulkan vs DX12 on Windows, CPU
+  fallback. Must fit the RTX 3050's 6 GB without spilling; burn then becomes the
+  default. Also decided here, with data: whether the default model uses quantized
+  weights (`.ckpt` ~700 MB on disk, GGUF 188 MB).
+- [ ] **4.6 MelBand-RoFormer:** overlapping mel bands, validated the same way.
+- [ ] **4.7 Remove the temporary backend:** submodules, CMake, patches and the Vulkan
+  SDK in CI. Only after a listening test by the user and with the CPU fallback solved.
 
 ### Phase 5: Extras
 - [ ] Ensembles.

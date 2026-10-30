@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-28.
+Last updated: 2026-10-30.
 
 ## Where we are
 
@@ -104,9 +104,15 @@ Last updated: 2026-10-28.
 ## Next steps
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
-the song info panel, which stays in the plan for later. Phase 4 (the native `burn` +
-`wgpu` backend) is the next big block.
+the song info panel, which stays in the plan for later. **Phase 4** (the native
+`burn` + `wgpu` backend) is in progress: 4.0 done, 4.1 passed on the MacBook (see
+"Native backend: burn + wgpu" below).
 
+0. **Next, on the Windows machine: the 4.1 gate on the RTX 3050** (at most 4.2 s per
+   chunk). `uv run dump_tensors.py SONG --out fixtures/chunk.safetensors` in
+   `tools/reference`, then
+   `cargo run --release -p watershed-roformer --example chunk -- tools/reference/models/BS-Rofo-SW-Fixed.ckpt tools/reference/fixtures/chunk.safetensors`
+   and the same with `--full`. Note the GPU memory it prints. If it passes, 4.2.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -138,6 +144,52 @@ Drive should help.
 ## Open questions for the user
 
 None right now.
+
+## Native backend: burn + wgpu
+
+Phase 4. `crates/roformer` (no C++): BS-RoFormer on burn 0.22.1, inference only, the
+layers are plain tensors rather than burn `Module`s. It reads the `.ckpt` directly
+(`pytorch-reader` parses the pickle without running it). The STFT stays outside; the
+model takes a spectrogram and returns complex masks. The parameters are in
+`Config::bs_roformer_sw()` until the `.yaml` is read (4.4).
+
+`tools/reference/dump_tensors.py` runs one real chunk through PyTorch (CPU, f32) and
+saves the input and each layer's output (~2 GB, not in git);
+`examples/chunk.rs` times the model and compares it layer by layer.
+
+Measured on the M5 Pro, Metal, one chunk (13.35 s of audio, 1151 frames). Today's
+ggml backend takes ~1.6 s per chunk here and PyTorch MPS ~2.7 s:
+
+| Precision | Time per chunk | Masks vs PyTorch (relative RMS) | GPU memory reserved |
+|---|---|---|---|
+| f32 | 4.2 s | 2.6e-6 | 2362 MiB |
+| f16 after the band split | **2.6 s** | 3.1e-3 | **1217 MiB** |
+
+The first pass of a run takes ~0.8 s more (compiling kernels). A 4:39 song would take
+~116 s of model time in f16 (ggml: 72 s in all). Time per block in f32: 0.24 s for
+the time transformer, 0.09 s for the frequency one, 0.11 s for the masks.
+
+- **The model was right at the first run** in f32: every layer within 1e-5 of PyTorch.
+- **f16 only after the band split.** With everything in f16, quiet signals square to
+  zero inside the norms: silence gave NaN in every value and the error reached 9e-3.
+  The band split stays in f32 and the norm's epsilon is 1e-6 in f16 (PyTorch's 1e-12
+  is zero there). Silence and input at −60 and −100 dB now stay finite. Masks in f32
+  gave no better error (3.06e-3 vs 3.09e-3), and they hold most of the weights, so
+  they run in f16 too. PyTorch on CUDA also runs in f16 (`use_amp`).
+- **Error of f16:** 3e-3 on the masks misses the 1e-3 set for layers, and peaks are
+  much higher on isolated values. What it means in the audio is not measured yet:
+  the SDR comes with the STFT in 4.3, and the listening test decides.
+- **Attention memory:** on Metal burn has no streaming kernel (`cubecl-wgpu` only
+  reports cooperative matrices on Vulkan), so it builds the whole score matrix:
+  2.63 GB per time layer in f32, 5.9 GB reserved in all. `MAX_SCORES` in `layers.rs`
+  splits long batches: same time, 1/5 of the memory. Its limit of 67 M scores only
+  splits the time layers. Burn's own `attention` and `attention_fallback` took the
+  same time, and autotune at its highest level changed nothing.
+- **Vulkan may be better:** ggml's speed on Metal comes from the GPU's matrix
+  instructions, which wgpu exposes on Metal but cubecl does not use there. On Vulkan
+  cubecl does use them when the driver has f16 cooperative matrices, so the RTX 3050
+  could run burn's streaming kernels. Not measured.
+- `Device::metal` and `Device::wgpu` gave the same speed here.
 
 ## Tempo, pitch and limiter
 

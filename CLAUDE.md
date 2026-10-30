@@ -77,7 +77,8 @@ machine or regenerate them with the reference tool from any mp3s.
 | `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `write_vorbis` (vorbis_rs), `resample` (rubato FFT), `Peaks`, `OnsetEnvelope` (tempo estimation, beat tracking with anchors), `Chroma`/`Key` (key estimation); `examples/bpm.rs`, `examples/beats.rs`, `examples/key.rs`, `examples/probe.rs` |
 | `crates/storage` | `Config` (TOML in the OS config dir), `Session` (`.watershed.toml`), `models_dir` |
 | `crates/separation` | `trait Separator`, `GgufSeparator`, `separate_song` (song file → folder of FLAC stems + session); `catalog` (`models.toml`: downloadable models, `install` with sha256 check), `download` (resumable, mirrors); `bsroformer::Model` (safe wrapper over BSRoformer.cpp + ggml); `cpp/` C wrapper and CMake project; `build.rs`; `vendor/` submodules; `examples/separate.rs` |
-| `tools/reference` | dev-only PyTorch reference separation (uv project) |
+| `crates/roformer` | Native backend (Phase 4): `BsRoformer` on burn, `layers.rs` (attention, band split, masks), `Weights` (reads `.ckpt`), `Precision`; `examples/chunk.rs` (timing and comparison with PyTorch) |
+| `tools/reference` | dev-only PyTorch reference separation (uv project); `dump_tensors.py` saves a chunk's tensors for validating `crates/roformer` |
 
 Real-time rule: the cpal callback never allocates, frees, locks or does I/O. Songs go
 to the audio thread through an `rtrb` queue and come back on another queue to be
@@ -88,7 +89,8 @@ dropped on the UI thread. Mixer parameters are atomics.
 - Several dependencies are newer than Claude's training data: **eframe/egui 0.36**
   (`App::ui(&mut self, ui, frame)` instead of `update`, `egui::Panel::top(..).show(ui, ..)`,
   `CentralPanel::default_margins()`, `DroppedFile` is a trait with `.path()`),
-  **cpal 0.18** (`device.id()` / `description()`, `DeviceId` parses from string,
+  **burn 0.22** (no `Backend` type parameter: `Tensor<D>`, the backend is in the
+  `Device`), **cpal 0.18** (`device.id()` / `description()`, `DeviceId` parses from string,
   `sample_rate` is a plain `u32`), **symphonia 0.6**, **rubato 5** (`Fft` +
   `process_all` with `audioadapter` buffers). Read the sources in
   `~/.cargo/registry/src/` instead of guessing APIs.
