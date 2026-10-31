@@ -105,14 +105,13 @@ Last updated: 2026-10-30.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
 the song info panel, which stays in the plan for later. **Phase 4** (the native
-`burn` + `wgpu` backend) is in progress: 4.0 done, 4.1 passed on the MacBook and
-missed on the RTX 3050 (see "Native backend: burn + wgpu" below).
+`burn` + `wgpu` backend) is in progress: 4.0 and 4.1 done, passed on both machines
+(see "Native backend: burn + wgpu" below).
 
-0. **Next: the 4.1 gate on the RTX 3050 is missed** (6.4 s per chunk, limit 4.2 s).
-   First confirm that the run used the RTX 3050 and not the 5700G's integrated GPU
-   (Task Manager or `nvidia-smi` during the `chunk` example; it does not print the
-   adapter). Then find which attention kernel runs on Vulkan, and optimize as
-   `PLAN.md` 4.1 says. If it still misses, GGUF stays and Phase 4 is rethought.
+0. **Next: 4.2 equivalence.** On the MacBook, try `autotune` on Metal: it was never
+   compiled in there, so the note below that it "changed nothing" did not test it.
+   Windows only enabled it for Vulkan. Also re-measure Metal: the rotary, norm and
+   GELU changes are shared code, only measured on Vulkan so far.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -184,30 +183,58 @@ the time transformer, 0.09 s for the frequency one, 0.11 s for the masks.
   2.63 GB per time layer in f32, 5.9 GB reserved in all. `MAX_SCORES` in `layers.rs`
   splits long batches: same time, 1/5 of the memory. Its limit of 67 M scores only
   splits the time layers. Burn's own `attention` and `attention_fallback` took the
-  same time, and autotune at its highest level changed nothing.
-- **Vulkan may be better:** ggml's speed on Metal comes from the GPU's matrix
+  same time. Setting autotune to its highest level changed nothing, but **that did not
+  test autotune**: the workspace's `default-features = false` left the feature out of
+  the build (found on Windows, below).
+- **Vulkan is better here:** ggml's speed on Metal comes from the GPU's matrix
   instructions, which wgpu exposes on Metal but cubecl does not use there. On Vulkan
-  cubecl does use them when the driver has f16 cooperative matrices, so the RTX 3050
-  could run burn's streaming kernels. Not confirmed: see the Windows numbers below.
+  cubecl does use them when the driver has f16 cooperative matrices: confirmed on the
+  RTX 3050, see below.
 - `Device::metal` and `Device::wgpu` gave the same speed here.
 
-Measured on Windows, Vulkan, same chunk. Today's ggml backend takes ~2.9 s per chunk
-there and PyTorch CUDA ~2.1 s:
+Measured on Windows (RTX 3050, Vulkan, driver 610.62), same chunk. Today's ggml backend
+takes ~2.9 s per chunk there and PyTorch CUDA ~2.1 s. **The 4.2 s gate passes**, three
+runs in a row at 3.98–4.06 s:
 
-| Precision | Time per chunk | Masks vs PyTorch (relative RMS) | GPU memory reserved |
+| Build | f16, s per chunk | Masks vs PyTorch, f16 | GPU memory reserved |
 |---|---|---|---|
-| f32 | 12.8 s | 2.3e-6 | 2362 MiB |
-| f16 after the band split | **6.4 s** | 2.65e-3 | **1217 MiB** |
+| As first measured | 6.5 | 2.65e-3 | 1217 MiB |
+| + `autotune` | 4.45 | 2.84e-3 | 1282 MiB |
+| + rotary without split and concat | 4.27 | | 1282 MiB |
+| + norm gain in the weights | 4.23 | 2.74e-3 | 1282 MiB |
+| + GELU in three kernels | **4.0** | 2.78e-3 | **1282 MiB** |
 
-- **Misses the 4.2 s gate.** A 5 min song (47 chunks) would take ~5 min of model time
-  in f16, against ~2.3 min with ggml.
-- **Not yet known:** which GPU ran it (`DefaultDevice` asks wgpu for high performance,
-  so the RTX 3050 is likely, but the example does not print it) and which attention
-  kernel autotune chose.
-- **Memory is identical to the Mac's to the MiB**, which suggests Vulkan also builds
-  the score matrices rather than streaming them. A hint, not a measurement.
-- Accuracy matches the Mac, silence and quiet inputs stay finite, and it fits the
-  6 GB. The first pass takes ~4 s more than the rest.
+f32 is now 8.0 s per chunk (was 12.8 s), masks at 1.7e-6 from PyTorch, 2536 MiB reserved.
+Silence and quiet input stay finite in f16.
+
+- **Which GPU ran:** the RTX 3050, so the first gate miss was real. `nvidia-smi` during
+  the example: 94 % use on average, memory from 0.9 to 2.3 GB, 65 W. `DefaultDevice`
+  does pick it.
+- **Which kernel ran:** `autotune` and `fusion` were both off, because the workspace
+  sets `default-features = false` on burn. No flash attention kernel existed in the
+  build: every attention went through the materialized fallback. With `autotune`
+  (Vulkan only, in `crates/roformer/Cargo.toml`) the driver's f16 cooperative matrices
+  are used and the attention runs `blackbox_accelerated`, the streaming kernel.
+- **Where the time goes,** per pass, before the kernel trims: time transformer 2.97 s,
+  frequency 1.37 s, masks 0.11 s. Inside the two transformers: attention 2.16 s, feed
+  forward 0.88 s, rotary 0.62 s, q/k/v 0.34 s, the rest under 0.3 s. Numbers from timers
+  placed in the layers, which wait for the GPU, so they sum a little over a pass.
+- **Kernel trims,** all exact rewrites: rotary is `(a, b) cos + (b, a) sin` with a flip,
+  the norm's scale is folded into its gain at load, and GELU's two divisions are folded
+  into the linear weights around it.
+- **Tried, no gain, not kept:** `MAX_SCORES` from 16 M to unlimited does not change the
+  time and unlimited reserves 3781 MiB, so it stays. `fusion` gave 4.39 s against 4.45 s
+  but doubled the first pass to 76 s. `CUBECL_AUTOTUNE_LEVEL=extensive` gave 4.40 s.
+  DX12 not tried: 4.5 compares it.
+- **Cost of autotune, still open:** the first pass of every process takes ~33 s instead
+  of ~4 s, because it benchmarks kernels again each time (cubecl's `persistence` feature
+  may fix it, not tried). A 5 min song (47 chunks) would take ~3.6 min of model time with
+  that included, against ~2.3 min with ggml, so burn passes the gate but is not faster
+  than today's backend here.
+- **Measuring:** `CUBECL_DEBUG_LOG=<file>` logs the autotune decisions but costs up to
+  3 s per pass, mostly shown as masks time, so never time with it on. `chunk` now prints
+  the time per block. Its numbers with `fusion` on are not reliable: syncing between
+  blocks breaks up the fused kernels.
 
 ## Tempo, pitch and limiter
 

@@ -424,39 +424,16 @@ Speed is the risk everything else depends on, so it is measured first; STFT and
 chunking come after it. A chunk is 13.35 s of audio (1151 STFT frames) and a 5 min
 song is about 47 chunks.
 
-> **PIN, for the next Claude session on the Windows machine (remove it when done).**
-> The 4.1 gate missed on the RTX 3050: 6.4 s per chunk in f16, limit 4.2 s. Numbers
-> and open questions are in `docs/STATUS.md`, "Native backend: burn + wgpu". Run the
-> tests yourself, in this order, and write each result to STATUS:
->
-> 1. **Which GPU ran.** Run the `chunk` example (below) while sampling `nvidia-smi`.
->    `CUBECL_WGPU_DEFAULT_DEVICE` can force one. If it was the integrated GPU, repeat
->    the measurements on the RTX 3050 and re-judge the gate before anything else.
-> 2. **Which attention kernel runs.** Find out whether the driver reports f16 cooperative
->    matrices to cubecl (`cubecl-wgpu` `backend/vulkan.rs`, its `log::debug!` lines) and
->    which strategy autotune picks (`burn-cubecl` `kernel/attention/base.rs`). Identical
->    memory to the Mac suggests the materialized fallback, which is unconfirmed.
-> 3. **Where the time goes,** per block: time transformer, frequency transformer, masks.
-> 4. **Optimize, as 4.1 says,** starting from what 2 and 3 show: raising or dropping
->    `MAX_SCORES` in `layers.rs` if the kernel streams, then the kernels, then chunk size.
->    DX12 can be tried here too. Change one thing per measurement.
->
-> The fixtures already exist on that machine:
-> `cargo run --release -p watershed-roformer --example chunk -- [--full] tools/reference/models/BS-Rofo-SW-Fixed.ckpt tools/reference/fixtures/chunk.safetensors`.
-> Stay on 4.1: 4.2 and 4.3 wait for this. If 4.2 s is out of reach, stop and report to
-> the user, since GGUF then stays and this phase is rethought. Another session works
-> at the same time on the MacBook: pull before starting, keep commits small and push
-> often. CI: run the usual checks, and on Windows do not change the code for Metal.
-
 - [x] **4.0 Reference:** `tools/reference/dump_tensors.py` saves the input and each
   layer's output for a real chunk, on PyTorch CPU in f32. The files stay out of git.
-- [ ] **4.1 Speed spike:** new `crates/roformer` crate, no C++: BS-RoFormer with the
+- [x] **4.1 Speed spike:** new `crates/roformer` crate, no C++: BS-RoFormer with the
   STFT outside the model, `.ckpt` loading, time for one chunk. **Gate:** at most
   3.3 s per chunk on the M5 Pro (2× ggml Metal, ~1.6 s today) and 4.2 s on the
   RTX 3050 (2× PyTorch CUDA; ggml Vulkan takes ~2.9 s today). If it misses, first
   optimize kernels and chunk size; if it still misses, GGUF stays and this phase is
-  rethought. **M5 Pro: passed, 2.6 s in f16** (4.2 s in f32). **RTX 3050: missed,
-  6.4 s in f16** (12.8 s in f32); optimizing comes next.
+  rethought. **M5 Pro: passed, 2.6 s in f16** (4.2 s in f32). **RTX 3050: passed, 4.0 s
+  in f16** (8.0 s in f32), after turning on burn's `autotune` and trimming the model's
+  GPU kernels. Each run still spends ~29 s tuning at the start, to review in 4.5.
 - [ ] **4.2 Equivalence:** layer by layer (band split, each block, masks), relative
   error ≤ 1e-3 per layer. A tiny random-weights model stays in the repo for CI, which
   has neither a GPU nor the `.ckpt`. The limit applies to f32 (2.6e-6 on the masks);
