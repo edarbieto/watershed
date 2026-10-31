@@ -77,8 +77,8 @@ machine or regenerate them with the reference tool from any mp3s.
 | `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `write_vorbis` (vorbis_rs), `resample` (rubato FFT), `Peaks`, `OnsetEnvelope` (tempo estimation, beat tracking with anchors), `Chroma`/`Key` (key estimation); `examples/bpm.rs`, `examples/beats.rs`, `examples/key.rs`, `examples/probe.rs` |
 | `crates/storage` | `Config` (TOML in the OS config dir), `Session` (`.watershed.toml`), `models_dir` |
 | `crates/separation` | `trait Separator`, `GgufSeparator`, `separate_song` (song file → folder of FLAC stems + session); `catalog` (`models.toml`: downloadable models, `install` with sha256 check), `download` (resumable, mirrors); `bsroformer::Model` (safe wrapper over BSRoformer.cpp + ggml); `cpp/` C wrapper and CMake project; `build.rs`; `vendor/` submodules; `examples/separate.rs` |
-| `crates/roformer` | Native backend (Phase 4): `BsRoformer` on burn, `layers.rs` (attention, band split, masks), `Weights` (reads `.ckpt`), `Precision`; `examples/chunk.rs` (timing and comparison with PyTorch) |
-| `tools/reference` | dev-only PyTorch reference separation (uv project); `dump_tensors.py` saves a chunk's tensors for validating `crates/roformer` |
+| `crates/roformer` | Native backend (Phase 4): `BsRoformer` on burn, `layers.rs` (attention, band split, masks), `Weights` (reads `.ckpt`), `Precision`; `examples/chunk.rs` (timing and comparison with PyTorch); `tests/equivalence.rs` (layer by layer against PyTorch: tiny model in `tests/fixtures` on the CPU, real one with `--ignored`) |
+| `tools/reference` | dev-only PyTorch reference separation (uv project); `dump_tensors.py` saves a chunk's tensors for validating `crates/roformer`, `make_tiny_fixture.py` makes its CI fixture |
 
 Real-time rule: the cpal callback never allocates, frees, locks or does I/O. Songs go
 to the audio thread through an `rtrb` queue and come back on another queue to be

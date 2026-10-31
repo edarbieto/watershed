@@ -435,10 +435,10 @@ song is about 47 chunks.
   which does not pay for its tuning there. **RTX 3050: passed, 4.0 s in f16** (8.0 s in
   f32), after turning on burn's `autotune` and trimming the model's GPU kernels. Each
   run there still spends ~29 s tuning at the start, to review in 4.5.
-- [ ] **4.2 Equivalence:** layer by layer (band split, each block, masks), relative
+- [x] **4.2 Equivalence:** layer by layer (band split, each block, masks), relative
   error ≤ 1e-3 per layer. A tiny random-weights model stays in the repo for CI, which
-  has neither a GPU nor the `.ckpt`. The limit applies to f32 (2.8e-6 on the masks);
-  f16 is 3e-3 and is judged by the SDR of the audio in 4.3.
+  has neither a GPU nor the `.ckpt`. The limit applies to f32 (2.8e-6 on the masks,
+  1.4e-5 at the worst layer); f16 is 3e-3 and is judged by the SDR of the audio in 4.3.
 - [ ] **4.3 STFT and chunking:** STFT/iSTFT in `crates/dsp` with `realfft`, overlap-add
   as in MSST's `demix` (reflect padding, fades of 1/10 of a chunk, DC set to zero).
   Matches `torch.stft` and `demix`; SDR ≥ 60 dB against PyTorch on a whole song in

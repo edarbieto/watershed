@@ -105,12 +105,11 @@ Last updated: 2026-10-30.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
 the song info panel, which stays in the plan for later. **Phase 4** (the native
-`burn` + `wgpu` backend) is in progress: 4.0 and 4.1 done, passed on both machines
-(see "Native backend: burn + wgpu" below).
+`burn` + `wgpu` backend) is in progress: 4.0, 4.1 and 4.2 done, the 4.1 gate passed
+on both machines (see "Native backend: burn + wgpu" below).
 
-0. **Next: 4.2 equivalence** (`PLAN.md` Phase 4). Metal was re-measured with the
-   shared kernel trims and `autotune` was tried there: 2.4 s per chunk in f16, and
-   `autotune` stays off on macOS (see "Native backend: burn + wgpu").
+0. **Next: 4.3 STFT and chunking** (`PLAN.md` Phase 4). `tiny.safetensors` already
+   holds the audio and the STFT of a seeded signal, and the output of `tiny.ckpt`.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -259,6 +258,25 @@ Silence and quiet input stay finite in f16.
   3 s per pass, mostly shown as masks time, so never time with it on. `chunk` now prints
   the time per block. Its numbers with `fusion` on are not reliable: syncing between
   blocks breaks up the fused kernels.
+
+### Equivalence tests (4.2)
+
+`crates/roformer/tests/equivalence.rs` fails if any layer is over 1e-3 from PyTorch in
+f32:
+
+- **Tiny model, in CI:** `tools/reference/make_tiny_fixture.py` builds the real
+  PyTorch class with the real options, but small (dim 16, 2 blocks, 5 bands, 2 stems)
+  and with seeded random weights, and runs it on seeded audio. The two files in
+  `crates/roformer/tests/fixtures` take ~400 KB; the `.ckpt` goes through the same
+  reader as the real one. It runs on burn's `flex`, the pure Rust CPU backend, in a
+  dev-dependency, and takes 0.01 s. Worst layer 3.1e-7.
+- **Real model, by hand:** the `--ignored` test on the GPU and the 2 GB dump. On Metal
+  every layer passes: worst 1.41e-5 at `freq_9`, masks 2.78e-6.
+- **The tests were checked by breaking the model:** a wrong GELU and a flipped rotation
+  each put 6 layers at 2–5e-2. A second test checks that quiet input stays finite in
+  f16 on `flex`, which does compute in f16 and fails like Metal: silence gives NaN with
+  the band split in f16 and PyTorch's epsilon. Either guard alone already prevents it
+  on the tiny model, so the test does not cover each guard by itself.
 
 ## Tempo, pitch and limiter
 
