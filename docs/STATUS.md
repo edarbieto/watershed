@@ -108,10 +108,10 @@ the song info panel, which stays in the plan for later. **Phase 4** (the native
 `burn` + `wgpu` backend) is in progress: 4.0 and 4.1 done, passed on both machines
 (see "Native backend: burn + wgpu" below).
 
-0. **Next: 4.2 equivalence.** On the MacBook, try `autotune` on Metal: it was never
-   compiled in there, so the note below that it "changed nothing" did not test it.
-   Windows only enabled it for Vulkan. Also re-measure Metal: the rotary, norm and
-   GELU changes are shared code, only measured on Vulkan so far.
+0. **Next, on the MacBook: follow the pin in `PLAN.md` Phase 4.** Re-measure Metal,
+   since the rotary, norm and GELU changes are shared code only measured on Vulkan so
+   far, and try `autotune` there: it was never compiled in, so the note below that it
+   "changed nothing" did not test it. Then 4.2 equivalence.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
