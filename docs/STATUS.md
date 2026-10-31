@@ -108,10 +108,9 @@ the song info panel, which stays in the plan for later. **Phase 4** (the native
 `burn` + `wgpu` backend) is in progress: 4.0 and 4.1 done, passed on both machines
 (see "Native backend: burn + wgpu" below).
 
-0. **Next, on the MacBook: follow the pin in `PLAN.md` Phase 4.** Re-measure Metal,
-   since the rotary, norm and GELU changes are shared code only measured on Vulkan so
-   far, and try `autotune` there: it was never compiled in, so the note below that it
-   "changed nothing" did not test it. Then 4.2 equivalence.
+0. **Next: 4.2 equivalence** (`PLAN.md` Phase 4). Metal was re-measured with the
+   shared kernel trims and `autotune` was tried there: 2.4 s per chunk in f16, and
+   `autotune` stays off on macOS (see "Native backend: burn + wgpu").
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -161,12 +160,17 @@ ggml backend takes ~1.6 s per chunk here and PyTorch MPS ~2.7 s:
 
 | Precision | Time per chunk | Masks vs PyTorch (relative RMS) | GPU memory reserved |
 |---|---|---|---|
-| f32 | 4.2 s | 2.6e-6 | 2362 MiB |
-| f16 after the band split | **2.6 s** | 3.1e-3 | **1217 MiB** |
+| f32 | 3.75 s | 2.8e-6 | 2362 MiB |
+| f16 after the band split | **2.4 s** | 3.3e-3 | **1211 MiB** |
 
-The first pass of a run takes ~0.8 s more (compiling kernels). A 4:39 song would take
-~116 s of model time in f16 (ggml: 72 s in all). Time per block in f32: 0.24 s for
-the time transformer, 0.09 s for the frequency one, 0.11 s for the masks.
+These are with the kernel trims made on Windows (below), which are shared code: before
+them the same runs gave 4.1 s and 2.6 s, masks at 2.6e-6 and 3.1e-3. Rebuilding that
+code today reproduced both errors to the digit, and the machine was on battery with
+no low power mode, so the change comes from the trims and not from the setup.
+
+The first pass of a run takes ~0.5 s more (compiling kernels). A 4:39 song would take
+~106 s of model time in f16 (ggml: 72 s in all). Time per block in f32: 0.22 s for
+the time transformer, 0.08 s for the frequency one, 0.09 s for the masks.
 
 - **The model was right at the first run** in f32: every layer within 1e-5 of PyTorch.
 - **f16 only after the band split.** With everything in f16, quiet signals square to
@@ -183,13 +187,33 @@ the time transformer, 0.09 s for the frequency one, 0.11 s for the masks.
   2.63 GB per time layer in f32, 5.9 GB reserved in all. `MAX_SCORES` in `layers.rs`
   splits long batches: same time, 1/5 of the memory. Its limit of 67 M scores only
   splits the time layers. Burn's own `attention` and `attention_fallback` took the
-  same time. Setting autotune to its highest level changed nothing, but **that did not
-  test autotune**: the workspace's `default-features = false` left the feature out of
-  the build (found on Windows, below).
+  same time.
+- **Autotune on Metal: tried, not kept.** An earlier test here that "changed nothing"
+  did not test it, since the workspace's `default-features = false` left the feature
+  out of the build. With it really on, one change against the table above, two f16 runs
+  and one f32 run:
+
+  | Precision | Without | With `autotune` |
+  |---|---|---|
+  | f16, s per chunk | 2.38 | 2.32 |
+  | f32, s per chunk | 3.75 | 3.51 |
+  | First pass | 2.9 s | ~25 s, at every start |
+  | f16 memory reserved | 1211 MiB | 1282 MiB |
+  | Masks, f16 / f32 | 3.3e-3 / 2.8e-6 | 2.95e-3 / 1.9e-6 |
+
+  A 5 min song (47 chunks) in f16 saves ~3 s and pays ~23 s of tuning, so the total
+  gets worse; it would pay off only after ~40 min of audio in one run. Cubecl's
+  `persistence` feature could remove the tuning, not tried: it would win 2.5 % here.
+- **The trims are not exact in floating point.** They are exact as algebra, but they
+  round differently: on Metal the masks went from 3.09e-3 to 3.32e-3 in f16 and from
+  2.60e-6 to 2.78e-6 in f32. In f32 the layers match up to the last ones; in f16 the
+  gap grows from the fifth block on. On Vulkan the same trims moved the error in both
+  directions, which also points to rounding. None of the three was isolated. Harmless
+  for the 1e-3 limit in f32; 4.3 judges f16 by the SDR.
 - **Vulkan is better here:** ggml's speed on Metal comes from the GPU's matrix
   instructions, which wgpu exposes on Metal but cubecl does not use there. On Vulkan
   cubecl does use them when the driver has f16 cooperative matrices: confirmed on the
-  RTX 3050, see below.
+  RTX 3050, see below. The small gain above fits with that.
 - `Device::metal` and `Device::wgpu` gave the same speed here.
 
 Measured on Windows (RTX 3050, Vulkan, driver 610.62), same chunk. Today's ggml backend

@@ -424,29 +424,6 @@ Speed is the risk everything else depends on, so it is measured first; STFT and
 chunking come after it. A chunk is 13.35 s of audio (1151 STFT frames) and a 5 min
 song is about 47 chunks.
 
-> **PIN, for the next Claude session on the MacBook (remove it when done).**
-> The RTX 3050 now passes the 4.1 gate (4.0 s per chunk in f16). Details are in
-> `docs/STATUS.md`, "Native backend: burn + wgpu". The shared model code changed since
-> the Metal numbers were taken, and autotune was never compiled there. Run the tests
-> yourself, in this order, and write each result to STATUS:
->
-> 1. **Re-measure Metal as it is now.** Run the `chunk` example (below) in f16 and with
->    `--full`. Before: 2.6 s and 4.2 s, masks at 3.1e-3 and 2.6e-6, 1217 and 2362 MiB
->    reserved. The rotary, norm and GELU rewrites are exact, so the error should not
->    move, and the f16 gate of 3.3 s must still hold. If it fails, stop and find out why.
-> 2. **Try `autotune` on Metal.** Add it to the macOS `burn` features in
->    `crates/roformer/Cargo.toml` and measure against test 1. Cubecl uses matrix
->    instructions on Vulkan but not on Metal, so it may not help. Also check the first
->    pass: on Vulkan tuning takes ~29 s at every start. Keep it only if the total for a
->    song improves. Change one thing per measurement.
-> 3. **Correct STATUS** with what 1 and 2 show, including the older Metal notes.
->
-> The fixtures already exist on that machine:
-> `cargo run --release -p watershed-roformer --example chunk -- [--full] tools/reference/models/BS-Rofo-SW-Fixed.ckpt tools/reference/fixtures/chunk.safetensors`.
-> Time without `CUBECL_DEBUG_LOG`, which added up to 3 s per pass on Vulkan. Pull
-> before starting, run `rustup update` and the usual checks, and on macOS do not change
-> the Vulkan features. Then go on with 4.2, unless test 1 failed.
-
 - [x] **4.0 Reference:** `tools/reference/dump_tensors.py` saves the input and each
   layer's output for a real chunk, on PyTorch CPU in f32. The files stay out of git.
 - [x] **4.1 Speed spike:** new `crates/roformer` crate, no C++: BS-RoFormer with the
@@ -454,12 +431,13 @@ song is about 47 chunks.
   3.3 s per chunk on the M5 Pro (2× ggml Metal, ~1.6 s today) and 4.2 s on the
   RTX 3050 (2× PyTorch CUDA; ggml Vulkan takes ~2.9 s today). If it misses, first
   optimize kernels and chunk size; if it still misses, GGUF stays and this phase is
-  rethought. **M5 Pro: passed, 2.6 s in f16** (4.2 s in f32). **RTX 3050: passed, 4.0 s
-  in f16** (8.0 s in f32), after turning on burn's `autotune` and trimming the model's
-  GPU kernels. Each run still spends ~29 s tuning at the start, to review in 4.5.
+  rethought. **M5 Pro: passed, 2.4 s in f16** (3.75 s in f32), without `autotune`,
+  which does not pay for its tuning there. **RTX 3050: passed, 4.0 s in f16** (8.0 s in
+  f32), after turning on burn's `autotune` and trimming the model's GPU kernels. Each
+  run there still spends ~29 s tuning at the start, to review in 4.5.
 - [ ] **4.2 Equivalence:** layer by layer (band split, each block, masks), relative
   error ≤ 1e-3 per layer. A tiny random-weights model stays in the repo for CI, which
-  has neither a GPU nor the `.ckpt`. The limit applies to f32 (2.6e-6 on the masks);
+  has neither a GPU nor the `.ckpt`. The limit applies to f32 (2.8e-6 on the masks);
   f16 is 3e-3 and is judged by the SDR of the audio in 4.3.
 - [ ] **4.3 STFT and chunking:** STFT/iSTFT in `crates/dsp` with `realfft`, overlap-add
   as in MSST's `demix` (reflect padding, fades of 1/10 of a chunk, DC set to zero).
