@@ -6,6 +6,7 @@
 //! ```
 //! `--full` computes in f32 instead of f16.
 
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -83,6 +84,19 @@ fn main() -> Result<()> {
             usage.bytes_reserved >> 20
         );
     }
+
+    // Waiting for the GPU after each layer costs some time, so the sum is above a pass.
+    let mut blocks = BTreeMap::<String, f32>::new();
+    let mut last = Instant::now();
+    let masks = model.forward_traced(stft(), &mut |name, _| {
+        device.sync().expect("GPU");
+        let block = name.split('_').next().expect("a name").to_string();
+        *blocks.entry(block).or_default() += last.elapsed().as_secs_f32();
+        last = Instant::now();
+    });
+    masks.into_data();
+    blocks.insert("masks".to_string(), last.elapsed().as_secs_f32());
+    println!("per block: {blocks:.2?}");
 
     for gain in [0.0, 1e-3, 1e-5] {
         let masks = floats(model.forward(stft() * gain));
