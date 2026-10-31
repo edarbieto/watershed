@@ -105,14 +105,14 @@ Last updated: 2026-10-30.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
 the song info panel, which stays in the plan for later. **Phase 4** (the native
-`burn` + `wgpu` backend) is in progress: 4.0 done, 4.1 passed on the MacBook (see
-"Native backend: burn + wgpu" below).
+`burn` + `wgpu` backend) is in progress: 4.0 done, 4.1 passed on the MacBook and
+missed on the RTX 3050 (see "Native backend: burn + wgpu" below).
 
-0. **Next, on the Windows machine: the 4.1 gate on the RTX 3050** (at most 4.2 s per
-   chunk). `uv run dump_tensors.py SONG --out fixtures/chunk.safetensors` in
-   `tools/reference`, then
-   `cargo run --release -p watershed-roformer --example chunk -- tools/reference/models/BS-Rofo-SW-Fixed.ckpt tools/reference/fixtures/chunk.safetensors`
-   and the same with `--full`. Note the GPU memory it prints. If it passes, 4.2.
+0. **Next: the 4.1 gate on the RTX 3050 is missed** (6.4 s per chunk, limit 4.2 s).
+   First confirm that the run used the RTX 3050 and not the 5700G's integrated GPU
+   (Task Manager or `nvidia-smi` during the `chunk` example; it does not print the
+   adapter). Then find which attention kernel runs on Vulkan, and optimize as
+   `PLAN.md` 4.1 says. If it still misses, GGUF stays and Phase 4 is rethought.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -188,8 +188,26 @@ the time transformer, 0.09 s for the frequency one, 0.11 s for the masks.
 - **Vulkan may be better:** ggml's speed on Metal comes from the GPU's matrix
   instructions, which wgpu exposes on Metal but cubecl does not use there. On Vulkan
   cubecl does use them when the driver has f16 cooperative matrices, so the RTX 3050
-  could run burn's streaming kernels. Not measured.
+  could run burn's streaming kernels. Not confirmed: see the Windows numbers below.
 - `Device::metal` and `Device::wgpu` gave the same speed here.
+
+Measured on Windows, Vulkan, same chunk. Today's ggml backend takes ~2.9 s per chunk
+there and PyTorch CUDA ~2.1 s:
+
+| Precision | Time per chunk | Masks vs PyTorch (relative RMS) | GPU memory reserved |
+|---|---|---|---|
+| f32 | 12.8 s | 2.3e-6 | 2362 MiB |
+| f16 after the band split | **6.4 s** | 2.65e-3 | **1217 MiB** |
+
+- **Misses the 4.2 s gate.** A 5 min song (47 chunks) would take ~5 min of model time
+  in f16, against ~2.3 min with ggml.
+- **Not yet known:** which GPU ran it (`DefaultDevice` asks wgpu for high performance,
+  so the RTX 3050 is likely, but the example does not print it) and which attention
+  kernel autotune chose.
+- **Memory is identical to the Mac's to the MiB**, which suggests Vulkan also builds
+  the score matrices rather than streaming them. A hint, not a measurement.
+- Accuracy matches the Mac, silence and quiet inputs stay finite, and it fits the
+  6 GB. The first pass takes ~4 s more than the rest.
 
 ## Tempo, pitch and limiter
 
