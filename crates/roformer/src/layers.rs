@@ -1,7 +1,9 @@
 //! The building blocks, as in `bs_roformer.py`.
 
+use std::f32::consts::FRAC_1_SQRT_2;
+
 use burn::prelude::*;
-use burn::tensor::activation::{gelu, glu, sigmoid};
+use burn::tensor::activation::{glu, sigmoid};
 use burn::tensor::module::{attention, linear};
 use burn::tensor::ops::AttentionModuleOptions;
 use burn::tensor::{DType, TensorData};
@@ -44,8 +46,8 @@ impl Linear {
 
 /// Unit length over the last dimension, then a learned gain per feature.
 pub struct RmsNorm {
+    /// The gain, times the root of the dimension as PyTorch's norm is scaled by.
     gamma: Tensor<1>,
-    scale: f32,
     epsilon: f32,
 }
 
@@ -60,8 +62,7 @@ impl RmsNorm {
             1e-12
         };
         Ok(Self {
-            gamma,
-            scale,
+            gamma: gamma * scale,
             epsilon,
         })
     }
@@ -73,30 +74,31 @@ impl RmsNorm {
             .sum_dim(D - 1)
             .sqrt()
             .clamp_min(self.epsilon);
-        x / norm * self.scale * self.gamma.clone().unsqueeze()
+        x / norm * self.gamma.clone().unsqueeze()
     }
 }
 
 /// The rotary position embedding for one sequence length: every pair of features
 /// turns by an angle that grows with the position.
 pub struct Rotary {
-    /// (1, 1, sequence, pairs, 1)
+    /// (1, 1, sequence, pairs, 2): `[cos, cos]` and `[-sin, sin]`, so that a pair
+    /// `(a, b)` turns into `(a, b) * cos + (b, a) * sin`.
     cos: Tensor<5>,
     sin: Tensor<5>,
 }
 
 impl Rotary {
     pub fn new(freqs: &[f32], length: usize, device: &Device, dtype: DType) -> Self {
-        let mut cos = Vec::with_capacity(length * freqs.len());
-        let mut sin = Vec::with_capacity(length * freqs.len());
+        let mut cos = Vec::with_capacity(length * freqs.len() * 2);
+        let mut sin = Vec::with_capacity(length * freqs.len() * 2);
         for position in 0..length {
             for freq in freqs {
-                let angle = position as f32 * freq;
-                cos.push(angle.cos());
-                sin.push(angle.sin());
+                let (s, c) = (position as f32 * freq).sin_cos();
+                cos.extend([c, c]);
+                sin.extend([-s, s]);
             }
         }
-        let shape = [1, 1, length, freqs.len(), 1];
+        let shape = [1, 1, length, freqs.len(), 2];
         Self {
             cos: Tensor::<5>::from_data(TensorData::new(cos, shape), device).cast(dtype),
             sin: Tensor::<5>::from_data(TensorData::new(sin, shape), device).cast(dtype),
@@ -107,16 +109,8 @@ impl Rotary {
     fn rotate(&self, x: Tensor<4>) -> Tensor<4> {
         let [batch, heads, sequence, dim] = x.dims();
         let x: Tensor<5> = x.reshape([batch, heads, sequence, dim / 2, 2]);
-        let a = x.clone().narrow(4, 0, 1);
-        let b = x.narrow(4, 1, 1);
-        Tensor::cat(
-            vec![
-                a.clone() * self.cos.clone() - b.clone() * self.sin.clone(),
-                b * self.cos.clone() + a * self.sin.clone(),
-            ],
-            4,
-        )
-        .reshape([batch, heads, sequence, dim])
+        (x.clone().flip([4]) * self.sin.clone() + x * self.cos.clone())
+            .reshape([batch, heads, sequence, dim])
     }
 }
 
@@ -184,6 +178,7 @@ impl Attention {
     }
 }
 
+/// A norm, then two linear layers with a GELU between them.
 struct FeedForward {
     norm: RmsNorm,
     expand: Linear,
@@ -191,17 +186,24 @@ struct FeedForward {
 }
 
 impl FeedForward {
+    /// GELU(y) = y (1 + erf(y / sqrt 2)) / 2 costs five GPU kernels. With z = y / sqrt 2
+    /// it is z (1 + erf z) / sqrt 2, and both divisions fit in the weights around it.
     fn load(source: &Source, name: &str) -> Result<Self> {
+        let mut expand = Linear::load(source, &format!("{name}.net.1"))?;
+        expand.weight = expand.weight * FRAC_1_SQRT_2;
+        expand.bias = expand.bias.map(|bias| bias * FRAC_1_SQRT_2);
+        let mut contract = Linear::load(source, &format!("{name}.net.4"))?;
+        contract.weight = contract.weight * FRAC_1_SQRT_2;
         Ok(Self {
             norm: RmsNorm::load(source, &format!("{name}.net.0"))?,
-            expand: Linear::load(source, &format!("{name}.net.1"))?,
-            contract: Linear::load(source, &format!("{name}.net.4"))?,
+            expand,
+            contract,
         })
     }
 
     fn forward(&self, x: Tensor<3>) -> Tensor<3> {
-        let x = self.norm.forward(x);
-        self.contract.forward(gelu(self.expand.forward(x)))
+        let z = self.expand.forward(self.norm.forward(x));
+        self.contract.forward(z.clone() * (z.erf() + 1.0))
     }
 }
 
