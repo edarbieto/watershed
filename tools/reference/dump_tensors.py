@@ -13,43 +13,10 @@ from pathlib import Path
 import separate
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("song", type=Path)
-    parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--start", type=float, default=60.0, help="where the chunk starts, in seconds")
-    parser.add_argument("--model", default="bs-roformer-sw", choices=separate.MODELS)
-    args = parser.parse_args()
-
-    separate.ensure_msst()
-    spec = separate.MODELS[args.model]
-    config_path = separate.ensure_file(spec["base_url"], *spec["config"])
-    ckpt_path = separate.ensure_file(spec["base_url"], *spec["checkpoint"])
-
-    # Imported late: these need torch and MSST on sys.path.
-    import numpy as np
-    import soundfile as sf
-    import soxr
+def dump(model, audio, out: Path) -> None:
+    """Runs `audio` (1, channels, time) through `model`, saving every layer to `out`."""
     import torch
     from safetensors.torch import save_file
-    from utils.settings import get_model_from_config
-
-    model, config = get_model_from_config(spec["model_type"], str(config_path))
-    state = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    model.load_state_dict(state.get("state_dict", state) if isinstance(state, dict) else state)
-    model = model.eval()
-
-    sample_rate = config.audio.sample_rate
-    mix, sr = sf.read(args.song, dtype="float32", always_2d=True)  # (time, channels)
-    if sr != sample_rate:
-        mix = soxr.resample(mix, sr, sample_rate)
-    if mix.shape[1] == 1:
-        mix = np.repeat(mix, 2, axis=1)
-    begin = int(args.start * sample_rate)
-    chunk = mix[begin : begin + config.audio.chunk_size].T.copy()
-    if chunk.shape[1] != config.audio.chunk_size:
-        raise SystemExit("the song is too short for a chunk at that start")
-    audio = torch.from_numpy(chunk)[None]  # (1, channels, time)
 
     tensors = {"audio": audio}
 
@@ -96,10 +63,50 @@ def main() -> None:
     with torch.inference_mode():
         tensors["output"] = model(audio).clone()
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    save_file(tensors, args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    save_file(tensors, out)
     for name, tensor in tensors.items():
         print(f"{name}: {tuple(tensor.shape)}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("song", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--start", type=float, default=60.0, help="where the chunk starts, in seconds")
+    parser.add_argument("--model", default="bs-roformer-sw", choices=separate.MODELS)
+    args = parser.parse_args()
+
+    separate.ensure_msst()
+    spec = separate.MODELS[args.model]
+    config_path = separate.ensure_file(spec["base_url"], *spec["config"])
+    ckpt_path = separate.ensure_file(spec["base_url"], *spec["checkpoint"])
+
+    # Imported late: these need torch and MSST on sys.path.
+    import numpy as np
+    import soundfile as sf
+    import soxr
+    import torch
+    from utils.settings import get_model_from_config
+
+    model, config = get_model_from_config(spec["model_type"], str(config_path))
+    state = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    model.load_state_dict(state.get("state_dict", state) if isinstance(state, dict) else state)
+    model = model.eval()
+
+    sample_rate = config.audio.sample_rate
+    mix, sr = sf.read(args.song, dtype="float32", always_2d=True)  # (time, channels)
+    if sr != sample_rate:
+        mix = soxr.resample(mix, sr, sample_rate)
+    if mix.shape[1] == 1:
+        mix = np.repeat(mix, 2, axis=1)
+    begin = int(args.start * sample_rate)
+    chunk = mix[begin : begin + config.audio.chunk_size].T.copy()
+    if chunk.shape[1] != config.audio.chunk_size:
+        raise SystemExit("the song is too short for a chunk at that start")
+    audio = torch.from_numpy(chunk)[None]  # (1, channels, time)
+
+    dump(model, audio, args.out)
 
 
 if __name__ == "__main__":

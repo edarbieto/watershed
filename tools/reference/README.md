@@ -62,3 +62,18 @@ Runs one chunk of the song (from 60 s by default, `--start` changes it) through 
 model on the CPU in f32 and saves the input, each layer's output and the final audio,
 ~2 GB in all. `*.safetensors` is ignored by git.
 `crates/roformer/examples/chunk.rs` compares the Rust model against this file.
+So does `crates/roformer/tests/equivalence.rs`, with a limit per layer:
+
+```sh
+cargo test --release -p watershed-roformer --test equivalence -- --ignored --nocapture
+```
+
+## Tiny model for CI
+
+```sh
+uv run make_tiny_fixture.py
+```
+
+Writes `crates/roformer/tests/fixtures`: a very small model with random weights and
+its tensors, ~400 KB in all, kept in git so that CI can test the Rust model with
+neither a GPU nor the real checkpoint. Only rerun it when the fixture has to change.
