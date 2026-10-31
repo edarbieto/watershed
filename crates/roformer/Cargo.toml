@@ -20,6 +20,7 @@ burn = { workspace = true, features = ["vulkan", "autotune"] }
 
 [dev-dependencies]
 anyhow.workspace = true
+burn = { workspace = true, features = ["flex"] }
 safetensors.workspace = true
 
 [lints]

@@ -11,7 +11,7 @@ use crate::weights::{Source, Weights, WeightsError};
 /// in f32: their squares vanish in f16.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Precision {
-    /// f32 throughout: matches PyTorch to about 1e-6, for validation.
+    /// f32 throughout: matches PyTorch to about 1e-5, for validation.
     Full,
     /// f16 after the band split: ~1.6× faster and half the memory on Metal. Masks stay
     /// within 3e-3 of PyTorch's (relative RMS).
