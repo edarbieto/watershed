@@ -106,10 +106,11 @@ Last updated: 2026-11-01.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
 the song info panel, which stays in the plan for later. **Phase 4** (the native
 `burn` + `wgpu` backend) is in progress: 4.0 to 4.3 done, the 4.1 gate passed on both
-machines (see "Native backend: burn + wgpu" below).
+machines (see "Native backend: burn + wgpu" below). 4.4 works from the example; **the
+user has not tried it in the app yet** (checklist in "In the app (4.4)").
 
-0. **Next: 4.4 integration** (`PLAN.md` Phase 4): `BurnSeparator`, `.yaml` reading,
-   catalog, progress and cancel per chunk. `BsRoformer::separate` has neither yet.
+0. **Next:** the user tries the native model in the app, then **4.5 measurement**
+   (`PLAN.md` Phase 4), which also has to run on Windows.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -148,8 +149,8 @@ Phase 4. `crates/roformer` (no C++): BS-RoFormer on burn 0.22.1, inference only,
 layers are plain tensors rather than burn `Module`s. It reads the `.ckpt` directly
 (`pytorch-reader` parses the pickle without running it). `BsRoformer::forward` takes a
 spectrogram and returns complex masks; `separate` goes from a song to its stems, with
-the STFT and masking on the CPU. The parameters are in `Config::bs_roformer_sw()` until
-the `.yaml` is read (4.4).
+the STFT and masking on the CPU. `Config` reads the parameters from the checkpoint's
+`.yaml`, and refuses options the model here does not implement.
 
 `tools/reference/dump_tensors.py` runs one real chunk through PyTorch (CPU, f32) and
 saves the input and each layer's output (~2 GB, not in git);
@@ -301,8 +302,9 @@ The 4:39 test song on the M5 Pro, Metal, against PyTorch on MPS:
 - **f32 passes the 60 dB gate by far** on the five stems that sound. `other` is silent
   in this song, and its 50.6 dB fits the 24-bit reference: its rounding noise, ~−149 dB,
   sits ~51 dB under a stem at −97.6 dB. Not measured against a 32-bit float reference.
-- **f16 is above the q8 GGUF** (31–43 dB on an earlier comparison, inaudible), so its
-  limit is 45 dB on audible stems. Not listened to yet.
+- **f16 is above the q8 GGUF**, so its limit is 45 dB on audible stems. Measured the
+  same way on the same song, the GGUF gets 36.4–43.1 dB on the five stems that sound.
+  **The user listened to f16 against PyTorch's stems: "almost the same".**
 - **Time:** ggml takes 72 s on this song. 44 chunks at ~2.4 s are ~106 s, so about 10 s
   (~0.2 s per chunk) go to the STFT and iSTFT, one after the other on one thread. Those
   could run in parallel, for 4.5.
@@ -315,6 +317,47 @@ The 4:39 test song on the M5 Pro, Metal, against PyTorch on MPS:
 - **Same quirks as `demix`, on purpose:** when a song is at most twice the border long
   (13.35 s at overlap 2), there is no padding at the edges; a frame no chunk reached with
   any gain becomes 0.
+
+### In the app (4.4)
+
+`BurnSeparator` in `crates/separation`, always in f16 on the default GPU. The catalog's
+second model, "BS-RoFormer SW (6 stems), native", has the `.ckpt` as its file and a
+`[model.native]` table with the architecture and the `.yaml`, downloaded with it. The
+choice is in Settings ("Separation model", `Config::separation_model`); the default
+stays the GGUF.
+
+From the example (`separate --native --flac`), same 24-bit input, on the M5 Pro:
+
+| | Native (f16) | GGUF |
+|---|---|---|
+| Separating | 111 s | 82 s |
+| Process footprint, peak | 2489 MiB | not measured here |
+| SDR against PyTorch, the five stems that sound | 52.2–59.0 dB | 36.4–43.1 dB |
+
+- **The example's stems match `examples/song.rs`** to the hundredth of a dB (`other`
+  aside: 30.9 against 31.0), so catalog, download and sha256, `.yaml` and writing add no
+  error.
+- **The GGUF took 82 s here, not the usual 72 s.** It ran right after the native run;
+  heat is a guess, not checked. For 4.5.
+- **Freeing the model:** dropping `BurnSeparator` runs `memory_cleanup`. With
+  `MallocLargeCache=0`, a 60 s clip ends at 136 MiB of footprint 2 s after that. The
+  full song's 1212 MiB, sampled 50 ms after, was too early and had malloc's cache on, so
+  the example now waits 2 s.
+- **GPU errors are panics in `burn`.** `BurnSeparator` catches them and returns an error,
+  or the app would wait forever for a dead thread. Only tested with a fake panic: a
+  machine with no GPU has not been tried. There is no CPU fallback yet (4.5).
+- **Cancel** is polled before each chunk, so it takes up to ~2.4 s here, ~4 s on the RTX
+  3050 and, in the first chunk there, ~33 s of autotune.
+- **Same song, other model:** dropping a song separated before opens its folder, whatever
+  the model. To compare, move that folder out of the library first.
+
+**Test checklist** (not done yet):
+1. Settings: choose the native model; drop a song you have not separated: it downloads
+   700 MB with progress and separates, with progress and time left.
+2. The stems open and sound right.
+3. Cancel while separating: stops within a few seconds and leaves no folder.
+4. Close and reopen: the choice is kept. RAM falls back after separating.
+5. Windows: the same, on Vulkan.
 
 ## Tempo, pitch and limiter
 

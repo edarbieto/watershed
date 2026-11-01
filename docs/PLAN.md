@@ -444,9 +444,9 @@ song is about 47 chunks.
   Matches `torch.stft` and `demix`; SDR ≥ 60 dB against PyTorch on a whole song in
   f32: **97–108 dB**. f16 reached 52–59 dB, so its limit is **SDR ≥ 45 dB on audible
   stems**, just above the best of the q8 GGUF (31–43 dB), already inaudible.
-- [ ] **4.4 Integration:** `BurnSeparator` implements `Separator`: `.yaml` reading,
+- [x] **4.4 Integration:** `BurnSeparator` implements `Separator`: `.yaml` reading,
   catalog with architecture and config, progress and cancel per chunk. Backend
-  selectable, GGUF still the default.
+  selectable in Settings, GGUF still the default.
 - [ ] **4.5 Measurement:** time, RAM and VRAM per song, Vulkan vs DX12 on Windows, CPU
   fallback. Must fit the RTX 3050's 6 GB without spilling; burn then becomes the
   default. Also decided here, with data: whether the default model uses quantized
