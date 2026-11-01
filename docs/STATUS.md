@@ -106,11 +106,13 @@ Last updated: 2026-11-01.
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
 the song info panel, which stays in the plan for later. **Phase 4** (the native
 `burn` + `wgpu` backend) is in progress: 4.0 to 4.3 done, the 4.1 gate passed on both
-machines (see "Native backend: burn + wgpu" below). 4.4 works from the example; **the
-user has not tried it in the app yet** (checklist in "In the app (4.4)").
+machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on macOS:
+"the separation quality is great" (see "In the app (4.4)").
 
-0. **Next:** the user tries the native model in the app, then **4.5 measurement**
-   (`PLAN.md` Phase 4), which also has to run on Windows.
+0. **Next: 4.5 measurement** (`PLAN.md` Phase 4). On macOS: the RAM left after separating
+   (see "In the app (4.4)"), time per song, the STFT in parallel, the CPU fallback and
+   Compact weights for burn. Then Windows, needed to close it: Vulkan vs DX12, autotune's
+   cost and fitting in the RTX 3050's 6 GB.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -321,10 +323,11 @@ The 4:39 test song on the M5 Pro, Metal, against PyTorch on MPS:
 ### In the app (4.4)
 
 `BurnSeparator` in `crates/separation`, always in f16 on the default GPU. The catalog's
-second model, "BS-RoFormer SW (6 stems), native", has the `.ckpt` as its file and a
-`[model.native]` table with the architecture and the `.yaml`, downloaded with it. The
-choice is in Settings ("Separation model", `Config::separation_model`); the default
-stays the GGUF.
+second model has the `.ckpt` as its file and a `[model.native]` table with the
+architecture and the `.yaml`, downloaded with it. The choice is in Settings ("Separation
+model", `Config::separation_model`); the default stays the GGUF. Musicians see **Compact**
+(GGUF) and **Full** (native): what differs for them is download size and speed. "Native"
+stays a word for the code.
 
 From the example (`separate --native --flac`), same 24-bit input, on the M5 Pro:
 
@@ -351,13 +354,27 @@ From the example (`separate --native --flac`), same 24-bit input, on the M5 Pro:
 - **Same song, other model:** dropping a song separated before opens its folder, whatever
   the model. To compare, move that folder out of the library first.
 
-**Test checklist** (not done yet):
-1. Settings: choose the native model; drop a song you have not separated: it downloads
-   700 MB with progress and separates, with progress and time left.
+**RAM in the app, seen by the user on macOS, with the native model** (to look into in 4.5):
+
+| Moment | RAM |
+|---|---|
+| App started | ~200 MB |
+| Separating "The Motherload" | 2.6 GB |
+| Right after it finished, stems open | ~1 GB, and it stays there |
+| The same stems, in a fresh start of the app | ~800 MB |
+| Another song cancelled, from a clean start | ~400 MB (was 200–300 MB) |
+
+So something like 100–200 MB stays after any run, finished or cancelled. Cause not looked
+into. To check first: burn's device and compiled kernels, which live as long as the process,
+then what the example's 136 MiB is made of.
+
+**Test checklist:** 1–4 passed on macOS.
+1. Settings: choose Full; drop a song you have not separated: it downloads 700 MB with
+   progress and separates, with progress and time left.
 2. The stems open and sound right.
 3. Cancel while separating: stops within a few seconds and leaves no folder.
-4. Close and reopen: the choice is kept. RAM falls back after separating.
-5. Windows: the same, on Vulkan.
+4. Close and reopen: the choice is kept.
+5. Windows: the same, on Vulkan. Not done yet.
 
 ## Tempo, pitch and limiter
 

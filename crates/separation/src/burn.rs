@@ -76,7 +76,7 @@ impl Separator for BurnSeparator {
         } else {
             "Vulkan"
         };
-        format!("{api} (native)")
+        format!("{api} GPU")
     }
 
     fn separate(

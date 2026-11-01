@@ -2211,8 +2211,8 @@ const SETTINGS_SHORTCUT: egui::KeyboardShortcut =
 const CHANGE_POPUP_WIDTH: f32 = 300.0;
 const CHANGE_NOTE: &str = "The tempo counts the beats of bar 1's time signature. \
     With Dynamic on, roughly is enough: the beats are found around it.";
-const MODEL_NOTE: &str = "For new separations. Both sound the same. The native one is \
-    a new backend still being tested: a 700 MB download instead of 190 MB, and slower.";
+const MODEL_NOTE: &str = "For new separations. Both sound the same to the ear. Compact \
+    is a 190 MB download and faster; Full is a 700 MB download and slower.";
 const STEM_FORMAT_NOTE: &str = "For new separations. Both sound the same as the \
     original to the ear. Ogg Vorbis opens in Reaper, Cubase, Ableton, FL Studio and \
     Bitwig; FLAC in any DAW, Logic and Pro Tools included.";

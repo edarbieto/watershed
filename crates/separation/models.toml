@@ -14,7 +14,7 @@
 
 [[model]]
 id = "bs-roformer-sw-q8_0"
-name = "BS-RoFormer SW (6 stems)"
+name = "BS-RoFormer SW, 6 stems: Compact"
 file = "BS-RoFormer-SW-6stem-q8_0.gguf"
 size = 188130912
 sha256 = "e4c53c3389c4426bf8b6cdbcc4e3d7d813323ef8a3e4f1f157084b71960bdf63"
@@ -28,7 +28,7 @@ default = true
 
 [[model]]
 id = "bs-roformer-sw"
-name = "BS-RoFormer SW (6 stems), native"
+name = "BS-RoFormer SW, 6 stems: Full"
 file = "BS-Rofo-SW-Fixed.ckpt"
 size = 699412152
 sha256 = "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e"
