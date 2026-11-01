@@ -33,6 +33,9 @@ pub struct Config {
     pub library_folder: Option<PathBuf>,
     /// Format of the stems of new separations.
     pub stem_format: StemFormat,
+    /// Id of the catalog model for new separations. `None`, or one the catalog no
+    /// longer has, uses its default.
+    pub separation_model: Option<String>,
     /// Whether a click on a waveform moves the playhead to the nearest grid line.
     pub snap_to_grid: bool,
     /// The metronome's sound, channels and level, the same for every song.
@@ -50,6 +53,7 @@ impl Default for Config {
             recent: Vec::new(),
             library_folder: None,
             stem_format: StemFormat::default(),
+            separation_model: None,
             snap_to_grid: true,
             click_sound: ClickSound::default(),
             click_channels: ClickChannels::default(),
@@ -197,6 +201,7 @@ mod tests {
             }],
             library_folder: Some(PathBuf::from("library")),
             stem_format: StemFormat::Lossless,
+            separation_model: Some("a-model".into()),
             snap_to_grid: false,
             click_sound: ClickSound::Wood,
             click_channels: ClickChannels::Left,

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 use watershed_separation::bsroformer::LoadOptions;
-use watershed_separation::{SeparationError, Separator, Stage, catalog, separate_song};
+use watershed_separation::{ModelEntry, SeparationError, Stage, separate_song};
 use watershed_storage::{Session, StemFormat};
 
 use crate::stems::song_title;
@@ -186,11 +186,12 @@ fn folder_name(title: &str) -> String {
     }
 }
 
-/// Starts separating `song` into `folder` with the default model, downloading it
-/// into `models_dir` first if needed, and writing the stems in `format`.
+/// Starts separating `song` into `folder` with `model`, downloading it into
+/// `models_dir` first if needed, and writing the stems in `format`.
 pub fn start(
     song: PathBuf,
     folder: PathBuf,
+    model: &'static ModelEntry,
     models_dir: PathBuf,
     format: StemFormat,
     ctx: egui::Context,
@@ -214,7 +215,7 @@ pub fn start(
             progress.step = step;
         };
         let cancelled = || thread_cancel.load(Ordering::Relaxed);
-        let outcome = run(&song, &folder, &models_dir, format, &set, &cancelled);
+        let outcome = run(&song, &folder, model, &models_dir, format, &set, &cancelled);
         let _ = tx.send(outcome.map(|()| folder));
         ctx.request_repaint();
     });
@@ -230,12 +231,12 @@ pub fn start(
 fn run(
     song: &Path,
     folder: &Path,
+    model: &ModelEntry,
     models_dir: &Path,
     format: StemFormat,
     set: &(dyn Fn(Step) + Sync),
     cancel: &(dyn Fn() -> bool + Sync),
 ) -> Result<(), String> {
-    let model = catalog::default_model();
     if !model.is_installed(models_dir) {
         set(Step::Downloading {
             done: 0,
@@ -258,7 +259,7 @@ fn run(
     log::info!("separating {} on {device}", song.display());
     let started = Instant::now();
     separate_song(
-        &mut separator,
+        separator.as_mut(),
         song,
         folder,
         format,

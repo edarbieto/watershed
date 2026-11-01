@@ -5,11 +5,13 @@ use std::path::PathBuf;
 use watershed_dsp::{DecodeError, FlacError, ResampleError, StereoBuffer, VorbisWriteError};
 
 pub mod bsroformer;
+mod burn;
 pub mod catalog;
 mod download;
 mod gguf;
 mod song;
 
+pub use burn::BurnSeparator;
 pub use catalog::ModelEntry;
 pub use download::{DownloadError, sha256_file};
 pub use gguf::GgufSeparator;
@@ -50,6 +52,9 @@ pub enum SeparationError {
     SampleRate { expected: u32, got: u32 },
     #[error(transparent)]
     Model(bsroformer::BsrError),
+    /// From the native backend, whose GPU errors arrive as panics.
+    #[error("{0}")]
+    Native(String),
     #[error("cannot decode the song: {0}")]
     Decode(#[from] DecodeError),
     #[error(transparent)]

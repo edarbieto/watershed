@@ -9,6 +9,8 @@
 # - stems: output order of the model. GGUF files store how many stems there
 #   are but not their names; these become the stem file names.
 # - default: the model used unless the user picks another (exactly one).
+# - native: for the native backend, whose `file` is a PyTorch checkpoint: the
+#   architecture and the checkpoint's .yaml. Models without it are GGUF files.
 
 [[model]]
 id = "bs-roformer-sw-q8_0"
@@ -23,3 +25,26 @@ stems = ["bass", "drums", "other", "vocals", "guitar", "piano"]
 # The checkpoint declares no license: download on demand, never bundle it.
 license = "unknown"
 default = true
+
+[[model]]
+id = "bs-roformer-sw"
+name = "BS-RoFormer SW (6 stems), native"
+file = "BS-Rofo-SW-Fixed.ckpt"
+size = 699412152
+sha256 = "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e"
+urls = [
+    "https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem/resolve/2b98254b19bdab07ce225d884ec4aa9dd8aafce1/BS-Rofo-SW-Fixed.ckpt",
+]
+stems = ["bass", "drums", "other", "vocals", "guitar", "piano"]
+license = "unknown"
+
+[model.native]
+architecture = "bs_roformer"
+
+[model.native.config]
+file = "BS-Rofo-SW-Fixed.yaml"
+size = 4613
+sha256 = "f9fada9f94e5ba2d2e4600196299459294bc5f532b314c209cc156ac63e4329b"
+urls = [
+    "https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem/resolve/2b98254b19bdab07ce225d884ec4aa9dd8aafce1/BS-Rofo-SW-Fixed.yaml",
+]

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText};
 use watershed_audio::{Beats, Engine, Notify, OutputDevice, output_devices};
 use watershed_dsp::Peaks;
+use watershed_separation::{ModelEntry, catalog};
 use watershed_storage::{Config, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
@@ -287,9 +288,11 @@ impl WatershedApp {
         match separate::target_folder(&library, &song) {
             Target::Existing(folder) => self.open(&[folder], ctx),
             Target::New(folder) => {
+                let model = self.separation_model();
                 self.separating = Some(separate::start(
                     song,
                     folder,
+                    model,
                     models_dir,
                     self.config.stem_format,
                     ctx.clone(),
@@ -319,6 +322,13 @@ impl WatershedApp {
             self.config.library_folder = Some(folder);
             self.config.save();
         }
+    }
+
+    /// The model for new separations.
+    fn separation_model(&self) -> &'static ModelEntry {
+        let id = self.config.separation_model.as_deref();
+        id.and_then(catalog::find)
+            .unwrap_or_else(catalog::default_model)
     }
 
     /// Opens a finished separation, unless another song is playing: then it waits
@@ -1142,6 +1152,19 @@ impl WatershedApp {
                                 self.config.stem_format = format;
                                 self.config.save();
                             }
+                        });
+                        ui.end_row();
+
+                        ui.label("Separation model");
+                        ui.vertical(|ui| {
+                            let selected = self.separation_model();
+                            for model in catalog::models() {
+                                if ui.radio(model == selected, &model.name).clicked() {
+                                    self.config.separation_model = Some(model.id.clone());
+                                    self.config.save();
+                                }
+                            }
+                            ui.label(RichText::new(MODEL_NOTE).weak().small());
                         });
                         ui.end_row();
                     });
@@ -2188,6 +2211,8 @@ const SETTINGS_SHORTCUT: egui::KeyboardShortcut =
 const CHANGE_POPUP_WIDTH: f32 = 300.0;
 const CHANGE_NOTE: &str = "The tempo counts the beats of bar 1's time signature. \
     With Dynamic on, roughly is enough: the beats are found around it.";
+const MODEL_NOTE: &str = "For new separations. Both sound the same. The native one is \
+    a new backend still being tested: a 700 MB download instead of 190 MB, and slower.";
 const STEM_FORMAT_NOTE: &str = "For new separations. Both sound the same as the \
     original to the ear. Ogg Vorbis opens in Reaper, Cubase, Ableton, FL Studio and \
     Bitwig; FLAC in any DAW, Logic and Pro Tools included.";
