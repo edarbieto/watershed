@@ -1,11 +1,13 @@
 //! BS-RoFormer on `burn` + `wgpu`, the native separation backend.
 //!
-//! The model takes and returns spectrograms; the STFT stays outside it. Inference
+//! [`BsRoformer::forward`] takes a spectrogram and returns masks;
+//! [`BsRoformer::separate`] does the rest, from a whole song to its stems. Inference
 //! only: the layers are plain tensors, with no dropout and no gradients.
 
 mod config;
 mod layers;
 mod model;
+mod separate;
 mod weights;
 
 pub use config::Config;

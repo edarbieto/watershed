@@ -2,6 +2,7 @@
 
 use burn::prelude::*;
 use burn::tensor::DType;
+use watershed_dsp::{Chunking, Stft};
 
 use crate::config::Config;
 use crate::layers::{BandSplit, MaskEstimator, RmsNorm, Rotary, Transformer};
@@ -22,11 +23,14 @@ pub struct BsRoformer {
     band_split: BandSplit,
     layers: Vec<(Transformer, Transformer)>,
     final_norm: RmsNorm,
-    mask_estimators: Vec<MaskEstimator>,
+    pub(crate) mask_estimators: Vec<MaskEstimator>,
     time_freqs: Vec<f32>,
     freq_freqs: Vec<f32>,
     bands: usize,
     dtype: DType,
+    pub(crate) stft: Stft,
+    pub(crate) chunking: Chunking,
+    pub(crate) device: Device,
 }
 
 impl BsRoformer {
@@ -67,6 +71,12 @@ impl BsRoformer {
             freq_freqs: weights.read("layers.0.1.layers.0.0.rotary_embed.freqs")?.0,
             bands: config.freqs_per_bands.len(),
             dtype,
+            stft: Stft::new(config.stft_n_fft, config.stft_hop_length),
+            chunking: Chunking {
+                size: config.chunk_size,
+                overlap: config.num_overlap,
+            },
+            device: device.clone(),
         })
     }
 

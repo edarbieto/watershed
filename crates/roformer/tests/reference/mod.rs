@@ -34,7 +34,7 @@ pub fn floats<const D: usize>(tensor: Tensor<D>) -> Vec<f32> {
 }
 
 /// RMS error relative to the reference's RMS.
-fn error(got: &[f32], reference: &[f32]) -> f64 {
+pub fn error(got: &[f32], reference: &[f32]) -> f64 {
     let energy: f64 = reference.iter().map(|v| (*v as f64).powi(2)).sum();
     let error: f64 = got
         .iter()

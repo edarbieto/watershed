@@ -11,6 +11,7 @@ publish.workspace = true
 burn = { workspace = true, features = ["wgpu"] }
 pytorch-reader.workspace = true
 thiserror.workspace = true
+watershed-dsp.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 burn = { workspace = true, features = ["metal"] }

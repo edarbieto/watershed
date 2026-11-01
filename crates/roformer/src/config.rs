@@ -14,6 +14,11 @@ pub struct Config {
     pub freqs_per_bands: Vec<usize>,
     pub mask_estimator_depth: usize,
     pub mlp_expansion_factor: usize,
+    pub stft_n_fft: usize,
+    pub stft_hop_length: usize,
+    /// Frames of audio the model takes at a time.
+    pub chunk_size: usize,
+    pub num_overlap: usize,
 }
 
 impl Config {
@@ -36,6 +41,10 @@ impl Config {
             freqs_per_bands,
             mask_estimator_depth: 2,
             mlp_expansion_factor: 4,
+            stft_n_fft: 2048,
+            stft_hop_length: 512,
+            chunk_size: 588800,
+            num_overlap: 2,
         }
     }
 
