@@ -109,10 +109,18 @@ the song info panel, which stays in the plan for later. **Phase 4** (the native
 machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on macOS:
 "the separation quality is great" (see "In the app (4.4)").
 
-0. **Next: 4.5 measurement** (`PLAN.md` Phase 4). On macOS: the RAM left after separating
-   (see "In the app (4.4)"), time per song, the STFT in parallel, the CPU fallback and
-   Compact weights for burn. Then Windows, needed to close it: Vulkan vs DX12, autotune's
-   cost and fitting in the RTX 3050's 6 GB.
+0. **Next: 4.5 measurement** (`PLAN.md` Phase 4). Start on macOS, in this order:
+   1. RAM left after a run (see "In the app (4.4)"): separate several songs in a row in
+      one process. A flat number is a fixed cost, a growing one is a leak.
+   2. Time per song, with the STFT and iSTFT in parallel (~10 s of the 111 s today, on
+      one thread), and the GGUF's 72 vs 82 s.
+   3. The CPU fallback, needed before 4.7.
+   4. Whether burn can use quantized weights: the download is 700 MB against 190 MB.
+
+   Then Windows, needed to close 4.5: Vulkan vs DX12, autotune's ~33 s at every start
+   (cubecl's `persistence` feature is untried), fitting in the RTX 3050's 6 GB without
+   spilling, and checklist item 5 of "In the app (4.4)". burn becomes the default only
+   with the data of both machines.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -327,7 +335,8 @@ second model has the `.ckpt` as its file and a `[model.native]` table with the
 architecture and the `.yaml`, downloaded with it. The choice is in Settings ("Separation
 model", `Config::separation_model`); the default stays the GGUF. Musicians see **Compact**
 (GGUF) and **Full** (native): what differs for them is download size and speed. "Native"
-stays a word for the code.
+stays a word for the code. **Those two names are provisional:** the user decides naming at
+the end of Phase 4, since the C++ backend may be gone by then and the choice with it.
 
 From the example (`separate --native --flac`), same 24-bit input, on the M5 Pro:
 
