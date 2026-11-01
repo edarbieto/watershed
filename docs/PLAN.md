@@ -439,11 +439,11 @@ song is about 47 chunks.
   error ≤ 1e-3 per layer. A tiny random-weights model stays in the repo for CI, which
   has neither a GPU nor the `.ckpt`. The limit applies to f32 (2.8e-6 on the masks,
   1.4e-5 at the worst layer); f16 is 3e-3 and is judged by the SDR of the audio in 4.3.
-- [ ] **4.3 STFT and chunking:** STFT/iSTFT in `crates/dsp` with `realfft`, overlap-add
+- [x] **4.3 STFT and chunking:** STFT/iSTFT in `crates/dsp` with `realfft`, overlap-add
   as in MSST's `demix` (reflect padding, fades of 1/10 of a chunk, DC set to zero).
   Matches `torch.stft` and `demix`; SDR ≥ 60 dB against PyTorch on a whole song in
-  f32. f16 will not reach that: its limit is set once it is measured, with the q8
-  GGUF's 31–43 dB as the reference for inaudible.
+  f32: **97–108 dB**. f16 reached 52–59 dB, so its limit is **SDR ≥ 45 dB on audible
+  stems**, just above the best of the q8 GGUF (31–43 dB), already inaudible.
 - [ ] **4.4 Integration:** `BurnSeparator` implements `Separator`: `.yaml` reading,
   catalog with architecture and config, progress and cancel per chunk. Backend
   selectable, GGUF still the default.

@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-30.
+Last updated: 2026-11-01.
 
 ## Where we are
 
@@ -105,11 +105,11 @@ Last updated: 2026-10-30.
 
 **Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
 the song info panel, which stays in the plan for later. **Phase 4** (the native
-`burn` + `wgpu` backend) is in progress: 4.0, 4.1 and 4.2 done, the 4.1 gate passed
-on both machines (see "Native backend: burn + wgpu" below).
+`burn` + `wgpu` backend) is in progress: 4.0 to 4.3 done, the 4.1 gate passed on both
+machines (see "Native backend: burn + wgpu" below).
 
-0. **Next: 4.3 STFT and chunking** (`PLAN.md` Phase 4). `tiny.safetensors` already
-   holds the audio and the STFT of a seeded signal, and the output of `tiny.ckpt`.
+0. **Next: 4.4 integration** (`PLAN.md` Phase 4): `BurnSeparator`, `.yaml` reading,
+   catalog, progress and cancel per chunk. `BsRoformer::separate` has neither yet.
 1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -146,9 +146,10 @@ None right now.
 
 Phase 4. `crates/roformer` (no C++): BS-RoFormer on burn 0.22.1, inference only, the
 layers are plain tensors rather than burn `Module`s. It reads the `.ckpt` directly
-(`pytorch-reader` parses the pickle without running it). The STFT stays outside; the
-model takes a spectrogram and returns complex masks. The parameters are in
-`Config::bs_roformer_sw()` until the `.yaml` is read (4.4).
+(`pytorch-reader` parses the pickle without running it). `BsRoformer::forward` takes a
+spectrogram and returns complex masks; `separate` goes from a song to its stems, with
+the STFT and masking on the CPU. The parameters are in `Config::bs_roformer_sw()` until
+the `.yaml` is read (4.4).
 
 `tools/reference/dump_tensors.py` runs one real chunk through PyTorch (CPU, f32) and
 saves the input and each layer's output (~2 GB, not in git);
@@ -179,8 +180,8 @@ the time transformer, 0.08 s for the frequency one, 0.09 s for the masks.
   gave no better error (3.06e-3 vs 3.09e-3), and they hold most of the weights, so
   they run in f16 too. PyTorch on CUDA also runs in f16 (`use_amp`).
 - **Error of f16:** 3e-3 on the masks misses the 1e-3 set for layers, and peaks are
-  much higher on isolated values. What it means in the audio is not measured yet:
-  the SDR comes with the STFT in 4.3, and the listening test decides.
+  much higher on isolated values. In the audio it gives 52–59 dB of SDR, see "Whole
+  songs (4.3)" below; the listening test decides.
 - **Attention memory:** on Metal burn has no streaming kernel (`cubecl-wgpu` only
   reports cooperative matrices on Vulkan), so it builds the whole score matrix:
   2.63 GB per time layer in f32, 5.9 GB reserved in all. `MAX_SCORES` in `layers.rs`
@@ -208,7 +209,7 @@ the time transformer, 0.08 s for the frequency one, 0.09 s for the masks.
   2.60e-6 to 2.78e-6 in f32. In f32 the layers match up to the last ones; in f16 the
   gap grows from the fifth block on. On Vulkan the same trims moved the error in both
   directions, which also points to rounding. None of the three was isolated. Harmless
-  for the 1e-3 limit in f32; 4.3 judges f16 by the SDR.
+  for the 1e-3 limit in f32; f16 is judged by the SDR (4.3).
 - **Vulkan is better here:** ggml's speed on Metal comes from the GPU's matrix
   instructions, which wgpu exposes on Metal but cubecl does not use there. On Vulkan
   cubecl does use them when the driver has f16 cooperative matrices: confirmed on the
@@ -277,6 +278,43 @@ f32:
   f16 on `flex`, which does compute in f16 and fails like Metal: silence gives NaN with
   the band split in f16 and PyTorch's epsilon. Either guard alone already prevents it
   on the tiny model, so the test does not cover each guard by itself.
+
+### Whole songs (4.3)
+
+`Stft` and `overlap_add` in `crates/dsp`, `BsRoformer::separate` on top. `examples/song.rs`
+separates a song and gives the SDR of each stem against a folder of `separate.py` stems.
+Both sides must read the same audio: here, a 24-bit FLAC made from the mp3 with
+`separate.py`'s own decoder, so that two mp3 decoders are not part of the comparison.
+
+The 4:39 test song on the M5 Pro, Metal, against PyTorch on MPS:
+
+| Stem | RMS | SDR, f32 | SDR, f16 |
+|---|---|---|---|
+| bass | −22.6 dB | 99.1 dB | 54.3 dB |
+| drums | −20.3 dB | 105.1 dB | 58.5 dB |
+| other | −97.6 dB | 50.6 dB | 31.0 dB |
+| vocals | −19.2 dB | 108.1 dB | 59.0 dB |
+| guitar | −23.2 dB | 96.8 dB | 52.2 dB |
+| piano | −24.2 dB | 100.0 dB | 52.5 dB |
+| **Time** | | 177 s | **116 s** |
+
+- **f32 passes the 60 dB gate by far** on the five stems that sound. `other` is silent
+  in this song, and its 50.6 dB fits the 24-bit reference: its rounding noise, ~−149 dB,
+  sits ~51 dB under a stem at −97.6 dB. Not measured against a 32-bit float reference.
+- **f16 is above the q8 GGUF** (31–43 dB on an earlier comparison, inaudible), so its
+  limit is 45 dB on audible stems. Not listened to yet.
+- **Time:** ggml takes 72 s on this song. 44 chunks at ~2.4 s are ~106 s, so about 10 s
+  (~0.2 s per chunk) go to the STFT and iSTFT, one after the other on one thread. Those
+  could run in parallel, for 4.5.
+- **Tests,** all on the tiny model in CI, on `flex`: the STFT, a chunk from audio to
+  audio and five whole runs of MSST's own `demix` (`make_tiny_fixture.py` explains the
+  cases), at most 1e-4 of relative error. Checked by breaking the code in eight ways:
+  no zero DC, conjugated masks, Nyquist imaginary part kept, a symmetric Hann window, no
+  song padding, zeros instead of reflection on the last chunk, and fades on the first and
+  last chunk. Each one fails a test; the last fade needed the fifth case.
+- **Same quirks as `demix`, on purpose:** when a song is at most twice the border long
+  (13.35 s at overlap 2), there is no padding at the edges; a frame no chunk reached with
+  any gain becomes 0.
 
 ## Tempo, pitch and limiter
 
