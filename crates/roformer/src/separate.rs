@@ -8,15 +8,30 @@ use crate::model::BsRoformer;
 
 const CHANNELS: usize = 2;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("separation cancelled")]
+pub struct Cancelled;
+
 impl BsRoformer {
     /// One buffer per stem, each as long as `input`.
-    pub fn separate(&self, input: &StereoBuffer) -> Vec<StereoBuffer> {
+    ///
+    /// `progress` gets the fraction done after each chunk. `cancel` is polled before
+    /// each one, so stopping takes at most the time of a chunk.
+    pub fn separate(
+        &self,
+        input: &StereoBuffer,
+        progress: &dyn Fn(f32),
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<Vec<StereoBuffer>, Cancelled> {
         let stems = self.mask_estimators.len();
-        let run = overlap_add(input, stems, self.chunking, |chunk| {
-            Ok::<_, std::convert::Infallible>(self.separate_chunk(chunk))
-        });
-        let Ok(stems) = run;
-        stems
+        overlap_add(input, stems, self.chunking, |chunk, done| {
+            if cancel() {
+                return Err(Cancelled);
+            }
+            let stems = self.separate_chunk(chunk);
+            progress(done);
+            Ok(stems)
+        })
     }
 
     /// One interleaved stereo chunk of the model's size to the same for each stem.

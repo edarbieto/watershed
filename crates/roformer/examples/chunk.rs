@@ -4,9 +4,10 @@
 //! ```sh
 //! cargo run --release -p watershed-roformer --example chunk -- [--full] CHECKPOINT DUMP
 //! ```
-//! `--full` computes in f32 instead of f16.
+//! `--full` computes in f32 instead of f16. The checkpoint's `.yaml` goes next to it.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -33,7 +34,7 @@ fn main() -> Result<()> {
     let device = default_device();
 
     let start = Instant::now();
-    let config = Config::bs_roformer_sw();
+    let config = Config::open(Path::new(checkpoint).with_extension("yaml"))?;
     let model = BsRoformer::load(&Weights::open(checkpoint)?, &config, precision, &device)?;
     device.sync()?;
     println!("model loaded in {:.1} s", start.elapsed().as_secs_f32());

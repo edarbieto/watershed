@@ -15,7 +15,7 @@ use anyhow::Result;
 use burn::prelude::*;
 use safetensors::SafeTensors;
 use watershed_dsp::{StereoBuffer, Stft};
-use watershed_roformer::{BsRoformer, Config, Precision, Weights, default_device};
+use watershed_roformer::{BsRoformer, Cancelled, Config, Precision, Weights, default_device};
 
 /// Largest relative error allowed per layer in f32.
 const LIMIT: f64 = 1e-3;
@@ -40,6 +40,7 @@ fn tiny_config() -> Config {
         stft_hop_length: 16,
         chunk_size: 496,
         num_overlap: 2,
+        sample_rate: 44100,
     }
 }
 
@@ -158,7 +159,8 @@ fn songs_match_demix() -> Result<()> {
         let (song, _) = reference::values(&dump, &format!("song_{length}_{num_overlap}"))?;
         let (output, _) = reference::values(&dump, &format!("stems_{length}_{num_overlap}"))?;
 
-        let stems = model.separate(&StereoBuffer::new(44100, interleave(&song)));
+        let song = StereoBuffer::new(44100, interleave(&song));
+        let stems = model.separate(&song, &|_| {}, &|| false)?;
         let per_stem = output.len() / config.num_stems;
         for (stem, expected) in stems.iter().zip(output.chunks_exact(per_stem)) {
             assert_eq!(stem.frames(), length);
@@ -166,6 +168,22 @@ fn songs_match_demix() -> Result<()> {
             assert!(error < AUDIO_LIMIT, "{length}, {num_overlap}: {error:e}");
         }
     }
+    Ok(())
+}
+
+#[test]
+fn cancelling_stops_before_the_next_chunk() -> Result<()> {
+    let config = tiny_config();
+    let model = tiny_model(&config)?;
+    let song = StereoBuffer::new(44100, vec![0.1; 2000]);
+    let polls = std::cell::Cell::new(0);
+    let chunks = std::cell::Cell::new(0);
+    let result = model.separate(&song, &|_| chunks.set(chunks.get() + 1), &|| {
+        polls.set(polls.get() + 1);
+        polls.get() > 2
+    });
+    assert_eq!(result.err(), Some(Cancelled));
+    assert_eq!(chunks.get(), 2);
     Ok(())
 }
 
@@ -193,7 +211,7 @@ fn real_model_matches_pytorch() -> Result<()> {
     check(
         &tools.join("models/BS-Rofo-SW-Fixed.ckpt"),
         &tools.join("fixtures/chunk.safetensors"),
-        &Config::bs_roformer_sw(),
+        &Config::open(tools.join("models/BS-Rofo-SW-Fixed.yaml"))?,
         &default_device(),
     )
 }

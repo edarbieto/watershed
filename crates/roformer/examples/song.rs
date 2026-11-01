@@ -5,7 +5,8 @@
 //! cargo run --release -p watershed-roformer --example song -- [--full] [--out DIR] \
 //!     CHECKPOINT SONG REFERENCE_DIR
 //! ```
-//! `--full` computes in f32 instead of f16. `--out` also writes the stems as FLAC.
+//! `--full` computes in f32 instead of f16. `--out` also writes the stems as FLAC. The
+//! checkpoint's `.yaml` goes next to it.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -16,7 +17,6 @@ use watershed_roformer::{BsRoformer, Config, Precision, Weights, default_device}
 
 /// In the order of the model's outputs.
 const STEMS: [&str; 6] = ["bass", "drums", "other", "vocals", "guitar", "piano"];
-const SAMPLE_RATE: u32 = 44100;
 
 /// Signal to distortion ratio in dB, after fitting one gain: the reference stems were
 /// scaled to fit in FLAC.
@@ -59,13 +59,13 @@ fn main() -> Result<()> {
     };
 
     let device = default_device();
-    let config = Config::bs_roformer_sw();
+    let config = Config::open(Path::new(checkpoint).with_extension("yaml"))?;
     let model = BsRoformer::load(&Weights::open(checkpoint)?, &config, precision, &device)?;
-    let input = resample(decode_file(Path::new(song))?, SAMPLE_RATE)?;
+    let input = resample(decode_file(Path::new(song))?, config.sample_rate)?;
     println!("{:.1} s of audio", input.duration_secs());
 
     let start = Instant::now();
-    let stems = model.separate(&input);
+    let stems = model.separate(&input, &|_| {}, &|| false)?;
     println!("separated in {:.1} s", start.elapsed().as_secs_f32());
 
     for (name, stem) in STEMS.iter().zip(&stems) {
@@ -76,6 +76,16 @@ fn main() -> Result<()> {
             "{name:>7}: SDR {:6.2} dB   (stem at {:6.1} dB RMS)",
             sdr(&stem.samples, &expected.samples),
             rms_db(&stem.samples),
+        );
+    }
+
+    drop(model);
+    device.memory_cleanup();
+    if let Some(usage) = device.memory_pool_usage() {
+        println!(
+            "GPU memory after freeing the model: {} MiB in use, {} MiB reserved",
+            usage.bytes_in_use >> 20,
+            usage.bytes_reserved >> 20
         );
     }
 

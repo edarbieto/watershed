@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 burn = { workspace = true, features = ["wgpu"] }
 pytorch-reader.workspace = true
+serde.workspace = true
+serde_yaml_ng.workspace = true
 thiserror.workspace = true
 watershed-dsp.workspace = true
 

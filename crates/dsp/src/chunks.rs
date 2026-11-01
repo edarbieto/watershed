@@ -29,12 +29,13 @@ fn fades(size: usize, fade: usize) -> Vec<f32> {
 
 /// Runs `process` over `input` and returns its `stems` outputs, each as long as `input`.
 ///
-/// `process` takes one chunk of interleaved stereo and returns the same for each stem.
+/// `process` takes one chunk of interleaved stereo and the fraction of the song done
+/// once this chunk is, and returns the same chunk for each stem.
 pub fn overlap_add<E>(
     input: &StereoBuffer,
     stems: usize,
     chunking: Chunking,
-    mut process: impl FnMut(&[f32]) -> Result<Vec<Vec<f32>>, E>,
+    mut process: impl FnMut(&[f32], f32) -> Result<Vec<Vec<f32>>, E>,
 ) -> Result<Vec<StereoBuffer>, E> {
     let Chunking { size, overlap } = chunking;
     let step = size / overlap;
@@ -65,7 +66,8 @@ pub fn overlap_add<E>(
             part[..samples.len()].copy_from_slice(samples);
             part[samples.len()..].fill(0.0);
         }
-        let outputs = process(&part)?;
+        let done = ((start + step) as f32 / total as f32).min(1.0);
+        let outputs = process(&part, done)?;
 
         let first = start == 0;
         let last = start + step >= total;
@@ -121,7 +123,7 @@ mod tests {
         StereoBuffer::new(44100, samples)
     }
 
-    fn identity(chunk: &[f32]) -> Result<Vec<Vec<f32>>, ()> {
+    fn identity(chunk: &[f32], _done: f32) -> Result<Vec<Vec<f32>>, ()> {
         Ok(vec![
             chunk.to_vec(),
             chunk.iter().map(|v| v * 0.5).collect(),
@@ -175,6 +177,24 @@ mod tests {
     }
 
     #[test]
+    fn progress_goes_up_to_the_end() {
+        let input = ramp(5000);
+        let chunking = Chunking {
+            size: 400,
+            overlap: 2,
+        };
+        let mut seen = Vec::new();
+        let result = overlap_add(&input, 2, chunking, |chunk, done| {
+            seen.push(done);
+            identity(chunk, done)
+        });
+        assert!(result.is_ok());
+        assert!(seen.is_sorted());
+        assert!(seen[0] > 0.0);
+        assert_eq!(seen.last(), Some(&1.0));
+    }
+
+    #[test]
     fn errors_stop_the_run() {
         let input = ramp(5000);
         let chunking = Chunking {
@@ -182,7 +202,7 @@ mod tests {
             overlap: 2,
         };
         let mut calls = 0;
-        let result = overlap_add(&input, 2, chunking, |_| {
+        let result = overlap_add(&input, 2, chunking, |_, _| {
             calls += 1;
             Err("stop")
         });

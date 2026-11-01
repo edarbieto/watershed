@@ -10,8 +10,9 @@ mod model;
 mod separate;
 mod weights;
 
-pub use config::Config;
+pub use config::{Config, ConfigError};
 pub use model::{BsRoformer, Precision};
+pub use separate::Cancelled;
 pub use weights::{Weights, WeightsError};
 
 use burn::prelude::Device;

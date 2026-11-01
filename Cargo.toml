@@ -12,6 +12,7 @@ publish = false
 [workspace.dependencies]
 watershed-audio = { path = "crates/audio" }
 watershed-dsp = { path = "crates/dsp" }
+watershed-roformer = { path = "crates/roformer" }
 watershed-separation = { path = "crates/separation" }
 watershed-storage = { path = "crates/storage" }
 
@@ -33,6 +34,7 @@ rubato = "5"
 safetensors = "0.7"
 signalsmith-stretch = "0.1"
 serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
 sha2 = "0.11"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 symphonia = { version = "0.6", features = ["mp3", "aac", "isomp4", "alac"] }
