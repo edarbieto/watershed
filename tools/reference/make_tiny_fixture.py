@@ -17,6 +17,10 @@ import separate
 OUT = Path(__file__).parent.parent.parent / "crates/roformer/tests/fixtures"
 HOP = 16
 FRAMES = 32
+# Song lengths and overlaps for whole runs of `demix`: too short to pad, padded, an
+# overlap of 4, the only way the last chunk is long enough to be reflected, and a last
+# chunk of full length, the only way it reaches its fade out.
+DEMIX_RUNS = ((200, 2), (400, 2), (1000, 2), (1000, 4), (992, 1))
 
 
 def main() -> None:
@@ -24,7 +28,9 @@ def main() -> None:
 
     # Imported late: these need torch and MSST on sys.path.
     import torch
+    from ml_collections import ConfigDict
     from models.bs_roformer.bs_roformer import BSRoformer
+    from utils.model_utils import demix
 
     torch.manual_seed(0)
     model = BSRoformer(
@@ -54,9 +60,24 @@ def main() -> None:
     right = 0.3 * torch.sin(2 * torch.pi * 17 * time) + 0.05 * torch.randn(time.shape)
     audio = torch.stack([left, right])[None]
 
+    # Before the dump, which leaves its hooks on the model.
+    songs = {}
+    for length, overlap in DEMIX_RUNS:
+        song = 0.2 * torch.randn(2, length)
+        config = ConfigDict(
+            {
+                "audio": {"chunk_size": HOP * (FRAMES - 1)},
+                "inference": {"num_overlap": overlap, "batch_size": 1},
+                "training": {"instruments": ["a", "b"], "target_instrument": None, "use_amp": False},
+            }
+        )
+        stems = demix(config, model, song.numpy(), torch.device("cpu"), "bs_roformer")
+        songs[f"song_{length}_{overlap}"] = song
+        songs[f"stems_{length}_{overlap}"] = torch.stack([torch.from_numpy(s) for s in stems.values()])
+
     OUT.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), OUT / "tiny.ckpt")
-    dump_tensors.dump(model, audio, OUT / "tiny.safetensors")
+    dump_tensors.dump(model, audio, OUT / "tiny.safetensors", songs)
 
 
 if __name__ == "__main__":

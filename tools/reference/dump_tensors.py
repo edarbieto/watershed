@@ -13,12 +13,15 @@ from pathlib import Path
 import separate
 
 
-def dump(model, audio, out: Path) -> None:
-    """Runs `audio` (1, channels, time) through `model`, saving every layer to `out`."""
+def dump(model, audio, out: Path, extra=None) -> None:
+    """Runs `audio` (1, channels, time) through `model`, saving every layer to `out`.
+
+    `extra` holds more tensors to save with them.
+    """
     import torch
     from safetensors.torch import save_file
 
-    tensors = {"audio": audio}
+    tensors = {"audio": audio, **(extra or {})}
 
     # The same STFT the model does at the start of forward, merged the same way:
     # (batch, frequency * channel, time, complex).
