@@ -162,7 +162,14 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    reuse the tracked beats), disk optimization (design principles), portable builds
    (section 9). Also from the user, not designed: cutting pieces of a stem (in
    "46 & 2" the bass intro came out in the guitar stem). If dynamic tempo needs
-   more later: Opeth's ending, and the Bar-mark idea in "Tempo changes".
+   more later: Opeth's ending, and the Bar-mark idea in "Tempo changes". New feature
+   ideas, with **auto update**, are in `PLAN.md`, "Feature ideas (not scheduled)": speed
+   trainer, pitch in cents, MIDI pedal, chords on the grid, a gap between loop passes.
+8. **v0.1:** features are enough for it; what is missing is distribution (`PLAN.md`
+   section 9): a release workflow that builds on a `v*` tag and uploads to a GitHub
+   Release, the `.app` with an icon on macOS, `+crt-static` on Windows, an AppImage on
+   Linux, a README with screenshots, and a try on a machine with no usable GPU. The GGUF
+   stays the default backend for it.
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
 bindings), CMake 4.4, the Vulkan SDK 1.4.363 and the Visual Studio 2026 Build

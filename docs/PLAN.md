@@ -528,7 +528,31 @@ with step 4.5 of Phase 4, the measurement step.
 ### Phase 5: Extras
 - [ ] Ensembles.
 - [ ] Cloud backend (MVSEP API).
-- [ ] Export WAV / mix.
+- [ ] Export WAV / mix: e.g. the song without the guitar, to practice from a phone or at
+  rehearsal.
+
+### Feature ideas (not scheduled)
+Discussed with the user, not designed yet. Ordered by value for practicing.
+
+- [ ] **Speed trainer:** a loop that raises the tempo by X % every N repetitions (e.g. from
+  70 % to 100 %). Builds on the A-B loops.
+- [ ] **Fine pitch in cents:** for recordings not tuned to 440 Hz or slightly off (common on
+  old records). Today the pitch moves in whole semitones.
+- [ ] **MIDI pedal or keyboard control:** play / pause, back to the loop start, set A and B
+  without letting go of the instrument.
+- [ ] **Chords on the grid:** one estimated chord per bar or beat, from the chroma already
+  computed for the key. The most ambitious idea here, and approximate like the key.
+- [ ] **Gap or pre-roll between loop passes:** a few seconds of silence, or a bar of
+  count-in, before each pass.
+- [ ] **Cutting pieces of a stem** (in "46 & 2" the bass intro came out in the guitar stem)
+  and the **song info panel** (Phase 3.5), already recorded elsewhere.
+- [ ] **Auto update:** the app checks for a newer GitHub Release at start (or from a menu),
+  shows what changed and installs it. Needs the release workflow of section 9 first. Open
+  questions: replacing a running binary (Windows locks it; macOS replaces the whole `.app`),
+  verifying the download (signature or sha256 from the release), a setting to turn the check
+  off, and the macOS Gatekeeper prompt on an unsigned new version. Crates to evaluate:
+  `self_update`, or a small check against the GitHub API plus our own download code
+  (`crates/separation` already downloads resumably with sha256).
 
 ## 11. Risks
 
