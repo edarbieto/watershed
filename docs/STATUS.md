@@ -103,8 +103,8 @@ Last updated: 2026-11-02.
 - **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
-  over mute, start screen"). Search in the recent songs: done, tested. Left: the RAM peak
-  when changing device.
+  over mute, start screen"). Search in the recent songs: done, tested. Transposed vocals
+  (formants): built, to test. Left: the RAM peak when changing device.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -137,7 +137,8 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    device and transport keys"), and so are solo over mute, the start screen and the
    unsteady tempo icon (see "Solo over mute, start screen"). Left: the RAM peak when
    changing device. Features small and medium go there. Search in the recent songs
-   is done too, tested (see "Search in the recent songs").
+   is done too, tested (see "Search in the recent songs"). New: **transposed vocals**
+   keeping their formants, built, to test by ear (see "Transposed vocals").
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -594,6 +595,54 @@ Asked by the user, built and tested by the user on macOS: works.
    muted one stays silent.
 2. Start screen: the folder row and the list are centered; all recent songs show, with a
    scroll bar when they do not fit; resizing the window keeps them centered.
+
+## Transposed vocals
+
+Phase 4.5, asked by the user: transposed one or two semitones (as a singer may ask a band to
+do), the voice sounded like "a meme or a robot singing badly on purpose", while the singer
+sounds fine singing it lower. Built on macOS, not yet tested by the user.
+
+Why, as discussed: a singer singing lower moves only the pitch; the **formants** (resonances
+of the throat and mouth, which give the vowels and the voice's character) stay where they
+are. A plain pitch shift moves the whole spectrum, formants included. On top of that the
+phase vocoder smears vibrato, consonants and breaths, and the vocal stem's separation
+artifacts move with it.
+
+- **Third bus** (`Bus::Vocal`): tracks with `TrackParams::vocal` set, which the loader sets
+  for stems recognized as vocals, go through their own Signalsmith instance (same
+  configuration and latency as the others). The pitch lock still wins: a locked vocal goes
+  to the locked bus. Instruments are not affected.
+- **Settings → Transposed vocals**, two checkboxes, both on by default, saved in
+  `config.toml` (`vocal_formants`, `vocal_tonality_limit`), applied at once so they can be
+  compared while playing:
+  - *Keep the formants:* Signalsmith's formant compensation, `setFormantFactor(1, true)`.
+    The fundamental frequency it needs is detected automatically (`setFormantBase` left at
+    0). Its README warns it is less sharp than monophonic algorithms such as PSOLA.
+  - *Keep the highs closer to the original:* the tonality limit at 8 kHz (the value in
+    Signalsmith's README and web demo): above it the spectrum is shifted by a fixed amount
+    instead of scaled.
+- **Level:** measured on the vocal stem of "Afuera" (offline, whole song), formants on
+  lowers it by 0.4 dB at −1 st, 0.7 dB at −2 st and 1.2 dB at +2 st; the tonality limit
+  changes nothing measurable. Small, but louder tends to sound better in an A/B. A lone sine
+  loses far more (0.35 → 0.13 RMS), since the correction reshapes the spectrum's envelope.
+- **Cost:** one more stretcher, ~1–1.5 % of one core (the earlier measurement), plus the
+  formant analysis on that bus. Not measured.
+- Tests: a vocal sine is transposed with and without the options
+  (`vocals_are_transposed_with_their_options`); vocals go to their bus unless locked
+  (`vocals_go_to_the_vocal_bus_unless_locked`).
+
+If this is not enough, the next step discussed is a monophonic algorithm (PSOLA, WORLD) for
+the vocal stem only, rendered ahead of time when the pitch changes; backing vocals in the
+same stem would confuse it. Other untried knobs: `setFormantBase` with the singer's range,
+another block size for the vocal bus.
+
+**Test checklist:**
+1. A song with a lead singer at −1 and −2 st: toggle "Keep the formants" while playing. Does
+   the voice sound more natural with it on? Same with the tonality limit, and both.
+2. At +2 st as well (formants matter more going up).
+3. The other stems sound the same as before; drums stay locked.
+4. Lock 🔒 the vocals: they keep their pitch, as before.
+5. Close and reopen: the checkboxes are kept.
 
 ## Search in the recent songs
 
@@ -1897,6 +1946,7 @@ default; the user can toggle any track. Saved as `pitch_lock` in the session's
   Both outputs are summed before the master gain and limiter. Seeking, loop jumps and
   the loop crossfade apply to both buses the same way; the position tracking is
   shared.
+- A third bus for vocals came later (see "Transposed vocals").
 - **Cost:** twice the stretcher CPU (measured earlier at ~1–1.5 % of one core on the
   Ryzen, so ~2–3 %). A bus with no tracks still runs: ramps skip silent tracks, but
   Signalsmith processes the silence. Fine at this cost; could be skipped later.
