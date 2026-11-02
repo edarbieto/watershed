@@ -432,7 +432,7 @@ RAM first, then disk. In this order:
 > 2. **Optimization** (4.8): the gap on the RTX 3050 is 1.86× the GGUF's time and 2.9× its GPU
 >    memory, against ~1.45× in time on the M5 Pro.
 > 3. **Phase 4.5, more adjustments:** system default output, Reaper's transport keys, solo
->    over mute, start screen, the unsteady tempo icon and the recent songs search are done (tested on macOS); left:
+>    over mute, start screen, the unsteady tempo icon, the recent songs search and the transposed vocals are done (tested on macOS); left:
 >    the RAM peak when changing device, plus the new features the user is adding.
 >
 > Anything that changes the model is shared with Vulkan, which macOS cannot measure: list it
@@ -519,10 +519,10 @@ with step 4.5 of Phase 4, the measurement step.
 - [x] **Search in the recent songs** (asked by the user): a field on the start screen and
   at the top of the Recent menu, and 100 recent songs instead of 20. Tested (see "Search in the recent songs" in
   `STATUS.md`).
-- [ ] **Transposed vocals that sound natural** (asked by the user): vocal stems on their own
+- [x] **Transposed vocals that sound natural** (asked by the user): vocal stems on their own
   bus, with Signalsmith's formant compensation and tonality limit, toggled in Settings.
-  Built, to test by ear (see "Transposed vocals" in `STATUS.md`). If not enough: a
-  monophonic algorithm for the vocal stem, rendered ahead of time.
+  Tested: it helps going down, less going up (see "Transposed vocals" in `STATUS.md`). If
+  more is wanted: a monophonic algorithm for the vocal stem, rendered ahead of time.
 
 ### Phase 5: Extras
 - [ ] Ensembles.

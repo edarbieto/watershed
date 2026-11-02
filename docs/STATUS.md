@@ -104,7 +104,7 @@ Last updated: 2026-11-02.
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
   over mute, start screen"). Search in the recent songs: done, tested. Transposed vocals
-  (formants): built, to test. Left: the RAM peak when changing device.
+  (formants): done, tested; it helps going down, less going up. Left: the RAM peak when changing device.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -137,8 +137,9 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    device and transport keys"), and so are solo over mute, the start screen and the
    unsteady tempo icon (see "Solo over mute, start screen"). Left: the RAM peak when
    changing device. Features small and medium go there. Search in the recent songs
-   is done too, tested (see "Search in the recent songs"). New: **transposed vocals**
-   keeping their formants, built, to test by ear (see "Transposed vocals").
+   is done too, tested (see "Search in the recent songs"). So are **transposed
+   vocals** keeping their formants: tested, they help going down, less going up (see
+   "Transposed vocals").
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -600,7 +601,9 @@ Asked by the user, built and tested by the user on macOS: works.
 
 Phase 4.5, asked by the user: transposed one or two semitones (as a singer may ask a band to
 do), the voice sounded like "a meme or a robot singing badly on purpose", while the singer
-sounds fine singing it lower. Built on macOS, not yet tested by the user.
+sounds fine singing it lower. Built on macOS and tested by the user there: **it helps going
+down**, the voice no longer sounds like a robot singing, "it covers it up better". Going up,
+the user hears less of a difference.
 
 Why, as discussed: a singer singing lower moves only the pitch; the **formants** (resonances
 of the throat and mouth, which give the vowels and the voice's character) stay where they
@@ -636,7 +639,12 @@ the vocal stem only, rendered ahead of time when the pitch changes; backing voca
 same stem would confuse it. Other untried knobs: `setFormantBase` with the singer's range,
 another block size for the vocal bus.
 
-**Test checklist:**
+Going up is the harder direction in general: the formants have to be pulled back down
+against harmonics that are further apart, so the envelope is estimated from fewer points.
+Not looked into; the knobs above (`setFormantBase`, block size) or the monophonic algorithm
+would be the places to start if it matters.
+
+**Test checklist** (passed on macOS; going up, less of an improvement):
 1. A song with a lead singer at −1 and −2 st: toggle "Keep the formants" while playing. Does
    the voice sound more natural with it on? Same with the tonality limit, and both.
 2. At +2 st as well (formants matter more going up).
