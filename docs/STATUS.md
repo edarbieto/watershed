@@ -104,7 +104,8 @@ Last updated: 2026-11-02.
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
   over mute, start screen"). Search in the recent songs: done, tested. Transposed vocals
-  (formants): done, tested; it helps going down, less going up. Left: the RAM peak when changing device.
+  (formants): done, tested; it helps going down, less going up. The RAM peak when changing
+  device: built, **to test** (see "Changing device without a RAM peak").
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -135,8 +136,9 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
 1. **Phase 4.5, more adjustments** (`PLAN.md`, after Phase 4): system default output and
    Reaper's Space / Enter plus arrow keys on the grid are done, tested on macOS (see "Output
    device and transport keys"), and so are solo over mute, the start screen and the
-   unsteady tempo icon (see "Solo over mute, start screen"). Left: the RAM peak when
-   changing device. Features small and medium go there. Search in the recent songs
+   unsteady tempo icon (see "Solo over mute, start screen"). The RAM peak when changing
+   device is built, **to test by the user** (see "Changing device without a RAM peak").
+   Features small and medium go there. Search in the recent songs
    is done too, tested (see "Search in the recent songs"). So are **transposed
    vocals** keeping their formants: tested, they help going down, less going up (see
    "Transposed vocals").
@@ -568,6 +570,40 @@ progress above zero in a step, so the first chunk is left out. It shows one chun
 before (on the RTX 3050, ~70 s in instead of ~65 s) and should start near the real time. A
 resumed download also stops counting the bytes already on disk. Unit tests in `separate.rs`
 with the Windows numbers. Both backends report once per chunk and start the step at 0.
+
+## Changing device without a RAM peak
+
+Phase 4.5. Seen by the user on macOS: ~500 MB more for up to a second when changing output
+device. Built on macOS, **not yet tested by the user**.
+
+- **Cause:** only a device with another sample rate (here the MacBook's speakers run at
+  44.1 kHz, the headset and the monitor at 48 kHz). `switch_device` read the song again from
+  disk: every stem decoded and resampled in parallel, each unpacked to f32 twice (decoded and
+  resampled), the tempo, the key and the peaks computed again, while the old song stayed in
+  memory until the new one replaced it. A device with the same rate reloads nothing.
+- **Now:** the stems already in memory are resampled (`loader::resample`), one at a time.
+  `switch_device` takes them out of the song (the old engine is gone, so nothing else holds
+  it; if something did, it would copy them and log a warning), and each one is unpacked and
+  freed before resampling, so the memory grows by about one stem (two f32 copies of it,
+  ~200 MB for a 4:39 stem), not by a second song. The tempo, the key and the onsets are in
+  seconds and are kept; only the peaks are computed again. The waveforms and the mixer stay
+  on screen meanwhile, with "Resampling <song> to <rate> Hz… n/6".
+- **Time:** six 4:39 stems from 44.1 to 48 kHz take ~1.0 s on the M5 Pro (offline, without
+  packing), about what the reload took.
+- **Quality:** going back and forth resamples the resampled stems again instead of the files.
+  rubato's FFT resampler and the 24-bit packing are both far below hearing, so it should
+  not be audible; reopening the song reads the files again.
+- **Edge cases:** switching again during the resampling waits for it first (~1 s). Opening
+  another song meanwhile ignores the result. If resampling failed, the folder is read again
+  from disk. The session is not written during those ~1 s (as before).
+
+**Test checklist:**
+1. With a song playing on the headset (48 kHz), switch to the MacBook's speakers (44.1 kHz):
+   the RAM in the top bar should not jump by ~500 MB; playback resumes where it was, with the
+   same mixer, offsets, loops and markers.
+2. Back to the headset: same. The song sounds the same as before the two switches.
+3. Switch twice quickly: it ends on the second device, playing.
+4. A device with the same rate: switches at once, as before.
 
 ## Solo over mute, start screen
 
