@@ -494,6 +494,26 @@ song is about 47 chunks.
   - **Memory:** the 77 MiB left after a run, and the peak (2.2 GB).
   - **Gentler separation:** the idea in `STATUS.md`, if the user decides on it.
 
+### Phase 4.5: More adjustments
+Small and medium features found while using the app, after Phase 4. Not to be confused
+with step 4.5 of Phase 4, the measurement step.
+
+- [ ] **"System default" output device.** Asked by the user: with headphones just put on,
+  play came out of the MacBook's speakers, because `config.toml` stores a fixed device.
+  Add a "System default" entry, the default choice, that follows the system when the
+  default device changes. cpal 0.18 supports it for streams built from
+  `default_output_device()`: on macOS it reroutes the stream and reports
+  `ErrorKind::DeviceChanged`, which `engine.rs` already turns into a restart; other backends
+  report `DeviceNotAvailable` and the stream must be rebuilt. Not tried yet. Moving to a
+  device with another rate goes through the next item.
+- [ ] **RAM peak when changing device.** ~500 MB for up to a second, seen by the user
+  on macOS. Cause, from reading the code, not measured: a device with another sample rate
+  makes `switch_device` load the song again from disk, with all stems as f32 and resampled
+  plus the waveforms, the tempo and the key computed again, while the old song stays in
+  memory. A device with the same rate should not show it. Options: not computing the
+  analyses again, dropping the old song first, or resampling while playing so that
+  changing device reloads nothing.
+
 ### Phase 5: Extras
 - [ ] Ensembles.
 - [ ] Cloud backend (MVSEP API).

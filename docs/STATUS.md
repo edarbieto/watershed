@@ -112,7 +112,7 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
 0. **Next: 4.5 measurement** (`PLAN.md` Phase 4), then **4.8 refinement**, new, which
    can start any time. Start on macOS, in this order:
    1. ~~RAM left after a run~~: done, it was a leak (see "RAM left after a run (4.5)").
-      Checking the number in the app is left for the user.
+      Tested by the user in the app: two new songs split with the window open, no leak.
    2. ~~Time per song~~: done (see "Time per song (4.5)"): the gap to ggml is in the model.
    3. CPU fallback: measured, not built (see "CPU fallback (4.5)"). The rest is in 4.8.
    4. Smaller download: looked at, not tried (see "Smaller download (4.5)").
@@ -121,23 +121,25 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    (cubecl's `persistence` feature is untried), fitting in the RTX 3050's 6 GB without
    spilling, and checklist item 5 of "In the app (4.4)". burn becomes the default only
    with the data of both machines.
-1. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
+1. **Phase 4.5, more adjustments** (`PLAN.md`, after Phase 4): system default output and
+   the RAM peak when changing device. Features small and medium go there.
+2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
-2. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
+3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
    the Rectangle test **on battery**, with both renderers.
-3. **Gentler separation (idea, not decided):** the user would like separation not to
+4. **Gentler separation (idea, not decided):** the user would like separation not to
    push the machine to the limit. The GPU runs at ~97 % for the whole separation on
    both machines. Options discussed: a pause after each chunk (a "speed" setting:
    e.g. full / balanced / quiet), a lower priority for the separation thread, smaller
    chunks (less GPU memory, same load). Windows showed no memory pressure (no spill
    to shared GPU memory), so this is about heat, fans and a busy GPU, not RAM.
-4. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
+5. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
    separated stems to disk instead of holding all six (fits with the Ogg Vorbis
    work), fewer input copies in the C++ wrapper (~190 MiB), a computed overlap
    counter instead of a buffer (~95 MiB), separating in a child process.
-5. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
+6. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
    release `.app` comes with distribution).
-6. Ideas recorded in `PLAN.md`, not scheduled yet: the **song info panel** (it can
+7. Ideas recorded in `PLAN.md`, not scheduled yet: the **song info panel** (it can
    reuse the tracked beats), disk optimization (design principles), portable builds
    (section 9). Also from the user, not designed: cutting pieces of a stem (in
    "46 & 2" the bass intro came out in the guitar stem). If dynamic tempo needs
@@ -403,8 +405,10 @@ Pro, `MallocLargeCache=0`, footprint after each run, starting from 4 MiB:
   them the 18 MiB staging buffer, and ~28 MiB of "owned unmapped" graphics memory. The
   Metal objects (compiled kernels and the like) live as long as the process.
 - **`sync` before `memory_cleanup` changes nothing,** so timing was not the cause.
-- **Not measured:** the app itself (user's table above) and Windows. The stream policy is
-  shared code; on Vulkan the staging buffer should behave the same, not checked.
+- **In the app:** tested by the user, two songs split in a row with the window open: "works
+  quite well", the leak is gone. The app's numbers were not noted down.
+- **Not measured:** Windows. The stream policy is shared code; on Vulkan the staging buffer
+  should behave the same, not checked (first test of the pin in `PLAN.md`).
 
 ### Time per song (4.5)
 
