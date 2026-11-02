@@ -1061,8 +1061,25 @@ impl WatershedApp {
             ui.add_space(8.0);
             let library = self.config.library_folder();
             let shown = library.as_deref().map_or("nowhere".into(), short_path);
+            // A horizontal row starts at the left even here: center it by hand.
+            let text = RichText::new(format!("Separated songs go to {shown}")).weak();
+            let measure = |text: RichText| {
+                egui::WidgetText::from(text)
+                    .into_galley(
+                        ui,
+                        Some(egui::TextWrapMode::Extend),
+                        f32::INFINITY,
+                        egui::TextStyle::Body,
+                    )
+                    .size()
+                    .x
+            };
+            let row = measure(text.clone())
+                + ui.spacing().item_spacing.x
+                + measure(RichText::new("Change…").small());
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("Separated songs go to {shown}")).weak())
+                ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
+                ui.label(text)
                     .on_hover_text(library.map(|l| l.display().to_string()).unwrap_or_default());
                 if ui.small_button("Change…").clicked() {
                     change_library = true;
@@ -1082,47 +1099,96 @@ impl WatershedApp {
             return;
         }
         let now = unix_now();
-        let width = ui.available_width().min(720.0);
-        let margin = (ui.available_width() - width) / 2.0;
-        ui.horizontal(|ui| {
-            ui.add_space(margin);
-            ui.vertical(|ui| {
+        // Up to 720 points wide, centered, narrower with the window. The title takes
+        // what the fixed columns on the right leave, and is cut short if needed.
+        let full = ui.available_rect_before_wrap();
+        let width = (full.width() - 32.0).clamp(0.0, 720.0);
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(full.center().x - width / 2.0, full.top()),
+            egui::vec2(width, full.height()),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.set_width(width);
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("recent_songs")
-                        .num_columns(4)
-                        .striped(true)
-                        .spacing([16.0, 6.0])
-                        .show(ui, |ui| {
-                            for recent in &self.config.recent {
-                                let exists = recent.path.is_dir();
-                                let title = song_title(&recent.path);
-                                if exists {
-                                    if ui.link(RichText::new(title).size(15.0)).clicked() {
+                for (i, recent) in self.config.recent.iter().enumerate() {
+                    // Painted under the row once its size is known.
+                    let stripe = ui.painter().add(egui::Shape::Noop);
+                    let row = ui.horizontal(|ui| {
+                        ui.set_min_height(28.0);
+                        ui.add_space(8.0);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.add_space(4.0);
+                            if ui
+                                .small_button("🗑")
+                                .on_hover_text("Remove from the list (the files stay)")
+                                .clicked()
+                            {
+                                forget = Some(recent.path.clone());
+                            }
+                            // A column of fixed width, so the rows line up.
+                            let column =
+                                |ui: &mut egui::Ui, width: f32, layout: Layout, text: RichText| {
+                                    ui.allocate_ui_with_layout(
+                                        egui::vec2(width, ui.available_height()),
+                                        layout,
+                                        |ui| {
+                                            ui.set_min_width(width);
+                                            ui.add(egui::Label::new(text).truncate());
+                                        },
+                                    );
+                                };
+                            let ago = format_ago(now.saturating_sub(recent.opened));
+                            let right = Layout::right_to_left(Align::Center);
+                            column(ui, 100.0, right, RichText::new(ago).weak().small());
+                            let folder = recent.path.parent().unwrap_or(&recent.path);
+                            if ui.available_width() > 360.0 {
+                                let left = Layout::left_to_right(Align::Center);
+                                column(
+                                    ui,
+                                    180.0,
+                                    left,
+                                    RichText::new(short_path(folder)).weak().small(),
+                                );
+                            }
+                            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                                let title = RichText::new(song_title(&recent.path)).size(15.0);
+                                if recent.path.is_dir() {
+                                    // A link that can be cut short, which `Link` cannot.
+                                    let color = ui.visuals().hyperlink_color;
+                                    let link = egui::Label::new(title.color(color))
+                                        .truncate()
+                                        .sense(egui::Sense::click());
+                                    let response = ui
+                                        .add(link)
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                    if response.hovered() {
+                                        let rect = response.rect;
+                                        ui.painter().hline(
+                                            rect.x_range(),
+                                            rect.bottom(),
+                                            egui::Stroke::new(1.0, color),
+                                        );
+                                    }
+                                    if response.clicked() {
                                         open = Some(recent.path.clone());
                                     }
                                 } else {
-                                    ui.label(RichText::new(title).size(15.0).weak())
+                                    ui.add(egui::Label::new(title.weak()).truncate())
                                         .on_hover_text("Folder not found");
                                 }
-                                let folder = recent.path.parent().unwrap_or(&recent.path);
-                                ui.label(RichText::new(short_path(folder)).weak().small());
-                                ui.label(
-                                    RichText::new(format_ago(now.saturating_sub(recent.opened)))
-                                        .weak()
-                                        .small(),
-                                );
-                                if ui
-                                    .small_button("🗑")
-                                    .on_hover_text("Remove from the list (the files stay)")
-                                    .clicked()
-                                {
-                                    forget = Some(recent.path.clone());
-                                }
-                                ui.end_row();
-                            }
+                            });
                         });
-                });
+                    });
+                    if i % 2 == 1 {
+                        let color = ui.visuals().faint_bg_color;
+                        let rect = row
+                            .response
+                            .rect
+                            .with_max_x(row.response.rect.left() + width);
+                        ui.painter()
+                            .set(stripe, egui::Shape::rect_filled(rect, 4.0, color));
+                    }
+                }
             });
         });
         if let Some(path) = open {
