@@ -573,6 +573,12 @@ Asked by the user, built and tested by the user on macOS: works.
   dropped when narrow) and time (100 points) columns leave, cut short with "…" if needed. The
   window's minimum width (~1416 points on the MacBook) keeps it from getting narrower there.
 
+- **Unsteady tempo icon:** after the BPM, the ★ became a lightning bolt ⚡, chosen by
+  the user after trying both it and a wavy line 〰 in the app. Only glyphs in egui's fonts can be
+  used (★, ⚡ and 〰 are there, ∿ is not). Drawn 1.4× the text size, in a hover area as tall
+  as the bar: it was a `Label`, which showed a text cursor and had a hover area as small as
+  the glyph, so the tooltip often missed. Tested by the user: works.
+
 **Test checklist** (passed on macOS):
 1. Mute a track, then solo it: it plays. Unsolo it: silent again. Solo another track: the
    muted one stays silent.
@@ -1568,23 +1574,23 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   through the command queue and comes back on the garbage queue, like songs; the
   engine sends it only when it changed. The count-in counts the bar before the
   target at its local pace.
-- **UI**, after the BPM: a **★** (orange) when the local tempo spreads more than 3 %,
+- **UI**, after the BPM: a **⚡** (orange; a ★ before) when the local tempo spreads more than 3 %,
   with the range in its tooltip, and the **Dynamic** toggle (off by default, saved
   as `dynamic_tempo` in the session). With Dynamic on, the BPM shows the tempo of
   the beat at the playhead (times the tempo slider) and cannot be dragged; ½, ×2,
   Tap and ↺ still work. The tracked beats are not saved: they are recomputed on load.
-- Checked by Claude on Change: the ★ shows; with Dynamic on, the BPM reads 139 at
+- Checked by Claude on Change: the ⚡ shows; with Dynamic on, the BPM reads 139 at
   2:30 and the bar ruler ends at bar 169 instead of ~160.
 - **Not done** (open points in `PLAN.md`): a song with a free section (the tracker
   goes on through it at its pace), correcting single beats, a tempo change on
   purpose (the smoothing turns a step into an 8-beat ramp).
 
 **Test checklist:**
-1. Change: the ★ shows; turn on Dynamic and Click, play from a few places (also
+1. Change: the ⚡ shows; turn on Dynamic and Click, play from a few places (also
    2:00 and 3:30, where it speeds up): does the click stay with the drums the whole
    way, with the accent on the "1"?
 2. The same song with Dynamic off: the click drifts (by ~0.2 s at times).
-3. A steady song (Karaoke, Cada hogar): no ★; Dynamic on still clicks in time.
+3. A steady song (Karaoke, Cada hogar): no ⚡; Dynamic on still clicks in time.
    Afuera with Dynamic: does it sound better than the steady grid near the end?
 4. Count-in with Dynamic on, from a bar line late in Change: one bar at the local
    pace, then the song on the "1".
