@@ -43,6 +43,10 @@ pub struct Config {
     pub click_channels: ClickChannels,
     /// In dB, independent of the master volume.
     pub click_volume_db: f32,
+    /// How vocal stems are transposed: keeping their formants, and with a tonality
+    /// limit that leaves the highs closer to the original.
+    pub vocal_formants: bool,
+    pub vocal_tonality_limit: bool,
 }
 
 impl Default for Config {
@@ -58,6 +62,8 @@ impl Default for Config {
             click_sound: ClickSound::default(),
             click_channels: ClickChannels::default(),
             click_volume_db: -6.0,
+            vocal_formants: true,
+            vocal_tonality_limit: true,
         }
     }
 }
@@ -207,6 +213,8 @@ mod tests {
             click_sound: ClickSound::Wood,
             click_channels: ClickChannels::Left,
             click_volume_db: -12.5,
+            vocal_formants: false,
+            vocal_tonality_limit: false,
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), config);

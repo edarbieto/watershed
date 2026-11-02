@@ -14,11 +14,27 @@ pub const MAX_SEMITONES: f32 = 24.0;
 /// Length of the crossfade when a loop jumps from its end back to its start.
 const LOOP_CROSSFADE_SECS: f32 = 0.01;
 
+/// Above this frequency the vocal bus's tonality limit shifts the spectrum by a fixed
+/// amount instead of scaling it, which keeps more of the timbre (the value in
+/// Signalsmith's README and web demo).
+const TONALITY_LIMIT_HZ: f32 = 8000.0;
+
+/// How the vocal bus is transposed. Both off, it is transposed like the pitched bus.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct VocalShift {
+    /// Keep the formants (the resonances of the throat and mouth) where they were,
+    /// as when a singer sings lower, instead of moving them with the pitch.
+    pub formants: bool,
+    /// Apply the tonality limit above [`TONALITY_LIMIT_HZ`].
+    pub tonality_limit: bool,
+}
+
 /// Tempo and pitch change on the stereo mix, with Signalsmith Stretch.
 ///
-/// Two stretchers with the same configuration, one per [`Bus`]: the pitched bus
-/// gets the transposition, the pitch-locked one only the tempo. Same configuration
-/// means same latency, so the buses stay aligned and are summed at the output.
+/// Stretchers with the same configuration, one per [`Bus`]: the pitched bus gets the
+/// transposition, the pitch-locked one only the tempo, the vocal one the
+/// transposition with its [`VocalShift`]. Same configuration means same latency, so
+/// the buses stay aligned and are summed at the output.
 ///
 /// It reads the song through a [`Voice`] at `tempo` song frames per output frame,
 /// jumping back at the end of a loop, and tracks which song frame is being heard,
@@ -26,7 +42,7 @@ const LOOP_CROSSFADE_SECS: f32 = 0.01;
 /// after [`Stretcher::new`].
 pub(crate) struct Stretcher {
     /// Indexed by [`Bus`].
-    stretch: [Stretch; 2],
+    stretch: [Stretch; 3],
     /// Input fed before the seek point after a seek, so the output starts right away:
     /// one block plus one interval, as the library recommends.
     preroll: usize,
@@ -48,13 +64,16 @@ pub(crate) struct Stretcher {
     crossfade: usize,
     /// Lowest position to report after a seek, while the latency is filling up.
     floor: usize,
-    /// Transposition currently applied to the pitched bus.
+    /// Transposition currently applied to the pitched and vocal buses, and how the
+    /// vocal one is transposed.
     semitones: f32,
+    vocal: VocalShift,
+    sample_rate: f32,
     /// Stereo scratch buffers: the mixed input of each bus, the crossfade tail and
-    /// the locked bus's output.
-    input: [Vec<f32>; 2],
+    /// the output of the buses after the first.
+    input: [Vec<f32>; 3],
     tail_input: Vec<f32>,
-    locked_output: Vec<f32>,
+    bus_output: Vec<f32>,
 }
 
 impl Stretcher {
@@ -63,7 +82,7 @@ impl Stretcher {
         let rate = sample_rate as f32;
         let block = (rate * 0.12) as usize;
         let interval = (rate * 0.03) as usize;
-        let stretch = [0; 2].map(|_| Stretch::new(2, block, interval));
+        let stretch = Bus::ALL.map(|_| Stretch::new(2, block, interval));
         let preroll = block + interval;
         let max_input = (MAX_BLOCK as f32 * MAX_TEMPO).ceil() as usize + 1;
         Self {
@@ -79,9 +98,11 @@ impl Stretcher {
             crossfade: ((rate * LOOP_CROSSFADE_SECS) as usize).max(1),
             floor: 0,
             semitones: 0.0,
-            input: [0; 2].map(|_| vec![0.0; preroll.max(max_input) * 2]),
+            vocal: VocalShift::default(),
+            sample_rate: rate,
+            input: Bus::ALL.map(|_| vec![0.0; preroll.max(max_input) * 2]),
             tail_input: vec![0.0; max_input * 2],
-            locked_output: vec![0.0; MAX_BLOCK * 2],
+            bus_output: vec![0.0; MAX_BLOCK * 2],
         }
     }
 
@@ -118,12 +139,23 @@ impl Stretcher {
         voice: &mut Voice,
         tempo: f32,
         semitones: f32,
+        vocal: VocalShift,
         looped: Option<Range<usize>>,
         out: &mut [f32],
     ) {
         if semitones != self.semitones {
             self.stretch[Bus::Pitched as usize].set_transpose_factor_semitones(semitones, None);
+        }
+        if semitones != self.semitones || vocal != self.vocal {
+            let stretch = &mut self.stretch[Bus::Vocal as usize];
+            let limit = vocal
+                .tonality_limit
+                .then_some(TONALITY_LIMIT_HZ / self.sample_rate);
+            stretch.set_transpose_factor_semitones(semitones, limit);
+            // A factor of 1 with pitch compensation: the formants stay where they were.
+            stretch.set_formant_factor(1.0, vocal.formants);
             self.semitones = semitones;
+            self.vocal = vocal;
         }
         let before = self.fed as usize;
         self.fed += (out.len() / 2) as f64 * f64::from(tempo);
@@ -165,15 +197,14 @@ impl Stretcher {
                 self.floor = 0;
             }
         }
-        let [pitched, locked] = &mut self.stretch;
-        pitched.process(&self.input[Bus::Pitched as usize][..frames * 2], &mut *out);
-        let locked_output = &mut self.locked_output[..out.len()];
-        locked.process(
-            &self.input[Bus::Locked as usize][..frames * 2],
-            &mut *locked_output,
-        );
-        for (o, l) in out.iter_mut().zip(locked_output.iter()) {
-            *o += l;
+        let [first, rest @ ..] = &mut self.stretch;
+        first.process(&self.input[0][..frames * 2], &mut *out);
+        let bus_output = &mut self.bus_output[..out.len()];
+        for (stretch, input) in rest.iter_mut().zip(&self.input[1..]) {
+            stretch.process(&input[..frames * 2], &mut *bus_output);
+            for (o, b) in out.iter_mut().zip(bus_output.iter()) {
+                *o += b;
+            }
         }
     }
 
@@ -269,7 +300,7 @@ mod tests {
         let mut out = vec![0.0; 512 * 2];
         let mut first_loud = None;
         for block in 0..20 {
-            stretcher.render(&mut voice, 1.0, 0.0, None, &mut out);
+            stretcher.render(&mut voice, 1.0, 0.0, VocalShift::default(), None, &mut out);
             if first_loud.is_none() && rms(&out) > 0.1 {
                 first_loud = Some(block * 512);
             }
@@ -286,11 +317,11 @@ mod tests {
         let mut out = vec![0.0; 500 * 2];
         // Past the initial latency, then measure one second of output.
         for _ in 0..96 {
-            stretcher.render(&mut voice, 0.5, 0.0, None, &mut out);
+            stretcher.render(&mut voice, 0.5, 0.0, VocalShift::default(), None, &mut out);
         }
         let before = stretcher.heard(0.5, 0);
         for _ in 0..96 {
-            stretcher.render(&mut voice, 0.5, 0.0, None, &mut out);
+            stretcher.render(&mut voice, 0.5, 0.0, VocalShift::default(), None, &mut out);
         }
         assert_eq!(stretcher.heard(0.5, 0) - before, 24_000);
     }
@@ -306,7 +337,14 @@ mod tests {
             stretcher.seek(&mut voice, onset - RATE as usize / 2, tempo);
             let mut out = vec![0.0; 64 * 2];
             let heard_at_onset = loop {
-                stretcher.render(&mut voice, tempo, 0.0, None, &mut out);
+                stretcher.render(
+                    &mut voice,
+                    tempo,
+                    0.0,
+                    VocalShift::default(),
+                    None,
+                    &mut out,
+                );
                 if rms(&out) > 0.1 {
                     break stretcher.heard(tempo, 0);
                 }
@@ -328,7 +366,14 @@ mod tests {
         let mut jumps = 0;
         // 8 s of output is 10 s of song at 1.25: one to reach A, then one per pass.
         for _ in 0..1500 {
-            stretcher.render(&mut voice, 1.25, 0.0, Some(looped.clone()), &mut out);
+            stretcher.render(
+                &mut voice,
+                1.25,
+                0.0,
+                VocalShift::default(),
+                Some(looped.clone()),
+                &mut out,
+            );
             let heard = stretcher.heard(1.25, 0);
             assert!(heard < looped.end, "heard {heard} past the loop end");
             if heard < previous {
@@ -348,7 +393,14 @@ mod tests {
         stretcher.seek(&mut voice, 100_000, 1.0);
         let mut out = vec![0.0; 512 * 2];
         for _ in 0..100 {
-            stretcher.render(&mut voice, 1.0, 0.0, Some(48_000..96_000), &mut out);
+            stretcher.render(
+                &mut voice,
+                1.0,
+                0.0,
+                VocalShift::default(),
+                Some(48_000..96_000),
+                &mut out,
+            );
         }
         assert!(stretcher.heard(1.0, 0) > 140_000);
     }
@@ -399,15 +451,48 @@ mod tests {
             let mut out = vec![0.0; 512 * 2];
             // Past the latency, then one second.
             for _ in 0..20 {
-                stretcher.render(&mut voice, 0.8, 12.0, None, &mut out);
+                stretcher.render(&mut voice, 0.8, 12.0, VocalShift::default(), None, &mut out);
             }
             let mut heard = Vec::new();
             for _ in 0..94 {
-                stretcher.render(&mut voice, 0.8, 12.0, None, &mut out);
+                stretcher.render(&mut voice, 0.8, 12.0, VocalShift::default(), None, &mut out);
                 heard.extend_from_slice(&out);
             }
             let f = frequency(&heard);
             assert!((f - expected).abs() < 10.0, "locked {locked}: {f} Hz");
+        }
+    }
+
+    #[test]
+    fn vocals_are_transposed_with_their_options() {
+        let options = [
+            VocalShift::default(),
+            VocalShift {
+                formants: true,
+                tonality_limit: true,
+            },
+        ];
+        for vocal in options {
+            let mut voice = voice(RATE as usize * 4, 0);
+            voice.song.tracks[0].params.set_vocal(true);
+            let mut stretcher = Stretcher::new(RATE);
+            stretcher.seek(&mut voice, 0, 1.0);
+            let mut out = vec![0.0; 512 * 2];
+            for _ in 0..20 {
+                stretcher.render(&mut voice, 0.8, 12.0, vocal, None, &mut out);
+            }
+            let mut heard = Vec::new();
+            for _ in 0..94 {
+                stretcher.render(&mut voice, 0.8, 12.0, vocal, None, &mut out);
+                heard.extend_from_slice(&out);
+            }
+            let f = frequency(&heard);
+            assert!((f - 880.0).abs() < 10.0, "{vocal:?}: {f} Hz");
+            // A lone sine is the worst case for the formant correction, which reshapes
+            // the spectrum's envelope: it comes out at ~0.13 instead of ~0.35. A voice
+            // has harmonics all along the envelope, so it should keep its level better.
+            let level = rms(&heard);
+            assert!(level > 0.1, "{vocal:?}: rms {level}");
         }
     }
 
@@ -418,7 +503,14 @@ mod tests {
         stretcher.seek(&mut voice, 0, 1.0);
         let mut out = vec![0.0; 512 * 2];
         for _ in 0..40 {
-            stretcher.render(&mut voice, 0.75, -2.0, None, &mut out);
+            stretcher.render(
+                &mut voice,
+                0.75,
+                -2.0,
+                VocalShift::default(),
+                None,
+                &mut out,
+            );
         }
         // A 0.5 amplitude sine has an RMS of about 0.354.
         let level = rms(&out);

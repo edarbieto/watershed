@@ -6,20 +6,24 @@ use crate::Song;
 /// processed in several blocks.
 pub(crate) const MAX_BLOCK: usize = 2048;
 
-/// The two stereo buses after the mixer. Each goes through its own stretcher:
-/// pitch-locked tracks get the tempo change but not the transposition.
+/// The stereo buses after the mixer. Each goes through its own stretcher:
+/// pitch-locked tracks get the tempo change but not the transposition, and vocals
+/// are transposed with their own settings (formants, tonality limit).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Bus {
     Pitched,
     Locked,
+    Vocal,
 }
 
 impl Bus {
-    pub const ALL: [Bus; 2] = [Bus::Pitched, Bus::Locked];
+    pub const ALL: [Bus; 3] = [Bus::Pitched, Bus::Locked, Bus::Vocal];
 
     fn of(params: &crate::TrackParams) -> Self {
         if params.pitch_lock() {
             Bus::Locked
+        } else if params.vocal() {
+            Bus::Vocal
         } else {
             Bus::Pitched
         }
@@ -31,9 +35,9 @@ impl Bus {
 pub(crate) struct Voice {
     pub song: Arc<Song>,
     /// Per-track left/right gains on each bus, applied at the end of the previous
-    /// block. A track sends to one bus; ramping both lets it move between them
+    /// block. A track sends to one bus; ramping all of them lets it move between them
     /// without a click when its pitch lock changes.
-    gains: Vec<[[f32; 2]; 2]>,
+    gains: Vec<[[f32; 2]; 3]>,
 }
 
 impl Voice {
@@ -202,6 +206,24 @@ mod tests {
         let mut out = vec![0.0; 8 * 2];
         voice.mix_into(0, Bus::Locked, &mut out);
         assert!(out[0] > 0.4 && out[14] == 0.0, "{out:?}");
+    }
+
+    #[test]
+    fn vocals_go_to_the_vocal_bus_unless_locked() {
+        let song = song(&[0.25, 0.5], 64);
+        song.tracks[1].params.set_vocal(true);
+        let mut voice = Voice::new(song.clone());
+        let mut vocal = vec![0.0; 16 * 2];
+        voice.mix_into(0, Bus::Vocal, &mut vocal);
+        assert!((render(&mut voice, 0, 16)[0] - 0.25).abs() < 1e-6);
+        assert!((vocal[0] - 0.5).abs() < 1e-6);
+
+        // The pitch lock wins: a locked vocal is not transposed at all.
+        song.tracks[1].params.set_pitch_lock(true);
+        let mut voice = Voice::new(song.clone());
+        let mut locked = vec![0.0; 16 * 2];
+        voice.mix_into(0, Bus::Locked, &mut locked);
+        assert!((locked[0] - 0.5).abs() < 1e-6);
     }
 
     #[test]

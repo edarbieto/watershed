@@ -1385,6 +1385,25 @@ impl WatershedApp {
                             ui.label(RichText::new(MODEL_NOTE).weak().small());
                         });
                         ui.end_row();
+
+                        ui.label("Transposed vocals");
+                        ui.vertical(|ui| {
+                            let config = &mut self.config;
+                            let formants = ui
+                                .checkbox(&mut config.vocal_formants, "Keep the formants")
+                                .on_hover_text(FORMANTS_HINT);
+                            let tonality = ui
+                                .checkbox(
+                                    &mut config.vocal_tonality_limit,
+                                    "Keep the highs closer to the original",
+                                )
+                                .on_hover_text(TONALITY_HINT);
+                            if formants.changed() || tonality.changed() {
+                                config.save();
+                            }
+                            ui.label(RichText::new(VOCALS_NOTE).weak().small());
+                        });
+                        ui.end_row();
                     });
             });
         self.settings_open = open;
@@ -2349,6 +2368,8 @@ impl eframe::App for WatershedApp {
         let beats = self.metronome_beats();
         if let Some(engine) = &mut self.engine {
             self.metronome.sync(engine, &self.config, beats);
+            // Every frame, like the click settings, so a new engine gets them too.
+            engine.set_vocal_shift(self.config.vocal_formants, self.config.vocal_tonality_limit);
         }
         self.autosave_session(ui.ctx());
 
@@ -2445,6 +2466,14 @@ const SETTINGS_SHORTCUT: egui::KeyboardShortcut =
 const CHANGE_POPUP_WIDTH: f32 = 300.0;
 const CHANGE_NOTE: &str = "The tempo counts the beats of bar 1's time signature. \
     With Dynamic on, roughly is enough: the beats are found around it.";
+const VOCALS_NOTE: &str = "For vocal stems when the pitch changes. Changes are heard \
+     at once, to compare while playing.";
+const FORMANTS_HINT: &str = "The formants are the resonances of the throat and mouth that \
+     give a voice its character. When a singer sings lower they stay where they are; a plain \
+     pitch shift moves them too, which makes the voice sound unnatural. Costs about 1 dB of \
+     level on the voice.";
+const TONALITY_HINT: &str = "Above 8 kHz (breath, sibilants) the sound is moved by a fixed \
+     amount instead of scaled with the pitch, which keeps more of the original timbre.";
 const MODEL_NOTE: &str = "For new separations. Both sound the same to the ear. Compact \
     is a 190 MB download and faster; Full is a 700 MB download and slower.";
 const STEM_FORMAT_NOTE: &str = "For new separations. Both sound the same as the \

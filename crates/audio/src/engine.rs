@@ -11,7 +11,7 @@ use crate::click::{
 };
 use crate::limiter::Limiter;
 use crate::mixer::{MAX_BLOCK, Voice};
-use crate::stretch::{MAX_SEMITONES, MAX_TEMPO, MIN_TEMPO, Stretcher};
+use crate::stretch::{MAX_SEMITONES, MAX_TEMPO, MIN_TEMPO, Stretcher, VocalShift};
 use crate::{AtomicF32, Beats, Song};
 
 /// How long pause and resume fade, in seconds. Avoids clicks.
@@ -91,6 +91,9 @@ struct Shared {
     tempo: AtomicF32,
     /// Transposition in semitones.
     semitones: AtomicF32,
+    /// How vocal tracks are transposed: see [`VocalShift`].
+    vocal_formants: AtomicBool,
+    vocal_tonality_limit: AtomicBool,
     /// A-B loop as `start << 32 | end` in frames, 0 when off. One atomic so the audio
     /// thread never sees the start of one loop with the end of another.
     looped: AtomicU64,
@@ -316,6 +319,18 @@ impl Engine {
             .store(semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES));
     }
 
+    /// How tracks marked as vocals are transposed: keeping their formants where
+    /// they were, and with a tonality limit that leaves the highs closer to the
+    /// original. With both off they are transposed like the other tracks.
+    pub fn set_vocal_shift(&self, formants: bool, tonality_limit: bool) {
+        self.shared
+            .vocal_formants
+            .store(formants, Ordering::Relaxed);
+        self.shared
+            .vocal_tonality_limit
+            .store(tonality_limit, Ordering::Relaxed);
+    }
+
     /// Loops playback between two frames, or plays straight through with `None`.
     /// Loops shorter than [`MIN_LOOP_SECS`] are ignored.
     pub fn set_loop(&self, range: Option<Range<usize>>) {
@@ -457,6 +472,10 @@ impl CallbackState {
         let master = self.shared.master_gain.load();
         let tempo = self.shared.tempo.load();
         let semitones = self.shared.semitones.load();
+        let vocal = VocalShift {
+            formants: self.shared.vocal_formants.load(Ordering::Relaxed),
+            tonality_limit: self.shared.vocal_tonality_limit.load(Ordering::Relaxed),
+        };
         let looped = match self.shared.looped.load(Ordering::Relaxed) {
             0 => None,
             packed => Some((packed >> 32) as usize..(packed & 0xffff_ffff) as usize),
@@ -511,7 +530,7 @@ impl CallbackState {
             {
                 let mix = &mut mix[song_start * 2..];
                 self.stretcher
-                    .render(voice, tempo, semitones, looped.clone(), mix);
+                    .render(voice, tempo, semitones, vocal, looped.clone(), mix);
                 for frame in mix.as_chunks_mut::<2>().0 {
                     self.fade = if playing {
                         (self.fade + self.fade_step).min(1.0)

@@ -200,9 +200,11 @@ fn load(
 
     let song = Arc::new(Song::new(sample_rate, tracks));
 
-    // Transposed drums sound wrong and gain nothing.
+    // Transposed drums sound wrong and gain nothing. Vocals are transposed on their
+    // own bus, which can keep their formants.
     for (track, kind) in song.tracks.iter().zip(&kinds) {
         track.params.set_pitch_lock(kind.pitch_locked_by_default());
+        track.params.set_vocal(*kind == StemKind::Vocals);
     }
     // The instrumental stem is the sum of the others; start it muted when they are present.
     if kinds.len() > 1 {

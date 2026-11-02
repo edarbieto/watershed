@@ -13,6 +13,8 @@ pub struct TrackParams {
     solo: AtomicBool,
     /// Follows the tempo but not the transposition, e.g. drums.
     pitch_lock: AtomicBool,
+    /// A sung voice: transposed on its own bus, which can keep its formants.
+    vocal: AtomicBool,
     /// Song frame where the track starts: positive starts it later, negative cuts
     /// its beginning.
     offset: AtomicI64,
@@ -26,6 +28,7 @@ impl Default for TrackParams {
             mute: AtomicBool::new(false),
             solo: AtomicBool::new(false),
             pitch_lock: AtomicBool::new(false),
+            vocal: AtomicBool::new(false),
             offset: AtomicI64::new(0),
         }
     }
@@ -61,6 +64,12 @@ impl TrackParams {
     }
     pub fn set_pitch_lock(&self, locked: bool) {
         self.pitch_lock.store(locked, Ordering::Relaxed);
+    }
+    pub fn vocal(&self) -> bool {
+        self.vocal.load(Ordering::Relaxed)
+    }
+    pub fn set_vocal(&self, vocal: bool) {
+        self.vocal.store(vocal, Ordering::Relaxed);
     }
     pub fn offset(&self) -> i64 {
         self.offset.load(Ordering::Relaxed)
