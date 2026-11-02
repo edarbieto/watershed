@@ -103,7 +103,7 @@ Last updated: 2026-11-02.
 - **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
-  over mute, start screen"). Search in the recent songs: built, to test. Left: the RAM peak
+  over mute, start screen"). Search in the recent songs: done, tested. Left: the RAM peak
   when changing device.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
@@ -136,8 +136,8 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    Reaper's Space / Enter plus arrow keys on the grid are done, tested on macOS (see "Output
    device and transport keys"), and so are solo over mute, the start screen and the
    unsteady tempo icon (see "Solo over mute, start screen"). Left: the RAM peak when
-   changing device. Features small and medium go there. New: **search in the recent
-   songs**, built, to test (see "Search in the recent songs").
+   changing device. Features small and medium go there. Search in the recent songs
+   is done too, tested (see "Search in the recent songs").
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -597,7 +597,7 @@ Asked by the user, built and tested by the user on macOS: works.
 
 ## Search in the recent songs
 
-Phase 4.5, asked by the user. Built on macOS, not yet tested by the user.
+Phase 4.5, asked by the user. Built on macOS and tested by the user there: works.
 
 - A search field above the start screen's list and at the top of the Recent menu. A song
   matches when every word typed is in its title or its folder, ignoring case
@@ -615,7 +615,7 @@ Phase 4.5, asked by the user. Built on macOS, not yet tested by the user.
   every row checks that its folder exists each frame, and deleted folders pile up. The
   Recent menu lists the first 15 matches and then "N more: type to narrow".
 
-**Test checklist:**
+**Test checklist** (passed on macOS):
 1. Start screen: type part of a title (or two words in any order, any case): the list
    narrows; a word that matches nothing shows "No matches". Enter opens the first match.
 2. With a song playing, open Recent: the cursor is already in the field. Type, then Enter:
