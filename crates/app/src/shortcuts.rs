@@ -7,9 +7,16 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
     (
         "Playback",
         &[
-            ("Space", "Play or pause"),
+            (
+                "Space",
+                "Play, or stop and go back to where playback started",
+            ),
+            ("Enter", "Play, or pause where it is"),
             ("Home", "Back to the loop start, or the song start"),
-            ("← / →", "Back or forward 5 seconds"),
+            (
+                "← / →",
+                "Back or forward 5 seconds, or one grid line with snap on",
+            ),
         ],
     ),
     (

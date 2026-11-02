@@ -19,6 +19,7 @@ use crate::playhead::Playhead;
 use crate::separate::{self, Job, Target};
 use crate::shortcuts;
 use crate::stems::song_title;
+use crate::transport::{Command, Transport};
 use crate::usage::{self, Usage};
 use crate::view::View;
 use crate::waveform::{
@@ -72,6 +73,12 @@ const RESUME_END_MARGIN_SECS: f64 = 1.0;
 enum Action {
     /// Back to the loop start when a loop is on, else to the start of the song.
     ToStart,
+    /// Space: play, or stop and go back to where playback started.
+    PlayStop,
+    /// Enter: play, or pause where it is.
+    PlayPause,
+    /// Back or forward this many seconds, or to the previous or next grid line with
+    /// snap on.
     Skip(f64),
     SetA,
     SetB,
@@ -155,6 +162,10 @@ pub struct WatershedApp {
     movable: Vec<bool>,
     settings_open: bool,
     shortcuts_open: bool,
+    transport_keys: Transport,
+    /// The grid's scale in the last frame, so the arrow keys step through the lines
+    /// drawn.
+    grid_points_per_sec: f64,
     /// Widths the top bar and the transport bar need to show every control without
     /// overlap, measured while drawing them.
     top_bar_width: f32,
@@ -207,6 +218,8 @@ impl WatershedApp {
             movable: Vec::new(),
             settings_open: false,
             shortcuts_open: false,
+            transport_keys: Transport::default(),
+            grid_points_per_sec: 0.0,
             top_bar_width: 0.0,
             transport_width: 0.0,
             min_size: egui::Vec2::ZERO,
@@ -656,16 +669,13 @@ impl WatershedApp {
         if ui.input(|i| i.key_pressed(Key::F5)) {
             self.reload(ui.ctx());
         }
-        if ui.input(|i| i.key_pressed(Key::Space))
-            && let Some(engine) = &mut self.engine
-        {
-            engine.toggle();
-        }
         // Reaper's shortcut. Consumed first, so the C below does not see it.
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::C)) {
             self.apply(Action::AddChange);
         }
         let keys = [
+            (Key::Space, Action::PlayStop),
+            (Key::Enter, Action::PlayPause),
             (Key::Home, Action::ToStart),
             (Key::ArrowLeft, Action::Skip(-SKIP_SECS)),
             (Key::ArrowRight, Action::Skip(SKIP_SECS)),
@@ -704,7 +714,45 @@ impl WatershedApp {
                 let start = self.loops.active().map_or(0.0, |(a, _)| a);
                 self.seek_secs(start);
             }
-            Action::Skip(secs) => self.seek_secs((position + secs).max(0.0)),
+            Action::PlayStop | Action::PlayPause => {
+                let Some(playing) = self.engine.as_ref().map(Engine::is_playing) else {
+                    return;
+                };
+                // At the end the engine plays from the start.
+                let end = self.loaded.as_ref().map_or(0.0, |l| l.song.duration_secs());
+                let from = if position >= end { 0.0 } else { position };
+                let command = if matches!(action, Action::PlayStop) {
+                    self.transport_keys.space(playing, from)
+                } else {
+                    self.transport_keys.enter(playing, from)
+                };
+                if let Some(engine) = &mut self.engine {
+                    match command {
+                        Command::Play => engine.play(),
+                        Command::Pause | Command::Stop(_) => engine.pause(),
+                    }
+                }
+                // After pausing, as `Engine::stop` does.
+                if let Command::Stop(secs) = command {
+                    self.seek_secs(secs);
+                }
+            }
+            Action::Skip(secs) => {
+                let line = self
+                    .grid_beats()
+                    .filter(|_| self.config.snap_to_grid)
+                    .and_then(|beats| {
+                        let reach = self.view.span;
+                        grid::step(
+                            &beats,
+                            position,
+                            secs > 0.0,
+                            self.grid_points_per_sec,
+                            reach,
+                        )
+                    });
+                self.seek_secs(line.unwrap_or((position + secs).max(0.0)));
+            }
             Action::SetA => self.loops.set_a(position),
             Action::SetB => self.loops.set_b(position),
             Action::ToggleLoop => self.loops.toggle(),
@@ -806,10 +854,12 @@ impl WatershedApp {
         self.grid_beats()?.scaled(f64::from(self.sample_rate()))
     }
 
+    /// A seek made by the user: Space comes back here when it stops.
     fn seek_secs(&mut self, secs: f64) {
         if let Some(engine) = &mut self.engine {
             engine.seek((secs * f64::from(engine.sample_rate())) as usize);
         }
+        self.transport_keys.seeked(secs);
     }
 
     /// Sends the active loop to the engine. When a loop is turned on while playing
@@ -1215,17 +1265,31 @@ impl WatershedApp {
             if button(ui, "⏮", "Back to the start, or to the loop start (Home)") {
                 action = Some(Action::ToStart);
             }
-            if button(ui, "⏪", "Back 5 seconds (Left arrow)") {
+            if button(
+                ui,
+                "⏪",
+                "Back 5 seconds, or to the previous grid line with snap on (Left arrow)",
+            ) {
                 action = Some(Action::Skip(-SKIP_SECS));
             }
             let play_label = if engine.is_playing() { "⏸" } else { "▶" };
-            if button(ui, play_label, "Play / pause (Space)") {
-                engine.toggle();
+            if button(
+                ui,
+                play_label,
+                "Play / pause where it is (Enter). Space stops and goes back to where \
+                 playback started.",
+            ) {
+                action = Some(Action::PlayPause);
             }
             if button(ui, "⏹", "Stop") {
                 engine.stop();
+                self.transport_keys.seeked(0.0);
             }
-            if button(ui, "⏩", "Forward 5 seconds (Right arrow)") {
+            if button(
+                ui,
+                "⏩",
+                "Forward 5 seconds, or to the next grid line with snap on (Right arrow)",
+            ) {
                 action = Some(Action::Skip(SKIP_SECS));
             }
 
@@ -1673,6 +1737,7 @@ impl WatershedApp {
                 // The waveforms take the width beside the track controls.
                 let width = ui.available_width() - CONTROLS_WIDTH - ui.spacing().item_spacing.x;
                 let points_per_sec = f64::from(width.max(1.0)) / self.view.span.max(1e-9);
+                self.grid_points_per_sec = points_per_sec;
                 grid::lines(&beats, self.view.start, self.view.end(), points_per_sec)
                     .into_iter()
                     .map(|line| GridLine {
@@ -2022,6 +2087,7 @@ impl WatershedApp {
                 if let Some(engine) = &mut self.engine {
                     engine.seek(frame);
                 }
+                self.transport_keys.seeked(frame as f64 / rate);
             }
             Some(WaveformAction::Select(start, end)) => {
                 self.loops.select(start as f64 / rate, end as f64 / rate);

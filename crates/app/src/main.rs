@@ -15,6 +15,7 @@ mod playhead;
 mod separate;
 mod shortcuts;
 mod stems;
+mod transport;
 mod usage;
 mod view;
 mod waveform;

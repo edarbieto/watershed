@@ -557,6 +557,26 @@ pub fn lines(beats: &Beats, from: f64, to: f64, points_per_sec: f64) -> Vec<Line
     lines
 }
 
+/// The next line after `secs`, or the last one before it when `forward` is false,
+/// among the lines drawn at `points_per_sec` within `reach` seconds. `None` if there
+/// is none, e.g. before bar 1.
+pub fn step(
+    beats: &Beats,
+    secs: f64,
+    forward: bool,
+    points_per_sec: f64,
+    reach: f64,
+) -> Option<f64> {
+    // A playhead on a line counts as on it, not past it: seeks land on whole frames.
+    const ON_LINE: f64 = 1e-3;
+    let lines = lines(beats, secs - reach, secs + reach, points_per_sec);
+    if forward {
+        lines.iter().map(|l| l.secs).find(|&t| t > secs + ON_LINE)
+    } else {
+        lines.iter().map(|l| l.secs).rfind(|&t| t < secs - ON_LINE)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -597,6 +617,24 @@ mod tests {
         let lines = steady_lines(grid(10.0, 4), 120.0, 12.2, 13.0, 100.0);
         assert_eq!(lines[0].secs, 12.5);
         assert_eq!(lines[0].label.as_deref(), Some("2.2"));
+    }
+
+    #[test]
+    fn steps_through_the_lines_drawn() {
+        // 120 BPM in 4/4 from 1 s.
+        let beats = grid(1.0, 4).beats(120.0, 60.0).unwrap();
+        // Zoomed in, every beat.
+        assert_eq!(step(&beats, 2.2, true, 100.0, 10.0), Some(2.5));
+        assert_eq!(step(&beats, 2.2, false, 100.0, 10.0), Some(2.0));
+        // On a line, or a frame off it, goes to the next one.
+        assert_eq!(step(&beats, 2.5, true, 100.0, 10.0), Some(3.0));
+        assert_eq!(step(&beats, 2.49999, false, 100.0, 10.0), Some(2.0));
+        // Zoomed out, every bar.
+        assert_eq!(step(&beats, 2.2, true, 10.0, 30.0), Some(3.0));
+        assert_eq!(step(&beats, 2.2, false, 10.0, 30.0), Some(1.0));
+        // Nothing before bar 1.
+        assert_eq!(step(&beats, 0.5, false, 100.0, 10.0), None);
+        assert_eq!(step(&beats, 0.5, true, 100.0, 10.0), Some(1.0));
     }
 
     #[test]
