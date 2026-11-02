@@ -37,14 +37,20 @@ impl BsRoformer {
     /// One interleaved stereo chunk of the model's size to the same for each stem.
     pub fn separate_chunk(&self, chunk: &[f32]) -> Vec<Vec<f32>> {
         let length = chunk.len() / CHANNELS;
-        let spectra = [0, 1].map(|channel| {
-            let signal: Vec<f32> = chunk
-                .iter()
-                .skip(channel)
-                .step_by(CHANNELS)
-                .copied()
-                .collect();
-            self.stft.forward(&signal)
+        let spectra = std::thread::scope(|scope| {
+            [0, 1]
+                .map(|channel| {
+                    scope.spawn(move || {
+                        let signal: Vec<f32> = chunk
+                            .iter()
+                            .skip(channel)
+                            .step_by(CHANNELS)
+                            .copied()
+                            .collect();
+                        self.stft.forward(&signal)
+                    })
+                })
+                .map(|thread| thread.join().expect("STFT thread panicked"))
         });
 
         let freqs = self.stft.freqs();
@@ -59,25 +65,35 @@ impl BsRoformer {
 
         // One stem at a time, so that the staging buffer each read goes through, which
         // the GPU backend keeps for good, is the size of one stem's masks.
-        (0..self.mask_estimators.len())
-            .map(|stem| {
-                let masks: Vec<f32> = masks
-                    .clone()
-                    .narrow(1, stem, 1)
-                    .into_data()
-                    .try_to_vec()
-                    .expect("cast to f32");
-                let channels = [0, 1].map(|channel| {
-                    let masked = apply_mask(&spectra[channel], &masks, channel, freqs, frames);
-                    self.stft.inverse(&masked, length)
-                });
-                channels[0]
-                    .iter()
-                    .zip(&channels[1])
-                    .flat_map(|(left, right)| [*left, *right])
-                    .collect()
-            })
-            .collect()
+        std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..self.mask_estimators.len())
+                .map(|stem| {
+                    let masks: Vec<f32> = masks
+                        .clone()
+                        .narrow(1, stem, 1)
+                        .into_data()
+                        .try_to_vec()
+                        .expect("cast to f32");
+                    let spectra = &spectra;
+                    scope.spawn(move || {
+                        let channels = [0, 1].map(|channel| {
+                            let masked =
+                                apply_mask(&spectra[channel], &masks, channel, freqs, frames);
+                            self.stft.inverse(&masked, length)
+                        });
+                        channels[0]
+                            .iter()
+                            .zip(&channels[1])
+                            .flat_map(|(left, right)| [*left, *right])
+                            .collect()
+                    })
+                })
+                .collect();
+            threads
+                .into_iter()
+                .map(|thread| thread.join().expect("inverse STFT thread panicked"))
+                .collect()
+        })
     }
 }
 
