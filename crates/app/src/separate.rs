@@ -85,8 +85,38 @@ impl Step {
 
 struct Progress {
     step: Step,
-    /// When the current step started, to estimate the time left.
-    since: Instant,
+    /// The first progress above zero in the current step, and when it came. The time
+    /// left is estimated from the rate since then: the time before it can hold one-off
+    /// costs, like tuning GPU kernels in the first chunk (~30 s on an RTX 3050, for a
+    /// chunk that then takes ~5 s).
+    first: Option<(Instant, f32)>,
+}
+
+impl Progress {
+    fn set(&mut self, step: Step, now: Instant) {
+        if !self.step.same_as(&step) {
+            self.first = None;
+        }
+        if self.first.is_none()
+            && let Some(fraction) = step.fraction()
+            && fraction > 0.0
+        {
+            self.first = Some((now, fraction));
+        }
+        self.step = step;
+    }
+
+    fn remaining(&self, now: Instant) -> Option<Duration> {
+        let fraction = self.step.fraction()?;
+        let (since, first) = self.first?;
+        let elapsed = now.saturating_duration_since(since);
+        let done = fraction - first;
+        // Too early to tell, or done.
+        if done < 0.02 || fraction >= 1.0 || elapsed < Duration::from_secs(3) {
+            return None;
+        }
+        Some(elapsed.mul_f32((1.0 - fraction) / done))
+    }
 }
 
 /// A separation in progress.
@@ -104,14 +134,7 @@ impl Job {
 
     /// Time left in the current step, estimated from its progress so far.
     pub fn remaining(&self) -> Option<Duration> {
-        let progress = self.progress.lock().unwrap();
-        let fraction = progress.step.fraction()?;
-        let elapsed = progress.since.elapsed();
-        // Too early to tell, or done.
-        if fraction < 0.02 || fraction >= 1.0 || elapsed < Duration::from_secs(3) {
-            return None;
-        }
-        Some(elapsed.mul_f32((1.0 - fraction) / fraction))
+        self.progress.lock().unwrap().remaining(Instant::now())
     }
 
     pub fn cancel(&self) {
@@ -199,7 +222,7 @@ pub fn start(
     let title = song_title(&song);
     let progress = Arc::new(Mutex::new(Progress {
         step: Step::LoadingModel,
-        since: Instant::now(),
+        first: None,
     }));
     let cancel = Arc::new(AtomicBool::new(false));
     let (tx, result) = channel();
@@ -207,13 +230,7 @@ pub fn start(
     let thread_progress = progress.clone();
     let thread_cancel = cancel.clone();
     std::thread::spawn(move || {
-        let set = |step: Step| {
-            let mut progress = thread_progress.lock().unwrap();
-            if !progress.step.same_as(&step) {
-                progress.since = Instant::now();
-            }
-            progress.step = step;
-        };
+        let set = |step: Step| thread_progress.lock().unwrap().set(step, Instant::now());
         let cancelled = || thread_cancel.load(Ordering::Relaxed);
         let outcome = run(&song, &folder, model, &models_dir, format, &set, &cancelled);
         let _ = tx.send(outcome.map(|()| folder));
@@ -325,6 +342,62 @@ mod tests {
     fn formats_eta() {
         assert_eq!(format_eta(Duration::from_millis(44_600)), "45 s");
         assert_eq!(format_eta(Duration::from_secs(185)), "3 min 05 s");
+    }
+
+    fn separating(fraction: f32) -> Step {
+        Step::Running {
+            stage: Stage::Separating,
+            fraction,
+            device: String::new(),
+        }
+    }
+
+    #[test]
+    fn time_left_leaves_out_the_first_chunk() {
+        let start = Instant::now();
+        let at = |secs: u64| start + Duration::from_secs(secs);
+        let mut progress = Progress {
+            step: Step::LoadingModel,
+            first: None,
+        };
+        // 40 chunks: the first takes 65 s (autotune), the others 5 s.
+        progress.set(separating(0.0), at(0));
+        assert_eq!(progress.remaining(at(30)), None);
+        progress.set(separating(1.0 / 40.0), at(65));
+        assert_eq!(progress.remaining(at(65)), None);
+        // One chunk after the first: 38 chunks of 5 s left, not ~40 min.
+        progress.set(separating(2.0 / 40.0), at(70));
+        let left = progress.remaining(at(70)).unwrap();
+        assert!((left.as_secs_f32() - 38.0 * 5.0).abs() < 0.5, "{left:?}");
+        progress.set(separating(20.0 / 40.0), at(160));
+        let left = progress.remaining(at(160)).unwrap();
+        assert!((left.as_secs_f32() - 20.0 * 5.0).abs() < 0.5, "{left:?}");
+        // A new step starts over.
+        progress.set(
+            Step::Running {
+                stage: Stage::Writing,
+                fraction: 0.5,
+                device: String::new(),
+            },
+            at(260),
+        );
+        assert_eq!(progress.remaining(at(270)), None);
+    }
+
+    #[test]
+    fn resumed_download_counts_only_new_bytes() {
+        let start = Instant::now();
+        let at = |secs: u64| start + Duration::from_secs(secs);
+        let mut progress = Progress {
+            step: Step::LoadingModel,
+            first: None,
+        };
+        let download = |done| Step::Downloading { done, total: 100 };
+        // Half was already on disk; then 10 % every 10 s.
+        progress.set(download(50), at(0));
+        progress.set(download(60), at(10));
+        let left = progress.remaining(at(10)).unwrap();
+        assert!((left.as_secs_f32() - 40.0).abs() < 0.5, "{left:?}");
     }
 
     #[test]
