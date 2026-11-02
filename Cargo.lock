@@ -9022,6 +9022,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "burn",
+ "cubecl-environment",
  "pytorch-reader",
  "safetensors 0.7.0",
  "serde",

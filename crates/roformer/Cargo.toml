@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 burn = { workspace = true, features = ["wgpu"] }
+cubecl-environment.workspace = true
 pytorch-reader.workspace = true
 serde.workspace = true
 serde_yaml_ng.workspace = true

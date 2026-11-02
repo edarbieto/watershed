@@ -53,18 +53,22 @@ impl BsRoformer {
             model_input(&spectra, freqs, frames),
             [1, freqs * CHANNELS, frames, 2],
         );
-        let masks: Vec<f32> = self
+        let masks = self
             .forward(Tensor::from_data(input, &self.device))
-            .cast(DType::F32)
-            .into_data()
-            .try_to_vec()
-            .expect("cast to f32");
+            .cast(DType::F32);
 
-        masks
-            .chunks_exact(freqs * CHANNELS * frames * 2)
-            .map(|masks| {
+        // One stem at a time, so that the staging buffer each read goes through, which
+        // the GPU backend keeps for good, is the size of one stem's masks.
+        (0..self.mask_estimators.len())
+            .map(|stem| {
+                let masks: Vec<f32> = masks
+                    .clone()
+                    .narrow(1, stem, 1)
+                    .into_data()
+                    .try_to_vec()
+                    .expect("cast to f32");
                 let channels = [0, 1].map(|channel| {
-                    let masked = apply_mask(&spectra[channel], masks, channel, freqs, frames);
+                    let masked = apply_mask(&spectra[channel], &masks, channel, freqs, frames);
                     self.stft.inverse(&masked, length)
                 });
                 channels[0]
