@@ -557,6 +557,28 @@ before (on the RTX 3050, ~70 s in instead of ~65 s) and should start near the re
 resumed download also stops counting the bytes already on disk. Unit tests in `separate.rs`
 with the Windows numbers. Both backends report once per chunk and start the step at 0.
 
+## Solo over mute, start screen
+
+Asked by the user, built and tested by the user on macOS: works.
+
+- **Solo overrides mute:** with any track soloed, exactly the soloed tracks play, muted or
+  not; with none soloed, the unmuted ones. `TrackParams::audible` holds the rule for the
+  mixer and for the dimmed waveforms. Before, mute won over solo. What Reaper does was not
+  confirmed: the search found no Reaper source, only Ardour's manual, where a muted track
+  stays muted when soloed unless "Soloing overrides muting" is turned on.
+- **Start screen:** the "Separated songs go to" row was left-aligned (an egui horizontal row
+  does not center itself): now centered by measuring it. The recent songs were a `Grid` whose
+  stripes ran past the last column and whose scroll area showed only three rows: now plain
+  rows, up to 720 points wide and centered, the title taking what the folder (180 points,
+  dropped when narrow) and time (100 points) columns leave, cut short with "…" if needed. The
+  window's minimum width (~1416 points on the MacBook) keeps it from getting narrower there.
+
+**Test checklist** (passed on macOS):
+1. Mute a track, then solo it: it plays. Unsolo it: silent again. Solo another track: the
+   muted one stays silent.
+2. Start screen: the folder row and the list are centered; all recent songs show, with a
+   scroll bar when they do not fit; resizing the window keeps them centered.
+
 ## Output device and transport keys
 
 Phase 4.5. Built on macOS and tested by the user there: everything works.
@@ -1432,7 +1454,7 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
 - **Not done** (ideas for after listening): the song only in the other ear when the
   click is on one side; showing the count (1 2 3 4) on screen.
 
-**Test checklist** (passed on macOS):
+**Test checklist:**
 1. Turn on Click and play a song you know: is it on the beat, with the accent on the
    "1"? Try 50 % and 125 % tempo and a transposition: it stays on the beat and its
    pitch does not change.
@@ -1557,7 +1579,7 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   goes on through it at its pace), correcting single beats, a tempo change on
   purpose (the smoothing turns a step into an 8-beat ramp).
 
-**Test checklist** (passed on macOS):
+**Test checklist:**
 1. Change: the ★ shows; turn on Dynamic and Click, play from a few places (also
    2:00 and 3:30, where it speeds up): does the click stay with the drums the whole
    way, with the accent on the "1"?
@@ -1616,7 +1638,7 @@ the bar ruler.
   follows eighth notes (a quarter-note pulse does not fit 3.5 quarters a bar), and
   each change on a note pins a beat that the beats after it count from.
 
-**Test checklist** (passed on macOS):
+**Test checklist:**
 1. Right-click the bar ruler on a bar line: a tag appears with the current
    signature and its popup; set 7/8. The bars after it regroup; the bar numbers go
    on.
@@ -1707,7 +1729,7 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
   the mark 123 → 72 → 247, after it 172–198 whatever the button). Now ½ and ×2
   also scale every mark's tempo (`Grid::scale_tempos`).
 
-**Test checklist** (passed on macOS):
+**Test checklist:**
 1. Paranoid Android, Dynamic on: the mark at the cut (3:27.3) with Tempo, Fixed and
    Fit: two whole bars ring. The mark at 3:34.0 with ~63: the "1" with the band;
    the grid and the click follow the slow part.
@@ -1748,7 +1770,7 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
   The user wants a rough hint, not precision. Possible later: a key per section
   (between markers), for songs like Change.
 
-**Test checklist** (passed on macOS):
+**Test checklist:**
 1. For the songs you know: is the key right? If not, is it the relative (same
    notes), a fifth away, or something else? The menu shows what it guessed second.
 2. Transpose ±2 semitones: the key follows (Bm → C#m).
