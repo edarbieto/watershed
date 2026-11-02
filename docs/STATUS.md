@@ -610,15 +610,18 @@ Phase 4.5, asked by the user. Built on macOS, not yet tested by the user.
   field could not be clicked); the items and "Clear list" close it themselves.
 - **Start screen:** the field is as wide as the list; the text is cleared when a song is
   opened from it. The stripes alternate over the filtered rows.
-- The list keeps at most 20 songs (`MAX_RECENT`); raising it would make the search more
-  useful, not done.
+- The list now keeps 100 songs (`MAX_RECENT`, was 20). Unlimited was discussed: the size is
+  no problem (~150 bytes each in `config.toml`), but the config is rewritten on every open,
+  every row checks that its folder exists each frame, and deleted folders pile up. The
+  Recent menu lists the first 15 matches and then "N more: type to narrow".
 
 **Test checklist:**
 1. Start screen: type part of a title (or two words in any order, any case): the list
    narrows; a word that matches nothing shows "No matches". Enter opens the first match.
 2. With a song playing, open Recent: the cursor is already in the field. Type, then Enter:
    the first match opens and playback did not pause first. Click a filtered item: it opens.
-3. Close and reopen Recent: the field is empty again. Clicking the field does not close the
+3. With more than 15 songs, the menu ends with "N more: type to narrow".
+   Close and reopen Recent: the field is empty again. Clicking the field does not close the
    menu; clicking outside does.
 4. While typing in either field, shortcut keys (Space, A, B, L, M, digits) do nothing.
 

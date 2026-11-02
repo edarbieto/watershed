@@ -1048,12 +1048,13 @@ impl WatershedApp {
                     }
                     let enter = field.lost_focus()
                         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
-                    let mut any = false;
-                    for recent in &self.config.recent {
-                        if !matches_search(&self.recent_menu_search, &recent.path) {
-                            continue;
-                        }
-                        any = true;
+                    let matches: Vec<_> = self
+                        .config
+                        .recent
+                        .iter()
+                        .filter(|r| matches_search(&self.recent_menu_search, &r.path))
+                        .collect();
+                    for recent in matches.iter().take(RECENT_MENU_ITEMS) {
                         let exists = recent.path.is_dir();
                         let is_current = current == Some(recent.path.as_path());
                         let item = egui::RadioButton::new(is_current, song_title(&recent.path));
@@ -1073,8 +1074,11 @@ impl WatershedApp {
                             ui.close();
                         }
                     }
-                    if !any {
+                    if matches.is_empty() {
                         ui.weak("No matches");
+                    } else if matches.len() > RECENT_MENU_ITEMS {
+                        let more = matches.len() - RECENT_MENU_ITEMS;
+                        ui.weak(format!("{more} more: type to narrow"));
                     }
                     if open.is_some() {
                         ui.close();
@@ -2887,6 +2891,9 @@ fn short_path(path: &std::path::Path) -> String {
         None => path.display().to_string(),
     }
 }
+
+/// Songs listed in the Recent menu at most; the search finds the rest.
+const RECENT_MENU_ITEMS: usize = 15;
 
 /// Whether a recent song matches a search: every word typed, ignoring case, is in its
 /// title or its folder.

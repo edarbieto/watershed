@@ -110,8 +110,9 @@ pub fn default_library_folder() -> Option<PathBuf> {
     Some(parent.join("Watershed"))
 }
 
-/// How many recent folders are kept.
-pub const MAX_RECENT: usize = 20;
+/// How many recent folders are kept. The list has a search field, so it can be long;
+/// past a few hundred, rewriting the config and checking every folder would start to show.
+pub const MAX_RECENT: usize = 100;
 
 /// A song folder in the recent list.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -218,8 +219,9 @@ mod tests {
         for i in 0..MAX_RECENT + 5 {
             config.remember(Path::new(&format!("song{i}")), i as u64);
         }
+        let latest = PathBuf::from(format!("song{}", MAX_RECENT + 4));
         assert_eq!(config.recent.len(), MAX_RECENT);
-        assert_eq!(config.recent[0].path, Path::new("song24"));
+        assert_eq!(config.recent[0].path, latest);
 
         config.remember(Path::new("song10"), 100);
         assert_eq!(config.recent.len(), MAX_RECENT);
@@ -235,7 +237,7 @@ mod tests {
         );
 
         config.forget(Path::new("song10"));
-        assert_eq!(config.recent[0].path, Path::new("song24"));
+        assert_eq!(config.recent[0].path, latest);
     }
 
     #[test]
