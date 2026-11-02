@@ -97,6 +97,14 @@ Last updated: 2026-11-02.
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
+- **Phase 4, native backend:** 4.0 to 4.4 done; 4.5 measured on both machines, but burn
+  is not the default yet (see "Next steps"). The time-left estimate fix (4.8) is still to
+  try on Windows.
+- **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
+  arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
+  done and tested by the user on macOS (see "Output device and transport keys" and "Solo
+  over mute, start screen"). Left: the RAM peak when changing device; the user is adding
+  more features to the list.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -126,8 +134,10 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    Next: back on macOS, see the pin in `PLAN.md` Phase 4.
 1. **Phase 4.5, more adjustments** (`PLAN.md`, after Phase 4): system default output and
    Reaper's Space / Enter plus arrow keys on the grid are done, tested on macOS (see "Output
-   device and transport keys"). Left: the RAM peak when changing device. Features small and
-   medium go there.
+   device and transport keys"), and so are solo over mute, the start screen and the
+   unsteady tempo icon (see "Solo over mute, start screen"). Left: the RAM peak when
+   changing device. Features small and medium go there; **next, the user adds new ones to
+   the list.**
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry

@@ -431,7 +431,9 @@ RAM first, then disk. In this order:
 >    on Windows.
 > 2. **Optimization** (4.8): the gap on the RTX 3050 is 1.86× the GGUF's time and 2.9× its GPU
 >    memory, against ~1.45× in time on the M5 Pro.
-> 3. **Phase 4.5, more adjustments:** system default output, RAM peak when changing device.
+> 3. **Phase 4.5, more adjustments:** system default output, Reaper's transport keys, solo
+>    over mute, start screen and the unsteady tempo icon are done (tested on macOS); left:
+>    the RAM peak when changing device, plus the new features the user is adding.
 >
 > Anything that changes the model is shared with Vulkan, which macOS cannot measure: list it
 > in STATUS for the next Windows session, as this pin's predecessor did for Metal.
@@ -509,6 +511,11 @@ with step 4.5 of Phase 4, the measurement step.
   changing device reloads nothing.
 - [x] **Space and Enter as in Reaper, arrow keys on the grid** (asked by the user; see
   "Output device and transport keys" in `STATUS.md`).
+- [x] **Solo overrides mute** (asked by the user): with any track soloed, exactly the
+  soloed tracks play. See "Solo over mute, start screen" in `STATUS.md`.
+- [x] **Start screen centered, every recent song shown** (the list showed three rows).
+- [x] **Unsteady tempo icon:** ⚡ instead of ★ after the BPM, with a tooltip that no
+  longer misses.
 
 ### Phase 5: Extras
 - [ ] Ensembles.
