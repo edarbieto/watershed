@@ -70,6 +70,10 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
         "App",
         &[
             ("F5", "Reload the song folder"),
+            (
+                "Enter in a Recent search",
+                "Open the first song that matches",
+            ),
             ("{cmd}+,", "Settings"),
             ("?", "This list"),
         ],

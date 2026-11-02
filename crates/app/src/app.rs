@@ -174,6 +174,12 @@ pub struct WatershedApp {
     transport_width: f32,
     /// Minimum window size last sent to the window.
     min_size: egui::Vec2,
+    /// Text typed in the start screen's search field.
+    recent_search: String,
+    /// Text typed in the Recent menu's search field, and whether that menu was open
+    /// in the last frame (it is focused and cleared when it opens).
+    recent_menu_search: String,
+    recent_menu_open: bool,
 }
 
 impl WatershedApp {
@@ -225,6 +231,9 @@ impl WatershedApp {
             top_bar_width: 0.0,
             transport_width: 0.0,
             min_size: egui::Vec2::ZERO,
+            recent_search: String::new(),
+            recent_menu_search: String::new(),
+            recent_menu_open: false,
         }
     }
 
@@ -1010,34 +1019,75 @@ impl WatershedApp {
     fn recent_menu(&mut self, ui: &mut egui::Ui) {
         let mut open = None;
         let mut clear = false;
+        let was_open = self.recent_menu_open;
+        let mut is_open = false;
         ui.add_enabled_ui(!self.config.recent.is_empty(), |ui| {
-            ui.menu_button("Recent", |ui| {
-                let current = self
-                    .loaded
-                    .as_ref()
-                    .and_then(|loaded| loaded.files[0].parent());
-                for recent in &self.config.recent {
-                    let exists = recent.path.is_dir();
-                    let is_current = current == Some(recent.path.as_path());
-                    let item = egui::RadioButton::new(is_current, song_title(&recent.path));
-                    // The open song is already there: clicking it does nothing (the
-                    // Reload button reads its folder again).
-                    if ui
-                        .add_enabled(exists, item)
-                        .on_hover_text(recent.path.display().to_string())
-                        .on_disabled_hover_text(format!("Not found: {}", recent.path.display()))
-                        .clicked()
-                        && !is_current
-                    {
-                        open = Some(recent.path.clone());
+            // A click inside must not close the menu, or the search field could not
+            // be clicked: the items close it themselves.
+            let config = egui::containers::menu::MenuConfig::new()
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+            let (_, menu) = egui::containers::menu::MenuButton::new("Recent")
+                .config(config)
+                .ui(ui, |ui| {
+                    let current = self
+                        .loaded
+                        .as_ref()
+                        .and_then(|loaded| loaded.files[0].parent());
+                    // Typing filters the list right away: the field starts focused
+                    // and empty each time the menu opens.
+                    if !was_open {
+                        self.recent_menu_search.clear();
                     }
-                }
-                ui.separator();
-                if ui.button("Clear list").clicked() {
-                    clear = true;
-                }
-            });
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut self.recent_menu_search)
+                            .hint_text("🔍 Search")
+                            .desired_width(240.0),
+                    );
+                    if !was_open {
+                        field.request_focus();
+                    }
+                    let enter = field.lost_focus()
+                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
+                    let mut any = false;
+                    for recent in &self.config.recent {
+                        if !matches_search(&self.recent_menu_search, &recent.path) {
+                            continue;
+                        }
+                        any = true;
+                        let exists = recent.path.is_dir();
+                        let is_current = current == Some(recent.path.as_path());
+                        let item = egui::RadioButton::new(is_current, song_title(&recent.path));
+                        // The open song is already there: clicking it does nothing (the
+                        // Reload button reads its folder again).
+                        let clicked = ui
+                            .add_enabled(exists, item)
+                            .on_hover_text(recent.path.display().to_string())
+                            .on_disabled_hover_text(format!("Not found: {}", recent.path.display()))
+                            .clicked();
+                        // Enter opens the first match that can be opened.
+                        let entered = enter && open.is_none() && exists && !is_current;
+                        if (clicked || entered) && !is_current {
+                            open = Some(recent.path.clone());
+                        }
+                        if clicked {
+                            ui.close();
+                        }
+                    }
+                    if !any {
+                        ui.weak("No matches");
+                    }
+                    if open.is_some() {
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Clear list").clicked() {
+                        clear = true;
+                        ui.close();
+                    }
+                });
+            is_open = menu.is_some();
         });
+        self.recent_menu_open = is_open;
         if let Some(path) = open {
             self.open(&[path], ui.ctx());
         }
@@ -1110,9 +1160,35 @@ impl WatershedApp {
             egui::vec2(width, full.height()),
         );
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut self.recent_search)
+                    .hint_text("🔍 Search by title or folder")
+                    .desired_width(width),
+            );
+            // Enter opens the first match that can be opened.
+            if field.lost_focus()
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter))
+            {
+                open = self
+                    .config
+                    .recent
+                    .iter()
+                    .find(|r| matches_search(&self.recent_search, &r.path) && r.path.is_dir())
+                    .map(|r| r.path.clone());
+            }
+            ui.add_space(8.0);
+            let shown: Vec<_> = self
+                .config
+                .recent
+                .iter()
+                .filter(|r| matches_search(&self.recent_search, &r.path))
+                .collect();
+            if shown.is_empty() {
+                ui.vertical_centered(|ui| ui.weak("No matches"));
+            }
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.set_width(width);
-                for (i, recent) in self.config.recent.iter().enumerate() {
+                for (i, recent) in shown.into_iter().enumerate() {
                     // Painted under the row once its size is known.
                     let stripe = ui.painter().add(egui::Shape::Noop);
                     let row = ui.horizontal(|ui| {
@@ -1194,6 +1270,7 @@ impl WatershedApp {
             });
         });
         if let Some(path) = open {
+            self.recent_search.clear();
             self.open(&[path], ui.ctx());
         }
         if let Some(path) = forget {
@@ -2811,6 +2888,16 @@ fn short_path(path: &std::path::Path) -> String {
     }
 }
 
+/// Whether a recent song matches a search: every word typed, ignoring case, is in its
+/// title or its folder.
+fn matches_search(query: &str, folder: &std::path::Path) -> bool {
+    let text = format!("{} {}", song_title(folder), short_path(folder)).to_lowercase();
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .all(|word| text.contains(word))
+}
+
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2867,6 +2954,15 @@ mod tests {
         assert_eq!(format_ago(5 * 86_400), "5 days ago");
         assert_eq!(format_ago(20 * 86_400), "2 weeks ago");
         assert_eq!(format_ago(90 * 86_400), "3 months ago");
+    }
+
+    #[test]
+    fn searches_recent_songs() {
+        let folder = std::path::Path::new("/music/library/Opeth - Deliverance");
+        assert!(matches_search("", folder));
+        assert!(matches_search("  deliv OPETH ", folder));
+        assert!(matches_search("library", folder));
+        assert!(!matches_search("opeth queen", folder));
     }
 
     #[test]
