@@ -516,6 +516,9 @@ with step 4.5 of Phase 4, the measurement step.
 - [x] **Start screen centered, every recent song shown** (the list showed three rows).
 - [x] **Unsteady tempo icon:** ⚡ instead of ★ after the BPM, with a tooltip that no
   longer misses.
+- [ ] **Search in the recent songs** (asked by the user): a field on the start screen and
+  at the top of the Recent menu. Built, to test (see "Search in the recent songs" in
+  `STATUS.md`).
 
 ### Phase 5: Extras
 - [ ] Ensembles.

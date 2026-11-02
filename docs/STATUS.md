@@ -103,8 +103,8 @@ Last updated: 2026-11-02.
 - **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
-  over mute, start screen"). Left: the RAM peak when changing device; the user is adding
-  more features to the list.
+  over mute, start screen"). Search in the recent songs: built, to test. Left: the RAM peak
+  when changing device.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -136,8 +136,8 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    Reaper's Space / Enter plus arrow keys on the grid are done, tested on macOS (see "Output
    device and transport keys"), and so are solo over mute, the start screen and the
    unsteady tempo icon (see "Solo over mute, start screen"). Left: the RAM peak when
-   changing device. Features small and medium go there; **next, the user adds new ones to
-   the list.**
+   changing device. Features small and medium go there. New: **search in the recent
+   songs**, built, to test (see "Search in the recent songs").
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -594,6 +594,33 @@ Asked by the user, built and tested by the user on macOS: works.
    muted one stays silent.
 2. Start screen: the folder row and the list are centered; all recent songs show, with a
    scroll bar when they do not fit; resizing the window keeps them centered.
+
+## Search in the recent songs
+
+Phase 4.5, asked by the user. Built on macOS, not yet tested by the user.
+
+- A search field above the start screen's list and at the top of the Recent menu. A song
+  matches when every word typed is in its title or its folder, ignoring case
+  (`matches_search` in `app.rs`, unit-tested). "No matches" when nothing fits.
+- **Enter** in either field opens the first match that can be opened (in the menu, not the
+  song already open), and is consumed so it does not also pause playback. Listed in the
+  shortcuts window.
+- **Menu:** the field is focused and emptied each time the menu opens, so typing filters
+  right away. Clicks inside no longer close the menu (`CloseOnClickOutside`, otherwise the
+  field could not be clicked); the items and "Clear list" close it themselves.
+- **Start screen:** the field is as wide as the list; the text is cleared when a song is
+  opened from it. The stripes alternate over the filtered rows.
+- The list keeps at most 20 songs (`MAX_RECENT`); raising it would make the search more
+  useful, not done.
+
+**Test checklist:**
+1. Start screen: type part of a title (or two words in any order, any case): the list
+   narrows; a word that matches nothing shows "No matches". Enter opens the first match.
+2. With a song playing, open Recent: the cursor is already in the field. Type, then Enter:
+   the first match opens and playback did not pause first. Click a filtered item: it opens.
+3. Close and reopen Recent: the field is empty again. Clicking the field does not close the
+   menu; clicking outside does.
+4. While typing in either field, shortcut keys (Space, A, B, L, M, digits) do nothing.
 
 ## Output device and transport keys
 
