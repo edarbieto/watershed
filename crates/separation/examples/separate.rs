@@ -4,7 +4,7 @@
 //! folder on first use, unless `--model` points to a local GGUF copy.
 //!
 //! ```sh
-//! cargo run --release -p watershed-separation --example separate -- song.mp3 out-dir [--native] [--model file.gguf] [--cpu] [--flac] [--memory rss.csv]
+//! cargo run --release -p watershed-separation --example separate -- song.mp3 out-dir [--native] [--model file.gguf] [--cpu] [--flac] [--memory rss.csv] [--repeat N]
 //! ```
 //!
 //! `--memory` samples the process's resident memory every 10 ms, prints its peak
@@ -12,6 +12,11 @@
 //! memory footprint (Activity Monitor's "Memory"). Both include large blocks that
 //! macOS's malloc keeps after they are freed, for reuse; to see only the memory
 //! in use, run with `MallocLargeCache=0` (undocumented, for measuring only).
+//!
+//! `--repeat N` separates the song N times in one process, into `out-dir/run-1` and
+//! so on, each on a new thread that loads and frees the model, as the app does. With
+//! `--memory` it prints the memory left after each run: flat is a fixed cost, growing
+//! is a leak. On macOS it also writes `vmmap --summary` next to the CSV after each run.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -27,6 +32,7 @@ fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let (mut cpu, mut flac, mut native, mut model_file, mut memory_csv, mut paths) =
         (false, false, false, None, None, Vec::new());
+    let mut repeat = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--cpu" => cpu = true,
@@ -37,6 +43,10 @@ fn main() -> anyhow::Result<()> {
             }
             "--memory" => {
                 memory_csv = Some(PathBuf::from(args.next().context("--memory needs a file")?))
+            }
+            "--repeat" => {
+                let count = args.next().context("--repeat needs a number")?;
+                repeat = Some(count.parse::<u32>().context("--repeat needs a number")?);
             }
             _ => paths.push(arg),
         }
@@ -77,66 +87,101 @@ fn main() -> anyhow::Result<()> {
 
     let memory = memory_csv.map(MemoryLog::start);
 
-    let start = Instant::now();
     let options = LoadOptions {
         device: if cpu { Device::Cpu } else { Device::Auto },
         ..Default::default()
     };
-    let mut separator: Box<dyn Separator> = match (&models_dir, model_file) {
-        (Some(dir), _) => entry.load(dir, &options)?,
-        (None, Some(path)) => Box::new(GgufSeparator::load(&path, entry.stems.clone(), &options)?),
-        (None, None) => unreachable!(),
+    let load = || -> anyhow::Result<Box<dyn Separator>> {
+        Ok(match (&models_dir, &model_file) {
+            (Some(dir), _) => entry.load(dir, &options)?,
+            (None, Some(path)) => {
+                Box::new(GgufSeparator::load(path, entry.stems.clone(), &options)?)
+            }
+            (None, None) => unreachable!(),
+        })
     };
-    println!(
-        "loaded in {:.1} s on {}: {} stems at {} Hz",
-        start.elapsed().as_secs_f64(),
-        separator.device(),
-        separator.stem_names().len(),
-        separator.sample_rate()
-    );
 
-    let start = Instant::now();
-    let stage_start = Mutex::new((Stage::Decoding, Instant::now()));
-    let separated = watershed_separation::separate_song(
-        separator.as_mut(),
-        Path::new(song_path),
-        Path::new(out_dir),
-        if flac {
-            StemFormat::Lossless
-        } else {
-            StemFormat::Lossy
-        },
-        &|stage, f| {
-            if let Some(memory) = &memory {
-                memory.set_phase(stage as u8 + 1);
-            }
-            let mut current = stage_start.lock().unwrap();
-            if current.0 != stage {
-                eprintln!(
-                    "\r{:?}: {:.1} s",
-                    current.0,
-                    current.1.elapsed().as_secs_f64()
-                );
-                *current = (stage, Instant::now());
-            }
-            eprint!("\r{stage:?} {:5.1} %", f * 100.0);
-        },
-        &|| false,
-    )?;
-    let (stage, since) = *stage_start.lock().unwrap();
-    eprintln!("\r{stage:?}: {:.1} s      ", since.elapsed().as_secs_f64());
+    if let Some(memory) = &memory {
+        memory.report("before loading");
+    }
+    let separate = |run: u32| -> anyhow::Result<()> {
+        if let Some(memory) = &memory {
+            memory.set_phase(0);
+        }
+        let start = Instant::now();
+        let mut separator = load()?;
+        println!(
+            "loaded in {:.1} s on {}: {} stems at {} Hz",
+            start.elapsed().as_secs_f64(),
+            separator.device(),
+            separator.stem_names().len(),
+            separator.sample_rate()
+        );
 
-    println!(
-        "done in {:.1} s, stem gain {:.1} dB: {} files in {}",
-        start.elapsed().as_secs_f64(),
-        20.0 * separated.stem_gain.log10(),
-        separated.files.len(),
-        separated.folder.display()
-    );
-    if let Some(memory) = memory {
+        let folder = match repeat {
+            Some(_) => Path::new(out_dir).join(format!("run-{run}")),
+            None => PathBuf::from(out_dir),
+        };
+        let start = Instant::now();
+        let stage_start = Mutex::new((Stage::Decoding, Instant::now()));
+        let separated = watershed_separation::separate_song(
+            separator.as_mut(),
+            Path::new(song_path),
+            &folder,
+            if flac {
+                StemFormat::Lossless
+            } else {
+                StemFormat::Lossy
+            },
+            &|stage, f| {
+                if let Some(memory) = &memory {
+                    memory.set_phase(stage as u8 + 1);
+                }
+                let mut current = stage_start.lock().unwrap();
+                if current.0 != stage {
+                    eprintln!(
+                        "\r{:?}: {:.1} s",
+                        current.0,
+                        current.1.elapsed().as_secs_f64()
+                    );
+                    *current = (stage, Instant::now());
+                }
+                eprint!("\r{stage:?} {:5.1} %", f * 100.0);
+            },
+            &|| false,
+        )?;
+        let (stage, since) = *stage_start.lock().unwrap();
+        eprintln!("\r{stage:?}: {:.1} s      ", since.elapsed().as_secs_f64());
+
+        println!(
+            "done in {:.1} s, stem gain {:.1} dB: {} files in {}",
+            start.elapsed().as_secs_f64(),
+            20.0 * separated.stem_gain.log10(),
+            separated.files.len(),
+            separated.folder.display()
+        );
         drop(separator);
-        memory.set_phase(PHASES.len() as u8 - 1);
-        std::thread::sleep(Duration::from_secs(2));
+        if let Some(memory) = &memory {
+            memory.set_phase(PHASES.len() as u8 - 1);
+        }
+        Ok(())
+    };
+    for run in 1..=repeat.unwrap_or(1) {
+        std::thread::scope(|scope| {
+            let thread = scope.spawn(|| separate(run));
+            thread.join().expect("separation thread panicked")
+        })?;
+        if let Some(memory) = &memory {
+            std::thread::sleep(Duration::from_secs(2));
+            memory.report(&format!("after run {run}"));
+            if native {
+                let usage = watershed_roformer::default_device().memory_pool_usage();
+                println!("  burn's pools: {usage:?}");
+            }
+            memory.vmmap(run);
+        }
+    }
+    if let Some(memory) = memory {
         memory.finish()?;
     }
     Ok(())
@@ -199,6 +244,43 @@ impl MemoryLog {
 
     fn set_phase(&self, phase: u8) {
         self.phase.store(phase, Ordering::Relaxed);
+    }
+
+    fn report(&self, moment: &str) {
+        let resident = sysinfo::get_current_pid().ok().and_then(|pid| {
+            use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+            let mut system = System::new();
+            system.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[pid]),
+                false,
+                ProcessRefreshKind::nothing().with_memory(),
+            );
+            Some(system.process(pid)?.memory())
+        });
+        let mib = |bytes: Option<u64>| bytes.unwrap_or(0) / (1024 * 1024);
+        println!(
+            "{moment}: resident {} MiB, footprint {} MiB",
+            mib(resident),
+            mib(footprint())
+        );
+    }
+
+    /// Saves what the memory is made of, on macOS.
+    fn vmmap(&self, run: u32) {
+        if cfg!(target_os = "macos") {
+            let summary = std::process::Command::new("vmmap")
+                .args(["--summary", &std::process::id().to_string()])
+                .output();
+            match summary {
+                Ok(summary) => {
+                    let path = self.csv.with_extension(format!("run-{run}.vmmap.txt"));
+                    if let Err(e) = std::fs::write(&path, summary.stdout) {
+                        eprintln!("cannot write {}: {e}", path.display());
+                    }
+                }
+                Err(e) => eprintln!("vmmap failed: {e}"),
+            }
+        }
     }
 
     fn finish(self) -> anyhow::Result<()> {
