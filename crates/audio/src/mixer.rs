@@ -148,11 +148,15 @@ mod tests {
         song.tracks[0].params.set_mute(true);
         assert!((render(&mut voice, 0, 16)[0] - 0.625).abs() < 1e-6);
 
-        // Solo wins over the unsoloed tracks; mute still wins over solo.
+        // Solo silences the unsoloed tracks, and overrides mute.
         song.tracks[1].params.set_solo(true);
         assert!((render(&mut voice, 0, 16)[0] - 0.5).abs() < 1e-6);
         song.tracks[0].params.set_solo(true);
-        assert!((render(&mut voice, 0, 16)[0] - 0.5).abs() < 1e-6);
+        assert!((render(&mut voice, 0, 16)[0] - 0.75).abs() < 1e-6);
+        // Unsoloed again, the mute holds.
+        song.tracks[0].params.set_solo(false);
+        song.tracks[1].params.set_solo(false);
+        assert!((render(&mut voice, 0, 16)[0] - 0.625).abs() < 1e-6);
     }
 
     #[test]

@@ -69,10 +69,15 @@ impl TrackParams {
         self.offset.store(frames, Ordering::Relaxed);
     }
 
+    /// Whether the track is heard, given whether any track in the song is soloed.
+    /// Solo overrides mute: a muted track that is soloed plays.
+    pub fn audible(&self, any_solo: bool) -> bool {
+        if any_solo { self.solo() } else { !self.mute() }
+    }
+
     /// Left/right gains, given whether any track in the song is soloed.
     pub(crate) fn channel_gains(&self, any_solo: bool) -> [f32; 2] {
-        let audible = !self.mute() && (!any_solo || self.solo());
-        if !audible {
+        if !self.audible(any_solo) {
             return [0.0, 0.0];
         }
         // Balance law for stereo sources: the center leaves both sides at unity.

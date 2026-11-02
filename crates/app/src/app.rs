@@ -1830,7 +1830,7 @@ impl WatershedApp {
                 .enumerate()
             {
                 let params = &track.params;
-                let audible = !params.mute() && (!any_solo || params.solo());
+                let audible = params.audible(any_solo);
                 let silent = peaks.iter().all(Peaks::is_silent);
 
                 ui.horizontal(|ui| {
