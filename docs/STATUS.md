@@ -125,7 +125,9 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    it becomes the default, so **burn is not the default yet** and the weights are undecided.
    Next: back on macOS, see the pin in `PLAN.md` Phase 4.
 1. **Phase 4.5, more adjustments** (`PLAN.md`, after Phase 4): system default output and
-   the RAM peak when changing device. Features small and medium go there.
+   Reaper's Space / Enter plus arrow keys on the grid are done, tested on macOS (see "Output
+   device and transport keys"). Left: the RAM peak when changing device. Features small and
+   medium go there.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
    window size.
 3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
@@ -554,6 +556,42 @@ progress above zero in a step, so the first chunk is left out. It shows one chun
 before (on the RTX 3050, ~70 s in instead of ~65 s) and should start near the real time. A
 resumed download also stops counting the bytes already on disk. Unit tests in `separate.rs`
 with the Windows numbers. Both backends report once per chunk and start the step at 0.
+
+## Output device and transport keys
+
+Phase 4.5. Built on macOS and tested by the user there: everything works.
+
+- **System default** is the first entry of the output menu and the choice when
+  `config.toml` has no `output_device` (an existing config keeps its fixed device until the
+  user picks it). The menu shows "Default: <device>". A stream built from cpal's default
+  device follows the system: on macOS (and PipeWire) cpal reroutes it and reports
+  `DeviceChanged`, on WASAPI it reports `StreamInvalidated`. Both now restart the engine on
+  the default device, so it opens at the new device's own rate and shows its name. A rate
+  change reloads the song, with the RAM peak of the next item. The restart waits until the
+  window is visible on macOS (see "Output lost when another app opens a Bluetooth headset's
+  mic"), but the rerouted stream keeps playing meanwhile.
+- **Space and Enter, as in Reaper** (`transport.rs`). Reaper's defaults, from its Quick
+  Start guide: Space is "Play/stop", Enter "Pause"; stopping goes back to the edit cursor,
+  where playback started. Here: Space plays, and pressed while playing stops and goes back
+  to where it started. Enter pauses where it is, and Space or Enter resumes; a Space after
+  that still goes back to where playback first started. Any seek by the user (click, ruler,
+  arrows, markers, ⏮, ▶ on a section) moves that point, like Reaper's edit cursor. The ▶ / ⏸
+  button behaves as Enter. Playing from the song's end starts at 0:00.
+- **Arrow keys with snap on** go to the previous or next grid line drawn, so the zoom sets
+  the step: every beat when zoomed in, bars (or every n bars) when zoomed out. Without a
+  grid, before bar 1, or with snap off, they move 5 s as before. The ⏪ / ⏩ buttons do the
+  same.
+
+**Test checklist** (passed on macOS):
+1. Output menu: choose System default. Change the output in macOS's sound settings (or
+   connect headphones) while playing: the sound moves there and the menu shows the new name.
+2. Pick a fixed device, change the system output: Watershed stays on its device. Restart
+   the app: the choice is kept.
+3. Space plays; Space again stops and goes back to where it started. Enter pauses in place;
+   Space or Enter resumes; Space then goes back to the first start.
+4. Click elsewhere (or use the arrows) while playing, then Space: it goes back to the click.
+5. Snap on, zoomed in on a 4/4 song: ← / → move beat by beat; zoomed out, bar by bar.
+   Snap off: 5 s.
 
 ## Tempo, pitch and limiter
 
@@ -1394,7 +1432,7 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
 - **Not done** (ideas for after listening): the song only in the other ear when the
   click is on one side; showing the count (1 2 3 4) on screen.
 
-**Test checklist:**
+**Test checklist** (passed on macOS):
 1. Turn on Click and play a song you know: is it on the beat, with the accent on the
    "1"? Try 50 % and 125 % tempo and a transposition: it stays on the beat and its
    pitch does not change.
@@ -1519,7 +1557,7 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   goes on through it at its pace), correcting single beats, a tempo change on
   purpose (the smoothing turns a step into an 8-beat ramp).
 
-**Test checklist:**
+**Test checklist** (passed on macOS):
 1. Change: the ★ shows; turn on Dynamic and Click, play from a few places (also
    2:00 and 3:30, where it speeds up): does the click stay with the drums the whole
    way, with the accent on the "1"?
@@ -1578,7 +1616,7 @@ the bar ruler.
   follows eighth notes (a quarter-note pulse does not fit 3.5 quarters a bar), and
   each change on a note pins a beat that the beats after it count from.
 
-**Test checklist:**
+**Test checklist** (passed on macOS):
 1. Right-click the bar ruler on a bar line: a tag appears with the current
    signature and its popup; set 7/8. The bars after it regroup; the bar numbers go
    on.
@@ -1669,7 +1707,7 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
   the mark 123 → 72 → 247, after it 172–198 whatever the button). Now ½ and ×2
   also scale every mark's tempo (`Grid::scale_tempos`).
 
-**Test checklist:**
+**Test checklist** (passed on macOS):
 1. Paranoid Android, Dynamic on: the mark at the cut (3:27.3) with Tempo, Fixed and
    Fit: two whole bars ring. The mark at 3:34.0 with ~63: the "1" with the band;
    the grid and the click follow the slow part.
@@ -1710,7 +1748,7 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
   The user wants a rough hint, not precision. Possible later: a key per section
   (between markers), for songs like Change.
 
-**Test checklist:**
+**Test checklist** (passed on macOS):
 1. For the songs you know: is the key right? If not, is it the relative (same
    notes), a fifth away, or something else? The menu shows what it guessed second.
 2. Transpose ±2 semitones: the key follows (Bm → C#m).

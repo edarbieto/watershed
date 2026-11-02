@@ -491,7 +491,8 @@ song is about 47 chunks.
 Small and medium features found while using the app, after Phase 4. Not to be confused
 with step 4.5 of Phase 4, the measurement step.
 
-- [ ] **"System default" output device.** Asked by the user: with headphones just put on,
+- [x] **"System default" output device** (done, see "Output device and transport keys" in
+  `STATUS.md`). Asked by the user: with headphones just put on,
   play came out of the MacBook's speakers, because `config.toml` stores a fixed device.
   Add a "System default" entry, the default choice, that follows the system when the
   default device changes. cpal 0.18 supports it for streams built from
@@ -506,6 +507,8 @@ with step 4.5 of Phase 4, the measurement step.
   memory. A device with the same rate should not show it. Options: not computing the
   analyses again, dropping the old song first, or resampling while playing so that
   changing device reloads nothing.
+- [x] **Space and Enter as in Reaper, arrow keys on the grid** (asked by the user; see
+  "Output device and transport keys" in `STATUS.md`).
 
 ### Phase 5: Extras
 - [ ] Ensembles.
