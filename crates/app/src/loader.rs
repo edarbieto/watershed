@@ -38,22 +38,88 @@ pub struct LoadedSong {
     pub key: Option<KeyEstimate>,
 }
 
-/// A load in progress.
-pub struct Loading {
+/// A load in progress, or with [`Resampled`], stems moving to another sample rate.
+pub struct Loading<T = LoadedSong> {
     pub title: String,
     pub total: usize,
     done: Arc<AtomicUsize>,
-    result: Receiver<Result<LoadedSong, String>>,
+    result: Receiver<Result<T, String>>,
 }
 
-impl Loading {
+impl<T> Loading<T> {
     pub fn done(&self) -> usize {
         self.done.load(Ordering::Relaxed)
     }
 
     /// Returns the result once loading has finished.
-    pub fn poll(&self) -> Option<Result<LoadedSong, String>> {
+    pub fn poll(&self) -> Option<Result<T, String>> {
         self.result.try_recv().ok()
+    }
+
+    /// Waits for the result.
+    pub fn wait(&self) -> Result<T, String> {
+        self.result
+            .recv()
+            .unwrap_or_else(|_| Err("loading thread crashed".into()))
+    }
+}
+
+/// The stems of a song at another sample rate, with their new peaks. The tempo and
+/// the key do not depend on the rate, so they are not computed again.
+pub struct Resampled {
+    pub sample_rate: u32,
+    pub samples: Vec<Samples>,
+    pub peaks: Vec<[Peaks; 2]>,
+}
+
+/// Starts resampling the stems of a song, taken out of it, to `to` Hz. One stem at
+/// a time, each freed before the next one is unpacked, so that the memory used
+/// grows by about one stem, not by a second copy of the song.
+pub fn resample(
+    title: String,
+    samples: Vec<Samples>,
+    from: u32,
+    to: u32,
+    ctx: egui::Context,
+) -> Loading<Resampled> {
+    let total = samples.len();
+    let done = Arc::new(AtomicUsize::new(0));
+    let (tx, result) = channel();
+    let thread_done = done.clone();
+    std::thread::spawn(move || {
+        let start = std::time::Instant::now();
+        let outcome = samples
+            .into_iter()
+            .map(|track| {
+                let input = watershed_dsp::StereoBuffer::new(from, track.to_f32());
+                drop(track);
+                let audio = watershed_dsp::resample(input, to).map_err(|e| e.to_string())?;
+                let peaks = Peaks::stereo(&audio.samples, Peaks::DEFAULT_FRAMES_PER_BUCKET);
+                let samples = Samples::from_f32(&audio.samples);
+                thread_done.fetch_add(1, Ordering::Relaxed);
+                Ok((samples, peaks))
+            })
+            .collect::<Result<Vec<_>, String>>()
+            .map(|tracks| {
+                let (samples, peaks) = tracks.into_iter().unzip();
+                Resampled {
+                    sample_rate: to,
+                    samples,
+                    peaks,
+                }
+            });
+        log::info!(
+            "resampled {total} stems to {to} Hz in {:.2?}",
+            start.elapsed()
+        );
+        let _ = tx.send(outcome);
+        ctx.request_repaint();
+    });
+    Loading {
+        title,
+        total,
+        done,
+        result,
     }
 }
 

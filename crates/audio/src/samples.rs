@@ -67,6 +67,12 @@ impl Samples {
             .map(move |[l, r]| [decode(*l, scale), decode(*r, scale)])
     }
 
+    /// All samples, unpacked.
+    pub fn to_f32(&self) -> Vec<f32> {
+        let scale = self.scale;
+        self.data.iter().map(|&s| decode(s, scale)).collect()
+    }
+
     /// Pads with silence (or truncates) to `len` samples.
     pub(crate) fn resize(&mut self, len: usize) {
         self.data.resize(len, [0; 3]);
@@ -118,6 +124,14 @@ mod tests {
         assert_eq!(samples.get(3), 0.0);
         let frames: Vec<_> = samples.frames(0..2).collect();
         assert!(close(frames[0][0], -2.0) && close(frames[0][1], 2.0));
+        let unpacked = samples.to_f32();
+        assert_eq!(unpacked.len(), 4);
+        assert!(
+            unpacked
+                .iter()
+                .enumerate()
+                .all(|(i, &s)| s == samples.get(i))
+        );
     }
 
     #[test]

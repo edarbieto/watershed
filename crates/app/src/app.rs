@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText};
-use watershed_audio::{Beats, Engine, Notify, OutputDevice, output_devices};
+use watershed_audio::{Beats, Engine, Notify, OutputDevice, Samples, Song, output_devices};
 use watershed_dsp::Peaks;
 use watershed_separation::{ModelEntry, catalog};
 use watershed_storage::{Config, Session, StemFormat, TrackState};
@@ -11,7 +11,7 @@ use watershed_storage::{Config, Session, StemFormat, TrackState};
 use crate::bpm::{self, Bpm};
 use crate::grid::{self, Change, Grid};
 use crate::key::{self, SongKey};
-use crate::loader::{self, LoadedSong, Loading};
+use crate::loader::{self, LoadedSong, Loading, Resampled};
 use crate::loops::Loops;
 use crate::markers::Markers;
 use crate::metronome::{self, Metronome};
@@ -101,12 +101,14 @@ enum Action {
     ToggleClick,
 }
 
-/// Mixer settings carried over when a song is reloaded, e.g. after switching to a
-/// device with a different sample rate.
+/// The open song moving to a device with a different sample rate. Its stems are
+/// out of it meanwhile, being resampled; the rest (mixer, peaks) stays and is drawn.
 struct Restore {
+    job: Loading<Resampled>,
+    /// The song the stems were taken from, to put them back only into it.
+    song: Arc<Song>,
     position_secs: f64,
     playing: bool,
-    tracks: Vec<TrackState>,
 }
 
 pub struct WatershedApp {
@@ -262,7 +264,6 @@ impl WatershedApp {
             self.config.save();
         }
         self.error = None;
-        self.restore = None;
         self.reloading = None;
         self.loading = Some(loader::start(files, self.sample_rate(), ctx.clone()));
     }
@@ -451,42 +452,29 @@ impl WatershedApp {
         match result {
             Ok(mut loaded) => {
                 self.movable = vec![false; loaded.song.tracks.len()];
-                if let Some(restore) = self.restore.take() {
-                    apply_track_states(&mut loaded, &restore.tracks);
-                    if let Some(engine) = &mut self.engine {
-                        engine.load(loaded.song.clone());
-                        let frame = restore.position_secs * f64::from(engine.sample_rate());
-                        engine.seek(frame as usize);
-                        if restore.playing {
-                            engine.play();
-                        }
-                    }
-                    self.loaded = Some(loaded);
-                } else {
-                    if let Some(folder) = loaded.files[0].parent() {
-                        self.config.remember(folder, unix_now());
-                        self.config.save();
-                    }
-                    // Write the session of the song being replaced before switching.
-                    self.save_session();
-                    let view = self.view;
-                    self.apply_session(&mut loaded);
-                    if let Some(playing) = self.reloading.take() {
-                        if view.duration() == loaded.song.duration_secs() {
-                            self.view = view;
-                        }
-                        if playing && let Some(engine) = &mut self.engine {
-                            engine.play();
-                        }
-                    }
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                        "Watershed — {}",
-                        loaded.title
-                    )));
-                    self.loaded = Some(loaded);
-                    self.saved_session = self.session().map(|(_, session)| session);
-                    self.changed_at = None;
+                if let Some(folder) = loaded.files[0].parent() {
+                    self.config.remember(folder, unix_now());
+                    self.config.save();
                 }
+                // Write the session of the song being replaced before switching.
+                self.save_session();
+                let view = self.view;
+                self.apply_session(&mut loaded);
+                if let Some(playing) = self.reloading.take() {
+                    if view.duration() == loaded.song.duration_secs() {
+                        self.view = view;
+                    }
+                    if playing && let Some(engine) = &mut self.engine {
+                        engine.play();
+                    }
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                    "Watershed — {}",
+                    loaded.title
+                )));
+                self.loaded = Some(loaded);
+                self.saved_session = self.session().map(|(_, session)| session);
+                self.changed_at = None;
             }
             Err(e) => {
                 self.reloading = None;
@@ -599,6 +587,11 @@ impl WatershedApp {
     /// the current song to it, keeping the position, the mixer settings and whether it
     /// was playing.
     fn switch_device(&mut self, id: Option<&str>, ctx: &egui::Context) {
+        // Switching again while the stems are being resampled: they are needed first.
+        if let Some(restore) = self.restore.take() {
+            let result = restore.job.wait();
+            self.finish_restore(restore, result, ctx);
+        }
         let position_secs = self
             .engine
             .as_ref()
@@ -636,22 +629,113 @@ impl WatershedApp {
         }
         let engine = self.engine.insert(engine);
 
-        let Some(loaded) = &self.loaded else { return };
+        let Some(loaded) = &mut self.loaded else {
+            return;
+        };
         if loaded.song.sample_rate == engine.sample_rate() {
             engine.load(loaded.song.clone());
             engine.seek((position_secs * f64::from(engine.sample_rate())) as usize);
             if playing {
                 engine.play();
             }
-        } else {
-            // The stems must be resampled to the new device rate.
-            self.restore = Some(Restore {
-                position_secs,
-                playing,
-                tracks: track_states(loaded),
-            });
-            let files = loaded.files.clone();
-            self.loading = Some(loader::start(files, engine.sample_rate(), ctx.clone()));
+            return;
+        }
+        // The stems must be resampled to the new device rate. Reading them again from
+        // disk held the old song, the new one and every stem unpacked at once.
+        let samples: Vec<Samples> = match Arc::get_mut(&mut loaded.song) {
+            // With the old engine gone, nothing else should hold the song.
+            Some(song) => song
+                .tracks
+                .iter_mut()
+                .map(|track| std::mem::take(&mut track.samples))
+                .collect(),
+            None => {
+                log::warn!("song still shared, resampling a copy of its stems");
+                loaded
+                    .song
+                    .tracks
+                    .iter()
+                    .map(|t| t.samples.clone())
+                    .collect()
+            }
+        };
+        let job = loader::resample(
+            loaded.title.clone(),
+            samples,
+            loaded.song.sample_rate,
+            engine.sample_rate(),
+            ctx.clone(),
+        );
+        self.restore = Some(Restore {
+            job,
+            song: loaded.song.clone(),
+            position_secs,
+            playing,
+        });
+    }
+
+    fn poll_restore(&mut self, ctx: &egui::Context) {
+        let Some(result) = self.restore.as_ref().and_then(|r| r.job.poll()) else {
+            return;
+        };
+        if let Some(restore) = self.restore.take() {
+            self.finish_restore(restore, result, ctx);
+        }
+    }
+
+    /// Puts the resampled stems back into the song, as a new song at the device's
+    /// rate with the same mixer settings, and resumes where it was.
+    fn finish_restore(
+        &mut self,
+        restore: Restore,
+        result: Result<Resampled, String>,
+        ctx: &egui::Context,
+    ) {
+        let Some(loaded) = &mut self.loaded else {
+            return;
+        };
+        // Another song was opened meanwhile.
+        if !Arc::ptr_eq(&loaded.song, &restore.song) {
+            return;
+        }
+        drop(restore.song);
+        let resampled = match result {
+            Ok(resampled) => resampled,
+            Err(e) => {
+                // The stems are gone from memory: read them again.
+                log::error!("cannot resample the stems: {e}");
+                self.error = Some(format!("Cannot resample the stems: {e}"));
+                if let Some(folder) = loaded.files[0].parent().map(PathBuf::from) {
+                    self.open(&[folder], ctx);
+                }
+                return;
+            }
+        };
+        let states = track_states(loaded);
+        let tracks = loaded
+            .song
+            .tracks
+            .iter()
+            .map(|t| t.name.clone())
+            .zip(resampled.samples)
+            .collect();
+        let song = Song::new(resampled.sample_rate, tracks);
+        for (new, old) in song.tracks.iter().zip(&loaded.song.tracks) {
+            new.params.set_vocal(old.params.vocal());
+        }
+        loaded.song = Arc::new(song);
+        loaded.peaks = resampled.peaks;
+        apply_track_states(loaded, &states);
+        let Some(engine) = &mut self.engine else {
+            return;
+        };
+        if engine.sample_rate() != loaded.song.sample_rate {
+            return;
+        }
+        engine.load(loaded.song.clone());
+        engine.seek((restore.position_secs * f64::from(engine.sample_rate())) as usize);
+        if restore.playing {
+            engine.play();
         }
     }
 
@@ -2274,6 +2358,7 @@ impl WatershedApp {
 impl eframe::App for WatershedApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_loading(ui.ctx());
+        self.poll_restore(ui.ctx());
         self.poll_separation(ui.ctx());
         self.handle_input(ui);
         if let Some(engine) = &mut self.engine {
@@ -2356,6 +2441,20 @@ impl eframe::App for WatershedApp {
                         loading.title,
                         loading.done(),
                         loading.total
+                    ));
+                });
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(100));
+            }
+            if let Some(Restore { job, .. }) = &self.restore {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(format!(
+                        "Resampling {} to {} Hz… {}/{}",
+                        job.title,
+                        self.sample_rate(),
+                        job.done(),
+                        job.total
                     ));
                 });
                 ui.ctx()
