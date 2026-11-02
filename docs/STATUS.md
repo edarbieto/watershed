@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-01.
+Last updated: 2026-11-02.
 
 ## Where we are
 
@@ -548,6 +548,12 @@ settles at 3–4 min. From reading `remaining()` in `separate.rs`, not measured:
 of the song. That chunk carries the ~30 s of autotune, so ~65 s for it gives ~40 min. "Sometimes"
 fits: only the first separation after starting the app pays it, more on a new build.
 Leaving the first chunk out of the estimate should fix it, on GGUF as well.
+
+**Fixed (4.8), not yet tried in the app:** the estimate now uses the rate since the first
+progress above zero in a step, so the first chunk is left out. It shows one chunk later than
+before (on the RTX 3050, ~70 s in instead of ~65 s) and should start near the real time. A
+resumed download also stops counting the bytes already on disk. Unit tests in `separate.rs`
+with the Windows numbers. Both backends report once per chunk and start the step at 0.
 
 ## Tempo, pitch and limiter
 

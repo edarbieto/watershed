@@ -427,7 +427,8 @@ RAM first, then disk. In this order:
 > so 4.5 stays open until 4.8 has had a go. Pull, run `rustup update` and
 > `git submodule update --init`. Ask the user which comes first; the candidates are:
 >
-> 1. **The time-left estimate** (4.8): quick, and in shared code.
+> 1. ~~**The time-left estimate** (4.8)~~: done, see "In the app (4.4)" in STATUS; to try
+>    on Windows.
 > 2. **Optimization** (4.8): the gap on the RTX 3050 is 1.86× the GGUF's time and 2.9× its GPU
 >    memory, against ~1.45× in time on the M5 Pro.
 > 3. **Phase 4.5, more adjustments:** system default output, RAM peak when changing device.
