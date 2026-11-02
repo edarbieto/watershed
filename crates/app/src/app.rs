@@ -46,6 +46,8 @@ const MAX_SEMITONES: f32 = 12.0;
 const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 /// How far the skip buttons and arrow keys move, in seconds.
 const SKIP_SECS: f64 = 5.0;
+/// Shown after the BPM when the song speeds up or slows down. In egui's Noto Emoji font.
+const UNSTEADY_ICON: &str = "⚡";
 const SIDE_PANEL_WIDTH: f32 = 280.0;
 /// Narrowest waveform the minimum window size leaves room for.
 const MIN_WAVEFORM_WIDTH: f32 = 200.0;
@@ -2654,17 +2656,26 @@ fn bpm_controls(
                     .on_hover_text(format!("{estimate} Tap the beat to set it."));
             }
         }
-        // Always there, so the bar keeps its width.
+        // Always there, so the bar keeps its width. A hover area as tall as the bar
+        // rather than a label: a label is as small as its glyph, which made the tooltip
+        // hard to hit, and shows a text cursor.
         let moving = grid.tempo_range().is_some();
-        let star = add_with_width(
-            ui,
-            text_width(ui, RichText::new("★")),
-            egui::Label::new(
-                RichText::new(if moving { "★" } else { " " }).color(ui.visuals().warn_fg_color),
-            ),
+        // Larger than the text, where the icon is hard to make out.
+        let font = egui::FontId::proportional(egui::TextStyle::Body.resolve(ui.style()).size * 1.4);
+        let size = egui::vec2(
+            text_width(ui, RichText::new(UNSTEADY_ICON).font(font.clone())) + 8.0,
+            ui.spacing().interact_size.y,
         );
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
         if moving {
-            star.on_hover_text(format!(
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                UNSTEADY_ICON,
+                font,
+                ui.visuals().warn_fg_color,
+            );
+            response.on_hover_text(format!(
                 "This song speeds up or slows down.{range} Turn on Dynamic so the grid \
                  and the click follow it."
             ));
