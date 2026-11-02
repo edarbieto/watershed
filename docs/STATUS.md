@@ -110,12 +110,11 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
 "the separation quality is great" (see "In the app (4.4)").
 
 0. **Next: 4.5 measurement** (`PLAN.md` Phase 4). Start on macOS, in this order:
-   1. RAM left after a run (see "In the app (4.4)"): separate several songs in a row in
-      one process. A flat number is a fixed cost, a growing one is a leak.
-   2. Time per song, with the STFT and iSTFT in parallel (~10 s of the 111 s today, on
-      one thread), and the GGUF's 72 vs 82 s.
-   3. The CPU fallback, needed before 4.7.
-   4. Whether burn can use quantized weights: the download is 700 MB against 190 MB.
+   1. ~~RAM left after a run~~: done, it was a leak (see "RAM left after a run (4.5)").
+      Checking the number in the app is left for the user.
+   2. ~~Time per song~~: done (see "Time per song (4.5)"): the gap to ggml is in the model.
+   3. CPU fallback: measured, not built (see "CPU fallback (4.5)"). Open question below.
+   4. Smaller download: looked at, not tried (see "Smaller download (4.5)").
 
    Then Windows, needed to close 4.5: Vulkan vs DX12, autotune's ~33 s at every start
    (cubecl's `persistence` feature is untried), fitting in the RTX 3050's 6 GB without
@@ -151,7 +150,8 @@ Drive should help.
 
 ## Open questions for the user
 
-None right now.
+- **CPU fallback:** is ~19 min for a 4:39 song on this machine acceptable? It is what
+  `flex` gives today, and ggml takes ~7.5 min. See "CPU fallback (4.5)".
 
 ## Native backend: burn + wgpu
 
@@ -373,9 +373,89 @@ From the example (`separate --native --flac`), same 24-bit input, on the M5 Pro:
 | The same stems, in a fresh start of the app | ~800 MB |
 | Another song cancelled, from a clean start | ~400 MB (was 200–300 MB) |
 
-So something like 100–200 MB stays after any run, finished or cancelled. Cause not looked
-into. To check first: burn's device and compiled kernels, which live as long as the process,
-then what the example's 136 MiB is made of.
+So something like 100–200 MB stayed after any run, finished or cancelled: see below.
+
+### RAM left after a run (4.5)
+
+`examples/separate.rs --repeat N` separates a song N times in one process, each on a new
+thread that loads and frees the model, as the app does, and after each run prints the
+memory left and burn's pools, and saves `vmmap --summary`. The 4:39 test song on the M5
+Pro, `MallocLargeCache=0`, footprint after each run, starting from 4 MiB:
+
+| Build | Run 1 | Run 2 | Run 3 | Run 4 | Peak |
+|---|---|---|---|---|---|
+| One thread for all runs | 196 | 190 | 190 | 192 | 2407 |
+| One new thread per run, as the app | 196 | 299 | 350 | 463 | 2728 |
+| Fixed | 107 | 77 | 77 | | 2224 |
+
+- **It was a leak of 108 MiB per separation.** Each thread gets its own cubecl stream, and
+  each stream a staging buffer, CPU-visible memory that GPU reads go through. It grows to
+  the largest read, which was the masks of a chunk: 1025 × 2 × 1151 × 2 × 6 × 4 bytes,
+  exactly the 113,258,496 bytes burn reported. `memory_cleanup` does not free staging
+  memory, and the stream outlives its thread. A first test on one thread looked flat,
+  because that thread kept reusing its buffer.
+- **Fixes:** `default_device` sets `StreamPolicy::Single`, so all threads share one stream
+  (needs `cubecl-environment` as a direct dependency), and `separate_chunk` reads the masks
+  stem by stem, so the buffer is 18 MiB and the masks in host memory are 1/6 as well. Stems
+  bit-identical on a 30 s clip, same time (109–113 s per song).
+- **What the 77 MiB are:** ~32 MiB of malloc in use, ~25 MiB of Metal driver objects, among
+  them the 18 MiB staging buffer, and ~28 MiB of "owned unmapped" graphics memory. The
+  Metal objects (compiled kernels and the like) live as long as the process.
+- **`sync` before `memory_cleanup` changes nothing,** so timing was not the cause.
+- **Not measured:** the app itself (user's table above) and Windows. The stream policy is
+  shared code; on Vulkan the staging buffer should behave the same, not checked.
+
+### Time per song (4.5)
+
+The 4:39 test song on the M5 Pro, plugged in, alternating the two backends in one sitting:
+
+| Order | GGUF | Native (f16) |
+|---|---|---|
+| First pair | 72.5 s | 107.2 s |
+| Second pair | 78.1 s | 111.5 s |
+
+- **The GGUF's 72 vs 82 s is not a regression:** the same binary gave 72.5 s first and
+  78.1 s after a native run, so the later runs slow down. `pmset -g therm` recorded nothing,
+  so heat stays a guess, but comparing a backend across a sitting has about 5 s of noise.
+- **STFT and iSTFT in parallel: 2 %.** `separate_chunk` now does them on scoped threads.
+  Same binary either way apart from that, 30 s clip, three rounds of four runs alternating:
+  17.25 s sequential, 16.9 s parallel, every time. Stems bit-identical. That is ~0.05 s per
+  chunk, 2–3 s per song, not the ~10 s estimated in 4.3: it subtracted two separate
+  measurements, which does not hold at this precision.
+- **So the gap to ggml, ~35 s per song, is all GPU time in the model.** "Vulkan is better
+  here" above is why: cubecl does not use the matrix instructions on Metal.
+
+### CPU fallback (4.5)
+
+burn's `flex` (pure Rust, already a dev-dependency for the tests), `examples/chunk.rs`, one
+chunk on the M5 Pro (15 threads). This was a temporary build: nothing here is in the code.
+
+| Build | f16, s per chunk | f32, s per chunk | Memory, f16 / f32 |
+|---|---|---|---|
+| As in the workspace | 76.5 | 90.5 | 1.8 / 2.6 GiB |
+| + `burn-flex` default features | 26.7 | 25.5 | 1.8 / 2.7 GiB |
+
+- **Same trap as `autotune`:** the workspace's `default-features = false` on burn leaves
+  `simd` and `rayon` out of `burn-flex`, so it ran on one core. A direct `burn-flex`
+  dependency with its defaults turns them on. `ps` showed 3.2–5.5 cores in use, not 15.
+- **f32 is no slower than f16 on the CPU,** so a fallback should use f32: same time, and
+  97–108 dB of SDR instead of 52–59.
+- **Time:** 26 s × 44 chunks is ~19 min for the 4:39 song, against ~7.5 min estimated for
+  ggml's CPU backend (patched to 15 threads) and ~5 min for PyTorch's. Only the model; no
+  whole song was run on the CPU.
+- **Not tried:** `Device::cpu` (cubecl's CPU backend, a much heavier build), `apple-amx`,
+  and any Windows or x86 number.
+
+### Smaller download (4.5)
+
+The `.ckpt` is 699 MB, the q8 GGUF 188 MB. From reading burn's sources, nothing measured:
+
+- burn has quantized tensors (`QuantValue::Q8F` and others), but that is a way of computing.
+  The size to win is on disk, and the model casts everything to f16 at load anyway.
+- **Weights stored as f16: ~350 MB,** with no loss beyond what f16 inference already has,
+  and no burn quantization involved. `Weights` reads f32 only today, and it needs a converted
+  file and somewhere to host it.
+- **Weights stored as q8: ~190 MB,** but with the GGUF's quality (36–43 dB, not 52–59).
 
 **Test checklist:** 1–4 passed on macOS.
 1. Settings: choose Full; drop a song you have not separated: it downloads 700 MB with
