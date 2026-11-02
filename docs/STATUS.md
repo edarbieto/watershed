@@ -105,7 +105,7 @@ Last updated: 2026-11-02.
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
   over mute, start screen"). Search in the recent songs: done, tested. Transposed vocals
   (formants): done, tested; it helps going down, less going up. The RAM peak when changing
-  device: built, **to test** (see "Changing device without a RAM peak").
+  device: done, tested (see "Changing device without a RAM peak").
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -137,7 +137,7 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    Reaper's Space / Enter plus arrow keys on the grid are done, tested on macOS (see "Output
    device and transport keys"), and so are solo over mute, the start screen and the
    unsteady tempo icon (see "Solo over mute, start screen"). The RAM peak when changing
-   device is built, **to test by the user** (see "Changing device without a RAM peak").
+   device is done too, tested (see "Changing device without a RAM peak").
    Features small and medium go there. Search in the recent songs
    is done too, tested (see "Search in the recent songs"). So are **transposed
    vocals** keeping their formants: tested, they help going down, less going up (see
@@ -574,7 +574,7 @@ with the Windows numbers. Both backends report once per chunk and start the step
 ## Changing device without a RAM peak
 
 Phase 4.5. Seen by the user on macOS: ~500 MB more for up to a second when changing output
-device. Built on macOS, **not yet tested by the user**.
+device. Built on macOS and tested by the user there: works.
 
 - **Cause:** only a device with another sample rate (here the MacBook's speakers run at
   44.1 kHz, the headset and the monitor at 48 kHz). `switch_device` read the song again from
@@ -597,7 +597,7 @@ device. Built on macOS, **not yet tested by the user**.
   another song meanwhile ignores the result. If resampling failed, the folder is read again
   from disk. The session is not written during those ~1 s (as before).
 
-**Test checklist:**
+**Test checklist** (passed on macOS):
 1. With a song playing on the headset (48 kHz), switch to the MacBook's speakers (44.1 kHz):
    the RAM in the top bar should not jump by ~500 MB; playback resumes where it was, with the
    same mixer, offsets, loops and markers.

@@ -433,7 +433,7 @@ RAM first, then disk. In this order:
 >    memory, against ~1.45× in time on the M5 Pro.
 > 3. **Phase 4.5, more adjustments:** system default output, Reaper's transport keys, solo
 >    over mute, start screen, the unsteady tempo icon, the recent songs search and the transposed vocals are done (tested on macOS); the
->    RAM peak when changing device is built, to test. Next after it: optimization (item 2).
+>    RAM peak when changing device too. Phase 4.5 has nothing left; next: optimization (item 2).
 >
 > Anything that changes the model is shared with Vulkan, which macOS cannot measure: list it
 > in STATUS for the next Windows session, as this pin's predecessor did for Metal.
@@ -502,7 +502,7 @@ with step 4.5 of Phase 4, the measurement step.
   `ErrorKind::DeviceChanged`, which `engine.rs` already turns into a restart; other backends
   report `DeviceNotAvailable` and the stream must be rebuilt. Not tried yet. Moving to a
   device with another rate goes through the next item.
-- [x] **RAM peak when changing device** (built, to test: see "Changing device without a RAM
+- [x] **RAM peak when changing device** (done, tested: see "Changing device without a RAM
   peak" in `STATUS.md`; the stems in memory are resampled one at a time). ~500 MB for up
   to a second, seen by the user on macOS. Cause, from reading the code, not measured: a device with another sample rate
   makes `switch_device` load the song again from disk, with all stems as f32 and resampled
