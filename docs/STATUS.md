@@ -109,14 +109,15 @@ the song info panel, which stays in the plan for later. **Phase 4** (the native
 machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on macOS:
 "the separation quality is great" (see "In the app (4.4)").
 
-0. **Next: 4.5 measurement** (`PLAN.md` Phase 4). Start on macOS, in this order:
+0. **Next: 4.5 measurement** (`PLAN.md` Phase 4), then **4.8 refinement**, new, which
+   can start any time. Start on macOS, in this order:
    1. ~~RAM left after a run~~: done, it was a leak (see "RAM left after a run (4.5)").
       Checking the number in the app is left for the user.
    2. ~~Time per song~~: done (see "Time per song (4.5)"): the gap to ggml is in the model.
-   3. CPU fallback: measured, not built (see "CPU fallback (4.5)"). Open question below.
+   3. CPU fallback: measured, not built (see "CPU fallback (4.5)"). The rest is in 4.8.
    4. Smaller download: looked at, not tried (see "Smaller download (4.5)").
 
-   Then Windows, needed to close 4.5: Vulkan vs DX12, autotune's ~33 s at every start
+   Then Windows, needed to close 4.5, with a **pin in `PLAN.md` Phase 4**: Vulkan vs DX12, autotune's ~33 s at every start
    (cubecl's `persistence` feature is untried), fitting in the RTX 3050's 6 GB without
    spilling, and checklist item 5 of "In the app (4.4)". burn becomes the default only
    with the data of both machines.
@@ -150,8 +151,8 @@ Drive should help.
 
 ## Open questions for the user
 
-- **CPU fallback:** is ~19 min for a 4:39 song on this machine acceptable? It is what
-  `flex` gives today, and ggml takes ~7.5 min. See "CPU fallback (4.5)".
+None right now. Whether ~19 min is acceptable for the CPU fallback waits for 4.8: the user
+postponed it.
 
 ## Native backend: burn + wgpu
 

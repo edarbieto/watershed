@@ -420,6 +420,32 @@ RAM first, then disk. In this order:
   labels never overlap; below it the window cannot shrink.
 
 ### Phase 4: Native `burn` + `wgpu` backend
+> **PIN, for the next Claude session on the Windows machine (remove it when done).**
+> 4.5 is measured on macOS: `docs/STATUS.md`, "RAM left after a run (4.5)", "Time per
+> song (4.5)" and "CPU fallback (4.5)". Burn becomes the default only with the data of
+> both machines. Pull, run `rustup update` and `git submodule update --init`. Run the
+> tests yourself, in this order, and write each result to STATUS:
+>
+> 1. **The leak fix on Vulkan.** `cargo run --release -p watershed-separation --example
+>    separate -- SONG OUT-DIR --native --repeat 3 --memory rss.csv`. "burn's pools" must
+>    stay flat after each run, near 18 MiB (`vmmap` is macOS only: judge by the resident
+>    memory and the pools). Growing means the fix does not hold on Vulkan: stop there.
+> 2. **Time, RAM and VRAM per song,** the same 4:03 song as in "RAM" for comparison, while
+>    sampling `nvidia-smi`. It must fit the RTX 3050's 6 GB with nothing spilled to shared
+>    GPU memory. Run the GGUF too, alternating, as "Time per song" does.
+> 3. **Autotune at every start** (~33 s). Note whether later runs of step 1 pay it again.
+>    Try cubecl's `persistence` feature and keep it only if a song's total improves.
+> 4. **Vulkan vs DX12:** only `default_device` should need to change. Keep the faster one.
+> 5. **CPU on the 5700G:** `examples/chunk.rs` on `Device::flex()` with a temporary direct
+>    `burn-flex` dependency, as "CPU fallback (4.5)" explains, f16 and `--full`. Do not
+>    commit it: the fallback is not decided.
+> 6. **Checklist item 5 of "In the app (4.4)",** with the user, on Vulkan.
+>
+> The fixtures already exist on that machine:
+> `cargo run --release -p watershed-roformer --example chunk -- [--full] tools/reference/models/BS-Rofo-SW-Fixed.ckpt tools/reference/fixtures/chunk.safetensors`.
+> Time without `CUBECL_DEBUG_LOG`. Change one thing per measurement, and on Windows do not
+> change the code for Metal.
+
 Speed is the risk everything else depends on, so it is measured first; STFT and
 chunking come after it. A chunk is 13.35 s of audio (1151 STFT frames) and a 5 min
 song is about 47 chunks.
@@ -454,6 +480,19 @@ song is about 47 chunks.
 - [ ] **4.6 MelBand-RoFormer:** overlapping mel bands, validated the same way.
 - [ ] **4.7 Remove the temporary backend:** submodules, CMake, patches and the Vulkan
   SDK in CI. Only after a listening test by the user and with the CPU fallback solved.
+- [ ] **4.8 Refinement:** make the native backend better once it works, with the same
+  rule as the rest of the phase: measure, change one thing, keep it only if a song's
+  total improves and the equivalence tests pass. Numbered last so that the other steps
+  keep theirs; it can start any time, and only the CPU item comes before 4.7.
+  - **CPU:** turn on `simd` and `rayon` in `burn-flex`, use f32, and find out why it uses
+    ~5 of 15 threads. Then decide, with the user, whether the result is an acceptable
+    fallback (~19 min for a 4:39 song on the M5 Pro today, ggml ~7.5 min). Try `Device::cpu`.
+  - **Metal:** the ~35 s per song behind ggml are in the model, since cubecl does not use the
+    GPU's matrix instructions there. Look at what `cubecl-wgpu` would need.
+  - **Vulkan:** autotune's cost at every start, `persistence`.
+  - **Download:** weights stored as f16 (~350 MB instead of 699 MB).
+  - **Memory:** the 77 MiB left after a run, and the peak (2.2 GB).
+  - **Gentler separation:** the idea in `STATUS.md`, if the user decides on it.
 
 ### Phase 5: Extras
 - [ ] Ensembles.
