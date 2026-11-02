@@ -420,31 +420,20 @@ RAM first, then disk. In this order:
   labels never overlap; below it the window cannot shrink.
 
 ### Phase 4: Native `burn` + `wgpu` backend
-> **PIN, for the next Claude session on the Windows machine (remove it when done).**
-> 4.5 is measured on macOS: `docs/STATUS.md`, "RAM left after a run (4.5)", "Time per
-> song (4.5)" and "CPU fallback (4.5)". Burn becomes the default only with the data of
-> both machines. Pull, run `rustup update` and `git submodule update --init`. Run the
-> tests yourself, in this order, and write each result to STATUS:
+> **PIN, for the next Claude session on the MacBook (remove it when done).**
+> The Windows side of 4.5 is finished: `docs/STATUS.md`, "RAM left after a run (4.5)", "Time
+> per song (4.5)" and "CPU fallback (4.5)". The data of both machines are in, and **burn is
+> not the default yet:** the user finds it acceptable but wants it closer to the GGUF first,
+> so 4.5 stays open until 4.8 has had a go. Pull, run `rustup update` and
+> `git submodule update --init`. Ask the user which comes first; the candidates are:
 >
-> 1. **The leak fix on Vulkan.** `cargo run --release -p watershed-separation --example
->    separate -- SONG OUT-DIR --native --repeat 3 --memory rss.csv`. "burn's pools" must
->    stay flat after each run, near 18 MiB (`vmmap` is macOS only: judge by the resident
->    memory and the pools). Growing means the fix does not hold on Vulkan: stop there.
-> 2. **Time, RAM and VRAM per song,** the same 4:03 song as in "RAM" for comparison, while
->    sampling `nvidia-smi`. It must fit the RTX 3050's 6 GB with nothing spilled to shared
->    GPU memory. Run the GGUF too, alternating, as "Time per song" does.
-> 3. **Autotune at every start** (~33 s). Note whether later runs of step 1 pay it again.
->    Try cubecl's `persistence` feature and keep it only if a song's total improves.
-> 4. **Vulkan vs DX12:** only `default_device` should need to change. Keep the faster one.
-> 5. **CPU on the 5700G:** `examples/chunk.rs` on `Device::flex()` with a temporary direct
->    `burn-flex` dependency, as "CPU fallback (4.5)" explains, f16 and `--full`. Do not
->    commit it: the fallback is not decided.
-> 6. **Checklist item 5 of "In the app (4.4)",** with the user, on Vulkan.
+> 1. **The time-left estimate** (4.8): quick, and in shared code.
+> 2. **Optimization** (4.8): the gap on the RTX 3050 is 1.86× the GGUF's time and 2.9× its GPU
+>    memory, against ~1.45× in time on the M5 Pro.
+> 3. **Phase 4.5, more adjustments:** system default output, RAM peak when changing device.
 >
-> The fixtures already exist on that machine:
-> `cargo run --release -p watershed-roformer --example chunk -- [--full] tools/reference/models/BS-Rofo-SW-Fixed.ckpt tools/reference/fixtures/chunk.safetensors`.
-> Time without `CUBECL_DEBUG_LOG`. Change one thing per measurement, and on Windows do not
-> change the code for Metal.
+> Anything that changes the model is shared with Vulkan, which macOS cannot measure: list it
+> in STATUS for the next Windows session, as this pin's predecessor did for Metal.
 
 Speed is the risk everything else depends on, so it is measured first; STFT and
 chunking come after it. A chunk is 13.35 s of audio (1151 STFT frames) and a 5 min
@@ -491,7 +480,10 @@ song is about 47 chunks.
     GPU's matrix instructions there. Look at what `cubecl-wgpu` would need.
   - **Vulkan:** autotune's cost at every start, `persistence`.
   - **Download:** weights stored as f16 (~350 MB instead of 699 MB).
-  - **Memory:** the 77 MiB left after a run, and the peak (2.2 GB).
+  - **Memory:** the 77 MiB left after a run, and the peak (2.2 GB). On the RTX 3050, GPU
+    memory: 3462 MiB against the GGUF's 1207 MiB.
+  - **Time-left estimate:** seen by the user on Windows, it appears late and starts near
+    40 min for a song that takes 3–4. See "In the app (4.4)" in `STATUS.md`.
   - **Gentler separation:** the idea in `STATUS.md`, if the user decides on it.
 
 ### Phase 4.5: More adjustments

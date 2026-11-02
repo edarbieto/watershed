@@ -117,10 +117,13 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    3. CPU fallback: measured, not built (see "CPU fallback (4.5)"). The rest is in 4.8.
    4. Smaller download: looked at, not tried (see "Smaller download (4.5)").
 
-   Then Windows, needed to close 4.5, with a **pin in `PLAN.md` Phase 4**: Vulkan vs DX12, autotune's ~33 s at every start
-   (cubecl's `persistence` feature is untried), fitting in the RTX 3050's 6 GB without
-   spilling, and checklist item 5 of "In the app (4.4)". burn becomes the default only
-   with the data of both machines.
+   Then Windows, needed to close 4.5, with a **pin in `PLAN.md` Phase 4**. Steps 1–5 done:
+   the leak fix holds on Vulkan; 197 s per song against the GGUF's 106 s, fitting the 6 GB
+   with nothing spilled; autotune ~30 s per start, `persistence` not kept; Vulkan stays, DX12
+   is 3.6× slower; CPU 66 s per chunk in f32. Step 6 too: the user tried it in the app, it
+   works well. Times are acceptable to the user, but they want burn closer to the GGUF before
+   it becomes the default, so **burn is not the default yet** and the weights are undecided.
+   Next: back on macOS, see the pin in `PLAN.md` Phase 4.
 1. **Phase 4.5, more adjustments** (`PLAN.md`, after Phase 4): system default output and
    the RAM peak when changing device. Features small and medium go there.
 2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
@@ -407,8 +410,24 @@ Pro, `MallocLargeCache=0`, footprint after each run, starting from 4 MiB:
 - **`sync` before `memory_cleanup` changes nothing,** so timing was not the cause.
 - **In the app:** tested by the user, two songs split in a row with the window open: "works
   quite well", the leak is gone. The app's numbers were not noted down.
-- **Not measured:** Windows. The stream policy is shared code; on Vulkan the staging buffer
-  should behave the same, not checked (first test of the pin in `PLAN.md`).
+- **Windows (RTX 3050, Vulkan, driver 610.62): the fix holds.** The 4:03 test song, `--native
+  --repeat 3 --memory`, one process, with the usual desktop apps open:
+
+  | | Run 1 | Run 2 | Run 3 |
+  |---|---|---|---|
+  | Total | 242.1 s | 168.1 s | 166.7 s |
+  | Separating | 238.7 s | 164.5 s | 164.0 s |
+  | burn's pools, reserved | 18.0 MiB | 18.0 MiB | 18.0 MiB |
+  | Resident after the run | 333 MiB | 352 MiB | 357 MiB |
+
+  Pools identical to the byte (18,876,416) after every run, stems the same size in all three.
+  Resident memory rose by 19 and then 5 MiB, not the 108 MiB per run of the leak; three runs
+  cannot tell whether it settles. Resident peak 1296 MiB. GPU: 3461 MiB dedicated, 79 MiB
+  shared at the peak, so nothing spilled, but the card was at 5118 of 6144 MiB, 1674 of them
+  before starting.
+- **Run 1 here is not the usual first run:** it was the first ever with that binary, and
+  separate processes afterwards take ~198 s (see "Time per song (4.5)"). The extra ~44 s were
+  not explained; compiled shaders landing in the driver's cache is a guess.
 
 ### Time per song (4.5)
 
@@ -430,6 +449,44 @@ The 4:39 test song on the M5 Pro, plugged in, alternating the two backends in on
 - **So the gap to ggml, ~35 s per song, is all GPU time in the model.** "Vulkan is better
   here" above is why: cubecl does not use the matrix instructions on Metal.
 
+**Windows** (RTX 3050 6 GB, Vulkan, driver 610.62): the 4:03 test song, one process per run,
+alternating, sampled as in "RAM", with the usual desktop apps open:
+
+| | GGUF, 1st | Native, 1st | GGUF, 2nd | Native, 2nd |
+|---|---|---|---|---|
+| Total | 106.1 s | 198.1 s | 106.8 s | 197.1 s |
+| Separating | 103.4 s | 195.4 s | 104.1 s | 194.1 s |
+| Writing | 2.4 s | 2.5 s | 2.5 s | 2.8 s |
+| Resident peak | 1364 MiB | 1226 MiB | 1359 MiB | 1237 MiB |
+| GPU dedicated, peak | 1207 MiB | 3462 MiB | 1207 MiB | 3462 MiB |
+| GPU shared, peak | 129 MiB | 75 MiB | 129 MiB | 75 MiB |
+| Card in use, peak (of 6144 MiB) | 2759 MiB | 4985 MiB | 2817 MiB | 5030 MiB |
+
+- **Native is 1.86× the GGUF** per run, against ~1.45× on the M5 Pro. Repeatable: 1 s between
+  pairs, and no slowdown across the sitting as on macOS.
+- **It fits, with nothing spilled,** but 2.9× the GGUF's GPU memory, and ~1.1 GiB free with
+  ~1.5 GiB already taken by the desktop apps. A 4 GB card would not have held it this way.
+- **Autotune at every start: ~30 s.** A new process takes ~198 s, a later run in the same
+  process ~168 s, so the ~33 s stands and the app pays it only on its first separation.
+  That the 30 s are all autotune is inferred: the same difference would show if it were
+  kernels compiling once per process. Not isolated.
+- **The first run of a new binary costs ~40 s more,** seen twice: 242.1 s and 239.2 s, then
+  ~197 s. Only once per build, so users would pay it after an update. The cause is a guess:
+  kernels landing in the driver's shader cache.
+- **cubecl's `persistence`: not kept.** Same binary otherwise, new process each run: 239.2 s
+  (the new binary's first run), then 197.8 s and 196.5 s, so no gain against ~198 s. It also
+  brings in a database (turso) and took the build from 6 to 10.5 min. The test does not
+  settle it: `target/environment/default.db` was created and stayed at 0 bytes, so no tuning
+  result reached the disk, and why was not found. The default location would also not suit
+  a release build. Left for 4.8.
+- **Vulkan vs DX12: Vulkan stays.** Only `default_device` changed, pinned to DX12 with
+  `Device::wgpu_options()` so it could not fall back to another API (the example still prints
+  "Vulkan": `burn.rs` hardcodes that label). Two runs, 729.4 s and 717.6 s, so 3.6× Vulkan and
+  not a first-run cost. GPU memory 3194 MiB dedicated, **1104 MiB shared** against 75 MiB,
+  resident peak ~2030 MiB against ~1230 MiB, GPU busy (96 % on the 3D engine). Why it is so
+  slow was not looked into; `dxcompiler.dll` was on the PATH through the Vulkan SDK, which
+  users would not have, and which compiler it really used was not checked.
+
 ### CPU fallback (4.5)
 
 burn's `flex` (pure Rust, already a dev-dependency for the tests), `examples/chunk.rs`, one
@@ -448,8 +505,22 @@ chunk on the M5 Pro (15 threads). This was a temporary build: nothing here is in
 - **Time:** 26 s × 44 chunks is ~19 min for the 4:39 song, against ~7.5 min estimated for
   ggml's CPU backend (patched to 15 threads) and ~5 min for PyTorch's. Only the model; no
   whole song was run on the CPU.
-- **Not tried:** `Device::cpu` (cubecl's CPU backend, a much heavier build), `apple-amx`,
-  and any Windows or x86 number.
+- **Not tried:** `Device::cpu` (cubecl's CPU backend, a much heavier build), `apple-amx`.
+
+**Windows, Ryzen 7 5700G (16 threads):** same temporary build, `examples/chunk.rs`, 4 passes
+each, with the usual desktop apps open:
+
+| Build | s per chunk | Cores in use, average | Worst layer error |
+|---|---|---|---|
+| f16 | 146.3 | 2.7 | 8.6e-3 |
+| f32 | 65.7 | 5.2 | 5.3e-6 |
+
+- **On x86 f32 is 2.2× faster than f16,** not level as on the M5 Pro: another reason for a
+  fallback to use f32. Why was not looked into; this CPU not having f16 in hardware is a guess.
+- **Time:** 66 s × ~38 chunks is ~42 min for the 4:03 song, about 2.5× the M5 Pro per chunk.
+  Only the model, no whole song was run on the CPU.
+- **Same thread limit as on macOS:** ~5 of 16.
+- **Memory not measured:** the sampling failed (it read 153 and 0 MiB).
 
 ### Smaller download (4.5)
 
@@ -468,7 +539,15 @@ The `.ckpt` is 699 MB, the q8 GGUF 188 MB. From reading burn's sources, nothing 
 2. The stems open and sound right.
 3. Cancel while separating: stops within a few seconds and leaves no folder.
 4. Close and reopen: the choice is kept.
-5. Windows: the same, on Vulkan. Not done yet.
+5. Windows: the same, on Vulkan. Tested by the user: "works well" overall. The model was
+   already downloaded, so the download in item 1 was not seen again.
+
+**Time left, seen on Windows:** it sometimes takes a while to appear, starts near 40 min and
+settles at 3–4 min. From reading `remaining()` in `separate.rs`, not measured: it is elapsed ×
+(1 − f) / f and needs f ≥ 2 %, so nothing shows until the first chunk ends, which is 1/38
+of the song. That chunk carries the ~30 s of autotune, so ~65 s for it gives ~40 min. "Sometimes"
+fits: only the first separation after starting the app pays it, more on a new build.
+Leaving the first chunk out of the estimate should fix it, on GGUF as well.
 
 ## Tempo, pitch and limiter
 
