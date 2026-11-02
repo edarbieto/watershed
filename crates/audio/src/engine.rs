@@ -137,8 +137,9 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Opens the device with the given id, or the default device when `None` or not found.
-    /// `notify` is called when [`Engine::needs_restart`] or [`Engine::failed`] becomes true.
+    /// Opens the device with the given id, or the system default device when `None` or
+    /// not found. A stream on the default device follows it: when the system default
+    /// changes, [`Engine::needs_restart`] becomes true. `notify` is called when [`Engine::needs_restart`] or [`Engine::failed`] becomes true.
     pub fn start(device_id: Option<&str>, notify: Notify) -> Result<Self, EngineError> {
         let host = cpal::default_host();
         let device = device_id
@@ -214,8 +215,9 @@ impl Engine {
         self.shared.failed.load(Ordering::Relaxed)
     }
 
-    /// True if the stream stopped but the device is still there: start a new engine
-    /// on the same device, which may now have a different sample rate.
+    /// True if the stream must be rebuilt: start a new engine on the same choice of
+    /// device. The device may now have a different sample rate, or be another one when
+    /// following the system default.
     pub fn needs_restart(&self) -> bool {
         self.shared.invalidated.load(Ordering::Relaxed)
     }
@@ -404,10 +406,13 @@ where
                 shared.xruns.fetch_add(1, Ordering::Relaxed);
             }
             // The stream keeps working.
-            ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
+            ErrorKind::RealtimeDenied => {
                 log::warn!("audio stream: {err}");
             }
-            ErrorKind::StreamInvalidated => {
+            // A stream on the system default device moved to the new default (macOS,
+            // PipeWire). Rebuilt anyway, to open it at its own rate and show its name.
+            // WASAPI reports a default change as `StreamInvalidated`.
+            ErrorKind::DeviceChanged | ErrorKind::StreamInvalidated => {
                 log::warn!("audio stream must be rebuilt: {err}");
                 shared.invalidated.store(true, Ordering::Relaxed);
                 notify();

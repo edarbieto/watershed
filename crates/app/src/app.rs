@@ -571,9 +571,10 @@ impl WatershedApp {
         }
     }
 
-    /// Opens the device with the given id and moves the current song to it, keeping
-    /// the position, the mixer settings and whether it was playing.
-    fn switch_device(&mut self, id: &str, ctx: &egui::Context) {
+    /// Opens the device with the given id, or the system default with `None`, and moves
+    /// the current song to it, keeping the position, the mixer settings and whether it
+    /// was playing.
+    fn switch_device(&mut self, id: Option<&str>, ctx: &egui::Context) {
         let position_secs = self
             .engine
             .as_ref()
@@ -592,7 +593,7 @@ impl WatershedApp {
         };
         // Close the old stream first; some drivers allow only one at a time.
         self.engine = None;
-        let engine = match Engine::start(Some(id), self.notify.clone()) {
+        let engine = match Engine::start(id, self.notify.clone()) {
             Ok(engine) => engine,
             Err(e) => {
                 self.error = Some(e.to_string());
@@ -605,8 +606,10 @@ impl WatershedApp {
         };
         restore_master(&engine);
         self.error = None;
-        self.config.output_device = Some(engine.device().id.clone());
-        self.config.save();
+        if self.config.output_device.as_deref() != id {
+            self.config.output_device = id.map(str::to_owned);
+            self.config.save();
+        }
         let engine = self.engine.insert(engine);
 
         let Some(loaded) = &self.loaded else { return };
@@ -1082,16 +1085,32 @@ impl WatershedApp {
     }
 
     fn device_picker(&mut self, ui: &mut egui::Ui) {
-        let current = self.engine.as_ref().map(|e| e.device().clone());
+        let current = self.engine.as_ref().map(|e| e.device().name.clone());
+        let chosen = self.config.output_device.clone();
+        let following = chosen.is_none();
+        let text = match (&current, following) {
+            (None, _) => "No device".to_owned(),
+            (Some(name), true) => format!("Default: {name}"),
+            (Some(name), false) => name.clone(),
+        };
         let mut selected = None;
         let response = egui::ComboBox::from_id_salt("output_device")
             .width(220.0)
-            .selected_text(current.as_ref().map_or("No device", |d| d.name.as_str()))
+            .selected_text(text)
             .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(following, "System default")
+                    .on_hover_text("Follow the device chosen in the system's sound settings")
+                    .clicked()
+                    && !following
+                {
+                    selected = Some(None);
+                }
+                ui.separator();
                 for device in &self.devices {
-                    let is_current = current.as_ref().is_some_and(|c| c.id == device.id);
+                    let is_current = chosen.as_ref() == Some(&device.id);
                     if ui.selectable_label(is_current, &device.name).clicked() && !is_current {
-                        selected = Some(device.id.clone());
+                        selected = Some(Some(device.id.clone()));
                     }
                 }
             });
@@ -1100,7 +1119,7 @@ impl WatershedApp {
             self.devices = output_devices();
         }
         if let Some(id) = selected {
-            self.switch_device(&id, ui.ctx());
+            self.switch_device(id.as_deref(), ui.ctx());
         }
     }
 
@@ -2038,9 +2057,9 @@ impl eframe::App for WatershedApp {
         if let Some(engine) = &self.engine
             && engine.needs_restart()
         {
-            let id = engine.device().id.clone();
-            log::info!("restarting audio on {}", engine.device().name);
-            self.switch_device(&id, ui.ctx());
+            log::info!("restarting audio, was on {}", engine.device().name);
+            let id = self.config.output_device.clone();
+            self.switch_device(id.as_deref(), ui.ctx());
         }
 
         self.update_playhead();

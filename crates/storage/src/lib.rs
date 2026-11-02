@@ -23,7 +23,7 @@ pub fn models_dir() -> Option<PathBuf> {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Id of the last selected output device.
+    /// Id of the last selected output device; `None` follows the system default.
     pub output_device: Option<String>,
     /// Folder the last song was opened from, to start file dialogs there.
     pub last_folder: Option<PathBuf>,
