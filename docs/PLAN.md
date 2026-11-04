@@ -8,7 +8,7 @@
 | License | `MIT OR Apache-2.0`. No GPL dependencies, so time-stretching uses Signalsmith Stretch (MIT). |
 | Tempo / pitch | Applied to the **stereo mix**, after the mixer, so the cost does not grow with the number of stems. Real-time first; offline pre-render as an option if CPU is not enough. |
 | Session stem format | 24-bit FLAC (`flac-codec` to write, `symphonia` to read; `flacenc` was rejected: it only has 16-bit Rice codes and bloats loud 24-bit audio). Lossy formats were first rejected (separation artifacts plus lossy compression plus time-stretching add up); Phase 3.5 adds a choice in the app settings: **Lossy** (the default, about 5× smaller) or **Lossless** (FLAC). The lossy codec is **Ogg Vorbis at ~256 kbps** (q8), chosen with the user over AAC and Opus for DAW compatibility (comparison in `STATUS.md`, "Lossy stem codec"). MP3 is out: its usable encoders are LGPL. Stems can exceed full scale, which integer FLAC would clip: scale all stems of a song by one common factor before writing, and store that factor in the session. |
-| Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, validated by the spikes and in use since Phase 3. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. |
+| Separation | Python is a development tool only (reference outputs for validation). Temporary shippable backend: GGUF via BSRoformer.cpp, validated by the spikes and in use since Phase 3. Final backend: `burn` + `wgpu`, which loads community `.ckpt` + `.yaml` directly. **v0.1 ships the native backend only** (decided 2026-11-04), with no backend choice in Settings, unless the tests on machines without a dedicated GPU keep ggml as a fallback. The `.ckpt` is downloaded, converted to f16 on the user's machine and deleted (~350 MB on disk instead of 699 MB; no converted file to host, since the checkpoint declares no license). |
 | Platforms | Windows, Linux and macOS from day one, all built in CI. |
 | Stem storage cost | 24-bit FLAC takes ~150–200 MB per 6-stem song; Ogg Vorbis q8 (the default) ~25 MB for the same 4 min song (measured: 24 MB vs 149 MB). |
 | Reference speed | PyTorch + CUDA on the RTX 3050 separates a ~5 min song in 73–100 s. The native `wgpu` backend is measured against this. |
@@ -185,6 +185,7 @@ came later in Phase 3.5.
 | MVSep Mega 53-stem (ZFTurbo) | 53 | **Out of scope**: needs ≥16 GB of VRAM. |
 
 - The catalog is `crates/separation/models.toml`, embedded in the binary: id, name, file, size, sha256, URL(s) with mirrors (pinned to a commit), stem names/order, license. The `burn` backend will add the architecture and the associated `.yaml`.
+- **Model browser** (idea from the user, not designed): a window listing the catalog, with search, download, progress and the choice of model. Only models whose architecture `crates/roformer` runs can be listed, so beyond BS-RoFormer it waits for 4.6 (MelBand-RoFormer).
 - On-disk location: `models` in the OS cache folder (`directories` crate; `%LOCALAPPDATA%\Watershed\cache\models` on Windows).
 
 ## 7. Audio and coexisting with Reaper
@@ -431,7 +432,8 @@ RAM first, then disk. In this order:
 >    on Windows.
 > 2. **Optimization** (4.8): done on Windows (2026-11-03): burn is now faster than the GGUF on
 >    the RTX 3050, see "Own kernels on Vulkan (4.8)" in STATUS. **Next on macOS: measure the
->    same build on Metal.** The user's goal: v0.1 with the native backend as the default.
+>    same build on Metal.** Decided 2026-11-04: v0.1 with the native backend only, weights
+>    converted to f16 on the user's machine (STATUS, "Decisions and open questions").
 > 3. **Phase 4.5, more adjustments:** system default output, Reaper's transport keys, solo
 >    over mute, start screen, the unsteady tempo icon, the recent songs search and the transposed vocals are done (tested on macOS); the
 >    RAM peak when changing device too. Phase 4.5 has nothing left; next: optimization (item 2).
@@ -469,10 +471,12 @@ song is about 47 chunks.
 - [ ] **4.5 Measurement:** time, RAM and VRAM per song, Vulkan vs DX12 on Windows, CPU
   fallback. Must fit the RTX 3050's 6 GB without spilling; burn then becomes the
   default. Also decided here, with data: whether the default model uses quantized
-  weights (`.ckpt` ~700 MB on disk, GGUF 188 MB).
+  weights (`.ckpt` ~700 MB on disk, GGUF 188 MB). **Decided:** f16, converted on the
+  user's machine after the download (~350 MB on disk).
 - [ ] **4.6 MelBand-RoFormer:** overlapping mel bands, validated the same way.
 - [ ] **4.7 Remove the temporary backend:** submodules, CMake, patches and the Vulkan
-  SDK in CI. Only after a listening test by the user and with the CPU fallback solved.
+  SDK in CI. Only after a listening test by the user and with the CPU fallback solved:
+  the tests on APUs and integrated GPUs decide whether ggml stays as that fallback.
 - [ ] **4.8 Refinement:** make the native backend better once it works, with the same
   rule as the rest of the phase: measure, change one thing, keep it only if a song's
   total improves and the equivalence tests pass. Numbered last so that the other steps
@@ -484,7 +488,8 @@ song is about 47 chunks.
     GPU's matrix instructions there. Look at what `cubecl-wgpu` would need.
   - **Vulkan:** done: own attention kernels and fixed matmuls, `autotune` off (2.27 s per
     chunk against 4.06 s, first pass 4 s against ~30 s).
-  - **Download:** weights stored as f16 (~350 MB instead of 699 MB).
+  - **Download:** weights stored as f16 (~350 MB instead of 699 MB), converted on the
+    user's machine; the download stays 699 MB.
   - **Memory:** the 77 MiB left after a run, and the peak (2.2 GB). On the RTX 3050, GPU
     memory went from 3462 MiB to ~1.6 GB over idle with the Vulkan work (GGUF ~1.4 GB).
   - **Time-left estimate:** seen by the user on Windows, it appears late and starts near
@@ -529,7 +534,10 @@ with step 4.5 of Phase 4, the measurement step.
 
 ### Phase 5: Extras
 - [ ] Ensembles.
-- [ ] Cloud backend (MVSEP API).
+- [ ] Cloud backend (MVSEP API), considered only for machines with no usable GPU. Free
+  accounts can use the API (1 job at a time, lower queue priority, credits per minute);
+  each user needs their own account and token, and the song is uploaded. See STATUS,
+  "Decisions and open questions".
 - [ ] Export WAV / mix: e.g. the song without the guitar, to practice from a phone or at
   rehearsal.
 

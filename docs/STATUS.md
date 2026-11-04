@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-03.
+Last updated: 2026-11-04.
 
 ## Where we are
 
@@ -114,69 +114,54 @@ Last updated: 2026-11-03.
 
 ## Next steps
 
-**Phase 3.5** (polish before Phase 4, `PLAN.md` section 10): everything done except
-the song info panel, which stays in the plan for later. **Phase 4** (the native
-`burn` + `wgpu` backend) is in progress: 4.0 to 4.3 done, the 4.1 gate passed on both
-machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on macOS:
-"the separation quality is great" (see "In the app (4.4)").
+Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
+later. **Phase 4** (the native `burn` + `wgpu` backend) is the current work: 4.0 to 4.4 done,
+4.5 measured on both machines, the Vulkan part of 4.8 done on Windows (burn now ahead of
+ggml there). The commits since `871027b` are **local only, not pushed** (the user asked to
+wait).
 
-0. **Goal set by the user: v0.1 with the native backend as the default**, ideally without
-   the GGUF backend at all. Done on Windows: the Vulkan gap is closed (see "Own kernels on
-   Vulkan (4.8)"). Left: **measure the same build on macOS** (Metal shares the kernels; its
-   matmuls may fall back to burn's, see that section), then the choices in "Open questions".
-   Next session: decide the `.ckpt` questions (see "Open questions"), then measure on macOS.
-   Five commits from 2026-11-03 are **local only, not pushed** (the user asked to wait).
-   Earlier 4.5 steps, for reference:
-   1. ~~RAM left after a run~~: done, it was a leak (see "RAM left after a run (4.5)").
-      Tested by the user in the app: two new songs split with the window open, no leak.
-   2. ~~Time per song~~: done (see "Time per song (4.5)"): the gap to ggml is in the model.
-   3. CPU fallback: measured, not built (see "CPU fallback (4.5)"). The rest is in 4.8.
-   4. Smaller download: looked at, not tried (see "Smaller download (4.5)").
-
-   Then Windows, needed to close 4.5, with a **pin in `PLAN.md` Phase 4**. Steps 1–5 done:
-   the leak fix holds on Vulkan; 197 s per song against the GGUF's 106 s, fitting the 6 GB
-   with nothing spilled; autotune ~30 s per start, `persistence` not kept; Vulkan stays, DX12
-   is 3.6× slower; CPU 66 s per chunk in f32. Step 6 too: the user tried it in the app, it
-   works well. Times are acceptable to the user, but they want burn closer to the GGUF before
-   it becomes the default, so **burn is not the default yet** and the weights are undecided.
-   Next: back on macOS, see the pin in `PLAN.md` Phase 4.
-1. **Phase 4.5, more adjustments** (`PLAN.md`, after Phase 4): system default output and
-   Reaper's Space / Enter plus arrow keys on the grid are done, tested on macOS (see "Output
-   device and transport keys"), and so are solo over mute, the start screen and the
-   unsteady tempo icon (see "Solo over mute, start screen"). The RAM peak when changing
-   device is done too, tested (see "Changing device without a RAM peak").
-   Features small and medium go there. Search in the recent songs
-   is done too, tested (see "Search in the recent songs"). So are **transposed
-   vocals** keeping their formants: tested, they help going down, less going up (see
-   "Transposed vocals").
-2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum
-   window size.
-3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry
-   the Rectangle test **on battery**, with both renderers.
-4. **Gentler separation (idea, not decided):** the user would like separation not to
-   push the machine to the limit. The GPU runs at ~97 % for the whole separation on
-   both machines. Options discussed: a pause after each chunk (a "speed" setting:
-   e.g. full / balanced / quiet), a lower priority for the separation thread, smaller
-   chunks (less GPU memory, same load). Windows showed no memory pressure (no spill
-   to shared GPU memory), so this is about heat, fans and a busy GPU, not RAM.
-5. **RAM, optional leftovers** (not needed now, see "RAM" below): stream the
-   separated stems to disk instead of holding all six (fits with the Ogg Vorbis
-   work), fewer input copies in the C++ wrapper (~190 MiB), a computed overlap
-   counter instead of a buffer (~95 MiB), separating in a child process.
-6. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the
-   release `.app` comes with distribution).
-7. Ideas recorded in `PLAN.md`, not scheduled yet: the **song info panel** (it can
-   reuse the tracked beats), disk optimization (design principles), portable builds
-   (section 9). Also from the user, not designed: cutting pieces of a stem (in
-   "46 & 2" the bass intro came out in the guitar stem). If dynamic tempo needs
-   more later: Opeth's ending, and the Bar-mark idea in "Tempo changes". New feature
-   ideas, with **auto update**, are in `PLAN.md`, "Feature ideas (not scheduled)": speed
-   trainer, pitch in cents, MIDI pedal, chords on the grid, a gap between loop passes.
-8. **v0.1:** features are enough for it; what is missing is distribution (`PLAN.md`
-   section 9): a release workflow that builds on a `v*` tag and uploads to a GitHub
-   Release, the `.app` with an icon on macOS, `+crt-static` on Windows, an AppImage on
-   Linux, a README with screenshots, and a try on a machine with no usable GPU. The GGUF
-   stays the default backend for it.
+0. **Goal: v0.1 with the native backend only,** no backend choice in Settings (decided
+   2026-11-04, see "Decisions and open questions" below). Left:
+   1. **Measure on macOS** the build with the own kernels (4.8): `examples/chunk.rs` and a
+      whole song, against the numbers before them. Metal shares the kernels; the `cmma`
+      matmuls may fall back to burn's there (see "Own kernels on Vulkan (4.8)").
+   2. **Machines without a dedicated GPU** (APUs, integrated GPUs, no usable GPU): run the
+      test executable (`examples/gpu_test.rs`) on more of them. The Radeon Vega iGPU gave
+      ~12–13 min for a 4 min song. The results decide whether ggml stays as a fallback.
+   3. **f16 weights converted on the user's machine** (decided, see below): download the
+      `.ckpt`, convert it, delete it.
+   4. **Try the time-left fix in the app on Windows** (4.8).
+   5. Then **4.7**, removing the GGUF backend, if item 2 allows it. The "Compact" / "Full"
+      names in Settings go away with the choice.
+1. **Model browser** (idea from the user, not designed): a window to search, download and
+   pick among more models (see "Choosing models" below). Needs each architecture in
+   `crates/roformer` first: MelBand-RoFormer is step 4.6.
+2. **Windows:** check that nothing changed there (it keeps wgpu) and the minimum window
+   size.
+3. **Pending, wgpu vs OpenGL on macOS** (see "Window size and maximizing"): retry the
+   Rectangle test **on battery**, with both renderers.
+4. **Gentler separation (idea, not decided):** the user would like separation not to push
+   the machine to the limit. The GPU runs at ~97 % for the whole separation on both
+   machines. Options discussed: a pause after each chunk (a "speed" setting: e.g. full /
+   balanced / quiet), a lower priority for the separation thread, smaller chunks (less GPU
+   memory, same load). Windows showed no memory pressure, so this is about heat, fans and
+   a busy GPU, not RAM.
+5. **RAM, optional leftovers** (see "RAM" below): stream the separated stems to disk
+   instead of holding all six. The C++ wrapper items (fewer input copies, a computed
+   overlap counter) go away with 4.7.
+6. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the release
+   `.app` comes with distribution).
+7. Ideas recorded in `PLAN.md`, not scheduled yet: the **song info panel** (it can reuse
+   the tracked beats), disk optimization (design principles), portable builds (section 9),
+   cutting pieces of a stem (in "46 & 2" the bass intro came out in the guitar stem). If
+   dynamic tempo needs more later: Opeth's ending, and the Bar-mark idea in "Tempo
+   changes". New feature ideas, with **auto update**, are in `PLAN.md`, "Feature ideas (not
+   scheduled)": speed trainer, pitch in cents, MIDI pedal, chords on the grid, a gap
+   between loop passes.
+8. **v0.1:** features are enough for it; what is missing is item 0 and distribution
+   (`PLAN.md` section 9): a release workflow that builds on a `v*` tag and uploads to a
+   GitHub Release, the `.app` with an icon on macOS, an AppImage on Linux, a README with
+   screenshots. `+crt-static` on Windows is already used by the test executable.
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
 bindings), CMake 4.4, the Vulkan SDK 1.4.363 and the Visual Studio 2026 Build
@@ -184,16 +169,41 @@ Tools. The first release build takes ~5 min (MSVC linker, Defender scanning
 `target\`), later ones ~40 s; excluding the project from Defender or using a Dev
 Drive should help.
 
-## Open questions for the user
+## Decisions and open questions
 
-Toward v0.1 with the native backend as the default (asked 2026-11-03):
+Decided by the user on 2026-11-04:
 
-1. **Download size:** the `.ckpt` is 699 MB against the GGUF's 188 MB. Weights stored as f16
-   would be ~350 MB with no loss, but need a converted file hosted somewhere, and the
-   checkpoint declares no license.
-2. **No usable GPU:** without the GGUF backend the CPU path is burn's `flex`, ~42 min per song
-   on the Ryzen 7 5700G (ggml's CPU backend was estimated ~2.5× faster). Keep the GGUF only as
-   the CPU fallback, make `flex` faster first, or require a GPU for v0.1.
+1. **Download size: convert on the user's machine.** The app downloads the 699 MB `.ckpt`,
+   converts the weights to f16 and deletes it: ~350 MB on disk, no loss beyond what f16
+   inference already has, and no converted file to host (the checkpoint declares no
+   license). The download stays 699 MB. To keep in mind when building it: the `.ckpt`'s
+   sha256 is checked before converting; the converted file needs its own check (if the
+   conversion is deterministic, the catalog can hold its expected sha256); an interrupted
+   conversion must not leave a file that looks complete; `Weights` reads f32 only today.
+2. **Backend: native only,** no choice in Settings, pending the tests on machines without
+   a dedicated GPU (Next steps, 0.2), which may still keep ggml as a fallback.
+
+Still open:
+
+- **No usable GPU at all.** Options: keep ggml for the CPU only, make burn's `flex` faster
+  (~42 min per song on the Ryzen 7 5700G today), require a GPU, or **MVSEP's API** for
+  those machines only (the user's idea, already in `PLAN.md` Phase 5 as "Cloud backend").
+  Found on mvsep.com on 2026-11-04, from its API page and credits page, nothing tried:
+  - Free accounts can use the API with a token (register, log in), create a job and poll
+    it (or a webhook). Non-premium users get 1 job at a time and a lower queue priority.
+  - Credits are charged per minute of audio; how many a free account gets per day, and
+    which models are free, is not stated there. The terms for third-party apps were not
+    read.
+  - Against it: the song is uploaded, it needs internet and an MVSEP account per user (the
+    app cannot ship a shared token), and the stems come from MVSEP's models, not
+    necessarily the same six.
+
+**Choosing models** (asked 2026-11-04): a `.ckpt` is not a version of one model but a whole
+model: each one is trained for its own stems and comes with its `.yaml`. The current one is
+**BS-RoFormer SW** (6 stems: bass, drums, other, vocals, guitar, piano), the only public
+6-stem one we know of. Others in `PLAN.md` section 6 are mostly vocals / instrumental
+(viperx, Kim, unwa, becruily, gabox), many of them MelBand-RoFormer, which needs step 4.6
+first. A model browser can only list models whose architecture `crates/roformer` runs.
 
 ## Native backend: burn + wgpu
 
