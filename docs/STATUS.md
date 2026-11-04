@@ -103,7 +103,8 @@ Last updated: 2026-11-04.
   Vulkan (4.8)". **On macOS they help too:** 79 s for the 4:39 song (was 111.5 s), level
   with ggml's 77 s, see "On macOS (4.8)". The time-left estimate fix (4.8): tested by the
   user on Windows, works. **f16 weights converted on install: done** (see "Weights
-  converted to f16"), to test in the app.
+  converted to f16"), tested by the user in the app on macOS: works. **4.7: the GGUF
+  backend is removed** (see "GGUF backend removed (4.7)").
 - **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
@@ -117,9 +118,8 @@ Last updated: 2026-11-04.
 ## Next steps
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
-later. **Phase 4** (the native `burn` + `wgpu` backend) is the current work: 4.0 to 4.4 done,
-4.5 measured on both machines, 4.8 done (burn ahead of ggml on Windows, level with it on
-macOS).
+later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
+(MelBand-RoFormer) is left, for the model browser.
 
 0. **Goal: v0.1 with the native backend only,** no backend choice in Settings (decided
    2026-11-04, see "Decisions and open questions" below). Left:
@@ -129,10 +129,11 @@ macOS).
       executable (`examples/gpu_test.rs`) on more machines would tell. ggml no longer
       needs to stay as a CPU fallback.
    3. ~~f16 weights converted on the user's machine.~~ Done, see "Weights converted to
-      f16"; to try in the app on both machines.
+      f16"; tested in the app on macOS. On Windows it is tested with item 5.
    4. ~~Try the time-left fix in the app on Windows (4.8).~~ Tested by the user: works.
-   5. Then **4.7**, removing the GGUF backend. The "Compact" / "Full" names in Settings go
-      away with the choice.
+   5. ~~4.7, removing the GGUF backend.~~ Done, see "GGUF backend removed (4.7)". **To check
+      on Windows:** it builds without the Vulkan SDK, and the first separation converts the
+      cached `.ckpt`.
    6. **Later, not now:** for machines without a usable GPU, suggest separating with MVSEP,
       or integrate MVSEP's API into Watershed (see "Decisions and open questions").
 1. **Model browser** (idea from the user, not designed): a window to search, download and
@@ -149,8 +150,7 @@ macOS).
    memory, same load). Windows showed no memory pressure, so this is about heat, fans and
    a busy GPU, not RAM.
 5. **RAM, optional leftovers** (see "RAM" below): stream the separated stems to disk
-   instead of holding all six. The C++ wrapper items (fewer input copies, a computed
-   overlap counter) go away with 4.7.
+   instead of holding all six.
 6. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the release
    `.app` comes with distribution).
 7. Ideas recorded in `PLAN.md`, not scheduled yet: the **song info panel** (it can reuse
@@ -705,6 +705,24 @@ progress above zero in a step, so the first chunk is left out. It shows one chun
 before (on the RTX 3050, ~70 s in instead of ~65 s) and should start near the real time. A
 resumed download also stops counting the bytes already on disk. Unit tests in `separate.rs`
 with the Windows numbers. Both backends report once per chunk and start the step at 0.
+
+### GGUF backend removed (4.7)
+
+Done 2026-11-04. Gone: `GgufSeparator`, `bsroformer.rs` (the safe wrapper), the C++ wrapper
+and CMake project in `crates/separation/cpp`, `build.rs`, the two submodules (BSRoformer.cpp,
+ggml) and `.gitmodules`, the GGUF catalog entry, the "Separation model" choice in Settings
+and `Config::separation_model` (an old `config.toml` with that key still loads: unknown keys
+are ignored). In CI: the submodule checkout, the Vulkan SDK on Windows, and `libvulkan-dev
+glslc spirv-headers` on Linux. The workspace no longer needs CMake.
+
+- **Catalog:** one model, with `architecture`, `config` and `converted` at the top level
+  (the `[model.native]` table is gone, since every model is now a checkpoint).
+  `ModelEntry::load` returns a `BurnSeparator`.
+- **`examples/separate.rs`** lost `--native`, `--cpu` and `--model`.
+- **`SeparationError::Native`** became `Model(String)`.
+- **The old GGUF file stays in the models folder** of machines that had it (188 MB):
+  nothing deletes it. Only the two development machines have it; delete it by hand.
+- Before this commit, the GGUF backend can be built from git history for comparisons.
 
 ### Weights converted to f16
 

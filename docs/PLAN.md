@@ -474,18 +474,17 @@ song is about 47 chunks.
   weights (`.ckpt` ~700 MB on disk, GGUF 188 MB). **Decided:** f16, converted on the
   user's machine after the download (~350 MB on disk).
 - [ ] **4.6 MelBand-RoFormer:** overlapping mel bands, validated the same way.
-- [ ] **4.7 Remove the temporary backend:** submodules, CMake, patches and the Vulkan
-  SDK in CI. Only after a listening test by the user and with the CPU fallback solved:
-  the tests on APUs and integrated GPUs decide whether ggml stays as that fallback.
+- [x] **4.7 Remove the temporary backend:** submodules, CMake, patches and the Vulkan
+  SDK in CI. Done 2026-11-04, after the listening test ("almost the same") and the
+  decision to require a GPU, with no CPU fallback (`STATUS.md`).
 - [ ] **4.8 Refinement:** make the native backend better once it works, with the same
   rule as the rest of the phase: measure, change one thing, keep it only if a song's
   total improves and the equivalence tests pass. Numbered last so that the other steps
   keep theirs; it can start any time, and only the CPU item comes before 4.7.
-  - **CPU:** turn on `simd` and `rayon` in `burn-flex`, use f32, and find out why it uses
-    ~5 of 15 threads. Then decide, with the user, whether the result is an acceptable
-    fallback (~19 min for a 4:39 song on the M5 Pro today, ggml ~7.5 min). Try `Device::cpu`.
-  - **Metal:** the ~35 s per song behind ggml are in the model, since cubecl does not use the
-    GPU's matrix instructions there. Look at what `cubecl-wgpu` would need.
+  - **CPU:** dropped: the user decided to require a GPU (a separation slower than the song
+    makes no sense). Measurements kept in `STATUS.md`.
+  - **Metal:** done with the Vulkan kernels: they use the matrix instructions there too
+    (79 s against 111.5 s per song, level with ggml's 77 s).
   - **Vulkan:** done: own attention kernels and fixed matmuls, `autotune` off (2.27 s per
     chunk against 4.06 s, first pass 4 s against ~30 s).
   - **Download:** weights stored as f16 (~350 MB instead of 699 MB), converted on the
