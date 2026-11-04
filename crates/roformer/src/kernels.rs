@@ -6,7 +6,9 @@
 //! in the tests, or a GPU without plane operations of one fixed size), and the caller
 //! then takes burn's ops.
 
-use burn::prelude::Tensor;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use burn::prelude::{Device, Tensor};
 use burn::tensor::{DType, f16};
 use burn_cubecl::Cube;
 use burn_cubecl::cubecl::features::Plane;
@@ -25,6 +27,58 @@ const ROWS_PER_CUBE: u32 = 4;
 
 /// Units per cube in the element-wise kernels.
 const UNITS_PER_CUBE: u32 = 256;
+
+/// How often each path ran, for [`diagnostics`]: on another GPU the fast kernels may
+/// not run, and a test log should say so.
+static FUSED_ATTENTION: AtomicUsize = AtomicUsize::new(0);
+static FALLBACK_ATTENTION: AtomicUsize = AtomicUsize::new(0);
+static FAST_MATMUL: AtomicUsize = AtomicUsize::new(0);
+static FALLBACK_MATMUL: AtomicUsize = AtomicUsize::new(0);
+
+fn count(counter: &AtomicUsize) {
+    counter.fetch_add(1, Ordering::Relaxed);
+}
+
+/// The GPU behind `device` and which of this module's kernels have run on it so far, as
+/// lines of text for a test log.
+pub fn diagnostics(device: &Device) -> String {
+    let mut lines = Vec::new();
+    let probe = Tensor::<1>::zeros([1], device).try_into_primitive::<Cube>();
+    match probe {
+        Ok(tensor) => {
+            let properties = tensor.client.properties();
+            let hardware = &properties.hardware;
+            let features = &properties.features;
+            lines.push(format!("GPU: {}", properties.identity.name));
+            lines.push(format!(
+                "plane size: {}..{}, plane operations: {}",
+                hardware.plane_size_min,
+                hardware.plane_size_max,
+                features.plane.contains(Plane::Ops)
+            ));
+            lines.push(format!(
+                "matrix instructions (cmma) configurations: {}",
+                features.matmul.cmma.len()
+            ));
+        }
+        Err(_) => lines.push("GPU: none (not a cubecl device)".to_string()),
+    }
+    let get = |counter: &AtomicUsize| counter.load(Ordering::Relaxed);
+    lines.push(format!(
+        "attention: {} fast, {} with burn's ops",
+        get(&FUSED_ATTENTION),
+        get(&FALLBACK_ATTENTION)
+    ));
+    lines.push(format!(
+        "matmul: {} fast, {} with burn's",
+        get(&FAST_MATMUL),
+        get(&FALLBACK_MATMUL)
+    ));
+    lines.join(
+        "
+",
+    )
+}
 
 mod gpu {
     use burn_cubecl::cubecl;
@@ -312,7 +366,16 @@ pub fn matmul<const D: usize>(lhs: Tensor<D>, rhs: Tensor<D>, kernel: Kernel) ->
         .ok()?;
         Some(Tensor::from_primitive::<Cube>(out))
     })();
-    launched.unwrap_or_else(|| lhs.matmul(rhs))
+    match launched {
+        Some(out) => {
+            count(&FAST_MATMUL);
+            out
+        }
+        None => {
+            count(&FALLBACK_MATMUL);
+            lhs.matmul(rhs)
+        }
+    }
 }
 
 /// The rotary embedding's angles as f32 tables of (sequence, pairs), for [`attention`].
@@ -334,6 +397,20 @@ impl RotaryTables {
 /// dim), and `to_gates`' output, (batch, sequence, heads), to (batch, sequence, heads *
 /// dim), ready for `to_out`.
 pub fn attention(
+    qkv: &Tensor<3>,
+    gates: &Tensor<3>,
+    rotary: &RotaryTables,
+    heads: usize,
+) -> Option<Tensor<3>> {
+    let out = fused_attention(qkv, gates, rotary, heads);
+    count(match out {
+        Some(_) => &FUSED_ATTENTION,
+        None => &FALLBACK_ATTENTION,
+    });
+    out
+}
+
+fn fused_attention(
     qkv: &Tensor<3>,
     gates: &Tensor<3>,
     rotary: &RotaryTables,

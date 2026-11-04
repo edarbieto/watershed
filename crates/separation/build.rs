@@ -23,6 +23,12 @@ fn main() {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let vulkan = matches!(target_os.as_str(), "windows" | "linux");
     let metal = target_os == "macos";
+    // `-C target-feature=+crt-static` puts the C runtime inside the binary, so that it
+    // runs on a Windows with no Visual C++ redistributable. The C++ code must then use
+    // the static runtime too, and skip OpenMP, whose `vcomp140.dll` is not in Windows.
+    let static_crt = env::var("CARGO_CFG_TARGET_FEATURE")
+        .is_ok_and(|features| features.split(',').any(|f| f == "crt-static"));
+    let openmp = !metal && !(static_crt && target_os == "windows");
 
     if vulkan && target_os == "windows" && env::var_os("VULKAN_SDK").is_none() {
         panic!(
@@ -38,7 +44,14 @@ fn main() {
         .profile("Release")
         .build_target("watershed_bsr")
         .define("BUILD_SHARED_LIBS", "OFF")
-        .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL")
+        .define(
+            "CMAKE_MSVC_RUNTIME_LIBRARY",
+            if static_crt {
+                "MultiThreaded"
+            } else {
+                "MultiThreadedDLL"
+            },
+        )
         // Portable binaries: never tune for the build machine's CPU.
         .define("GGML_NATIVE", "OFF")
         .define("GGML_BUILD_TESTS", "OFF")
@@ -46,8 +59,8 @@ fn main() {
         .define("GGML_VULKAN", if vulkan { "ON" } else { "OFF" })
         .define("GGML_METAL", if metal { "ON" } else { "OFF" })
         .define("GGML_METAL_EMBED_LIBRARY", if metal { "ON" } else { "OFF" })
-        // Apple Clang has no OpenMP; ggml then uses its own thread pool.
-        .define("GGML_OPENMP", if metal { "OFF" } else { "ON" });
+        // Without OpenMP (Apple Clang has none) ggml uses its own thread pool.
+        .define("GGML_OPENMP", if openmp { "ON" } else { "OFF" });
     // Otherwise the cmake crate fills CMAKE_<LANG>_FLAGS_RELEASE with its own
     // flags, which carry no optimization level: these are CMake's defaults.
     let release_flags = if env::var("CARGO_CFG_TARGET_ENV").unwrap() == "msvc" {
@@ -96,7 +109,7 @@ fn main() {
             );
             println!("cargo:rustc-link-lib=vulkan-1");
             // MSVC's C++ runtime and OpenMP (vcomp) come in through /DEFAULTLIB
-            // directives in the object files.
+            // directives in the object files. vulkan-1.dll comes with the GPU driver.
         }
         "linux" => {
             for lib in ["vulkan", "gomp", "stdc++"] {
