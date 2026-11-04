@@ -104,7 +104,8 @@ Last updated: 2026-11-04.
   with ggml's 77 s, see "On macOS (4.8)". The time-left estimate fix (4.8): tested by the
   user on Windows, works. **f16 weights converted on install: done** (see "Weights
   converted to f16"), tested by the user in the app on macOS: works. **4.7: the GGUF
-  backend is removed** (see "GGUF backend removed (4.7)").
+  backend is removed** (see "GGUF backend removed (4.7)"). Both tested by the user on
+  Windows: works.
 - **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
@@ -129,11 +130,10 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
       executable (`examples/gpu_test.rs`) on more machines would tell. ggml no longer
       needs to stay as a CPU fallback.
    3. ~~f16 weights converted on the user's machine.~~ Done, see "Weights converted to
-      f16"; tested in the app on macOS. On Windows it is tested with item 5.
+      f16"; tested in the app on macOS and Windows.
    4. ~~Try the time-left fix in the app on Windows (4.8).~~ Tested by the user: works.
-   5. ~~4.7, removing the GGUF backend.~~ Done, see "GGUF backend removed (4.7)". **To check
-      on Windows:** it builds without the Vulkan SDK, and the first separation converts the
-      cached `.ckpt`.
+   5. ~~4.7, removing the GGUF backend.~~ Done, see "GGUF backend removed (4.7)"; tested by
+      the user on Windows: works.
    6. **Later, not now:** for machines without a usable GPU, suggest separating with MVSEP,
       or integrate MVSEP's API into Watershed (see "Decisions and open questions").
 1. **Model browser** (idea from the user, not designed): a window to search, download and
@@ -723,6 +723,8 @@ glslc spirv-headers` on Linux. The workspace no longer needs CMake.
 - **The old GGUF file stays in the models folder** of machines that had it (188 MB):
   nothing deletes it. Only the two development machines have it; delete it by hand.
 - Before this commit, the GGUF backend can be built from git history for comparisons.
+- **Windows:** after pulling this commit, the app builds and separates. Tested by the user:
+  works.
 
 ### Weights converted to f16
 
@@ -753,7 +755,8 @@ Decided by the user (see "Decisions and open questions"). The app still download
   downloaded shows "0 / 699 MB" meanwhile. Fine at that length; worth a "Preparing the
   model…" label if it is slower on Windows.
 
-**Test checklist:**
+**Test checklist:** 1 and 2 passed (2 tested by the user on Windows after 4.7, so without
+the Settings choice).
 1. macOS (already converted here): Settings → Full, drop a song not separated yet: it
    separates and sounds as before.
 2. Windows (the `.ckpt` is still in the cache there): the same; the first separation
