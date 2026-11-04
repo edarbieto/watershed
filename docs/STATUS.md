@@ -597,6 +597,18 @@ A whole song (Caifanes, "Nubes"), `examples/separate`, a new process each, nativ
 | GPU memory over idle, peak | ~1.6 GB | ~1.4 GB |
 | Resident peak | 1.3 GB | 1.5 GB |
 
+**GPUs without matrix instructions** (seen on a Radeon Vega iGPU, Ryzen 7 5825U, with the
+test executable below): the first separation panicked in burn's untuned matmul, which asked
+for 35 KB of shared memory where the GPU has 32 KB. Fixed: `matmul` falls back to
+`double_unit` (small tiles, then large), `simple_unit`, then `naive`. Forced on the RTX 3050,
+that path takes 6.0 s per chunk (31.8 s with `simple_unit` first), masks 3.06e-3 in f16 and
+1.75e-6 in f32. Not yet run again on the Vega.
+
+**Test executable:** `examples/gpu_test.rs` in `crates/separation`, built with `+crt-static`
+(needs only system DLLs and the driver's Vulkan loader). Double-clicked, it downloads the
+model, separates 3 min of a test signal and writes `watershed-gpu-test.txt` next to itself.
+On the RTX 3050: 80.2 s, 2.39 s per chunk after a 13 s first one, 1036 MiB peak.
+
 **For macOS:** the kernels are shared, but untested on Metal. Plane operations should run
 there; the `cmma` matmuls may not, since cubecl does not use Metal's matrix instructions, and
 would then fall back to burn's matmul, as before. Measure `chunk` and a whole song before and
