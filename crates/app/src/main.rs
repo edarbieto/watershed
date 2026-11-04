@@ -33,7 +33,8 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title("Watershed")
             // The app sets the minimum size from its contents once it has drawn them.
-            .with_inner_size([1320.0, 760.0]),
+            .with_inner_size([1320.0, 760.0])
+            .with_icon(icon()),
         // On macOS the wgpu (Metal) renderer sometimes leaves the main thread unable
         // to answer for ~300 ms when another app moves or resizes the window through
         // the accessibility API (window managers like Rectangle), so the move and
@@ -57,4 +58,13 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+/// The window icon (the dock icon on macOS, where it follows Apple's icon grid).
+fn icon() -> egui::IconData {
+    #[cfg(target_os = "macos")]
+    let png = include_bytes!("../../../assets/icon-macos-512.png").as_slice();
+    #[cfg(not(target_os = "macos"))]
+    let png = include_bytes!("../../../assets/icon-256.png").as_slice();
+    eframe::icon_data::from_png_bytes(png).expect("the bundled icon is a valid PNG")
 }

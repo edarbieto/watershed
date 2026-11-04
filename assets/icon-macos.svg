@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The same icon on Apple's icon grid: an 824 px tile with transparent margins. -->
+  <g transform="translate(100 100) scale(6.4375)">
+  <rect width="128" height="128" rx="28.7" fill="#1f232b"/>
+  <rect x="15" y="42" width="14" height="44" rx="7" fill="#e06c75"/>
+  <rect x="36" y="26" width="14" height="76" rx="7" fill="#e5a54b"/>
+  <rect x="57" y="14" width="14" height="100" rx="7" fill="#98c379"/>
+  <rect x="78" y="26" width="14" height="76" rx="7" fill="#61afef"/>
+  <rect x="99" y="42" width="14" height="44" rx="7" fill="#c678dd"/>
+  </g>
+</svg>
