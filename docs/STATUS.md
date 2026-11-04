@@ -100,8 +100,9 @@ Last updated: 2026-11-04.
 - **Phase 4, native backend:** 4.0 to 4.4 done; 4.5 measured on both machines. **4.8 on
   Windows: burn is now faster than ggml there** (108.8 s against 122.2 s for a whole song,
   no autotune at start, ~1.6 GB of GPU memory instead of 3.4 GB), see "Own kernels on
-  Vulkan (4.8)". Not yet measured on macOS. The time-left estimate fix (4.8) is still to
-  try on Windows.
+  Vulkan (4.8)". **On macOS they help too:** 79 s for the 4:39 song (was 111.5 s), level
+  with ggml's 77 s, see "On macOS (4.8)". The time-left estimate fix (4.8) is still to try
+  on Windows.
 - **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
@@ -116,23 +117,23 @@ Last updated: 2026-11-04.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend) is the current work: 4.0 to 4.4 done,
-4.5 measured on both machines, the Vulkan part of 4.8 done on Windows (burn now ahead of
-ggml there). The commits since `871027b` are **local only, not pushed** (the user asked to
-wait).
+4.5 measured on both machines, 4.8 done (burn ahead of ggml on Windows, level with it on
+macOS).
 
 0. **Goal: v0.1 with the native backend only,** no backend choice in Settings (decided
    2026-11-04, see "Decisions and open questions" below). Left:
-   1. **Measure on macOS** the build with the own kernels (4.8): `examples/chunk.rs` and a
-      whole song, against the numbers before them. Metal shares the kernels; the `cmma`
-      matmuls may fall back to burn's there (see "Own kernels on Vulkan (4.8)").
-   2. **Machines without a dedicated GPU** (APUs, integrated GPUs, no usable GPU): run the
-      test executable (`examples/gpu_test.rs`) on more of them. The Radeon Vega iGPU gave
-      ~12–13 min for a 4 min song. The results decide whether ggml stays as a fallback.
+   1. ~~Measure on macOS the build with the own kernels (4.8).~~ Done, see "On macOS (4.8)".
+   2. **Machines without a dedicated GPU:** the app requires a GPU (decided, see below).
+      Integrated GPUs with matrix instructions may still be fast enough; the test
+      executable (`examples/gpu_test.rs`) on more machines would tell. ggml no longer
+      needs to stay as a CPU fallback.
    3. **f16 weights converted on the user's machine** (decided, see below): download the
       `.ckpt`, convert it, delete it.
    4. **Try the time-left fix in the app on Windows** (4.8).
-   5. Then **4.7**, removing the GGUF backend, if item 2 allows it. The "Compact" / "Full"
-      names in Settings go away with the choice.
+   5. Then **4.7**, removing the GGUF backend. The "Compact" / "Full" names in Settings go
+      away with the choice.
+   6. **Later, not now:** for machines without a usable GPU, suggest separating with MVSEP,
+      or integrate MVSEP's API into Watershed (see "Decisions and open questions").
 1. **Model browser** (idea from the user, not designed): a window to search, download and
    pick among more models (see "Choosing models" below). Needs each architecture in
    `crates/roformer` first: MelBand-RoFormer is step 4.6.
@@ -180,23 +181,24 @@ Decided by the user on 2026-11-04:
    sha256 is checked before converting; the converted file needs its own check (if the
    conversion is deterministic, the catalog can hold its expected sha256); an interrupted
    conversion must not leave a file that looks complete; `Weights` reads f32 only today.
-2. **Backend: native only,** no choice in Settings, pending the tests on machines without
-   a dedicated GPU (Next steps, 0.2), which may still keep ggml as a fallback.
+2. **Backend: native only,** no choice in Settings.
+3. **A GPU is required.** The user: an app that takes longer than the song itself to
+   separate it makes no sense, so no CPU fallback (ggml's or burn's `flex`, ~42 min per
+   song on the Ryzen 7 5700G). For machines without a usable GPU, the app can later
+   suggest separating with MVSEP, or integrate MVSEP's API (already in `PLAN.md` Phase 5 as
+   "Cloud backend"). Left for later.
 
-Still open:
+MVSEP's API, found on mvsep.com on 2026-11-04, from its API page and credits page, nothing
+tried:
 
-- **No usable GPU at all.** Options: keep ggml for the CPU only, make burn's `flex` faster
-  (~42 min per song on the Ryzen 7 5700G today), require a GPU, or **MVSEP's API** for
-  those machines only (the user's idea, already in `PLAN.md` Phase 5 as "Cloud backend").
-  Found on mvsep.com on 2026-11-04, from its API page and credits page, nothing tried:
-  - Free accounts can use the API with a token (register, log in), create a job and poll
-    it (or a webhook). Non-premium users get 1 job at a time and a lower queue priority.
-  - Credits are charged per minute of audio; how many a free account gets per day, and
-    which models are free, is not stated there. The terms for third-party apps were not
-    read.
-  - Against it: the song is uploaded, it needs internet and an MVSEP account per user (the
-    app cannot ship a shared token), and the stems come from MVSEP's models, not
-    necessarily the same six.
+- Free accounts can use the API with a token (register, log in), create a job and poll
+  it (or a webhook). Non-premium users get 1 job at a time and a lower queue priority.
+- Credits are charged per minute of audio; how many a free account gets per day, and
+  which models are free, is not stated there. The terms for third-party apps were not
+  read.
+- Against it: the song is uploaded, it needs internet and an MVSEP account per user (the
+  app cannot ship a shared token), and the stems come from MVSEP's models, not
+  necessarily the same six.
 
 **Choosing models** (asked 2026-11-04): a `.ckpt` is not a version of one model but a whole
 model: each one is trained for its own stems and comes with its `.yaml`. The current one is
@@ -276,7 +278,9 @@ the time transformer, 0.08 s for the frequency one, 0.09 s for the masks.
 - **Vulkan is better here:** ggml's speed on Metal comes from the GPU's matrix
   instructions, which wgpu exposes on Metal but cubecl does not use there. On Vulkan
   cubecl does use them when the driver has f16 cooperative matrices: confirmed on the
-  RTX 3050, see below. The small gain above fits with that.
+  RTX 3050, see below. The small gain above fits with that. **Corrected in 4.8:** cubecl
+  does report matrix instructions on Metal (4 `cmma` configurations on the M5 Pro), and our
+  fixed matmuls use them; what did not use them was burn's own matmul without autotune.
 - `Device::metal` and `Device::wgpu` gave the same speed here.
 
 Measured on Windows (RTX 3050, Vulkan, driver 610.62), same chunk. Today's ggml backend
@@ -627,10 +631,47 @@ fallback for them (tile sizes, f32 against f16 on GPUs whose f16 is not faster),
 model, separates 3 min of a test signal and writes `watershed-gpu-test.txt` next to itself.
 On the RTX 3050: 80.2 s, 2.39 s per chunk after a 13 s first one, 1036 MiB peak.
 
-**For macOS:** the kernels are shared, but untested on Metal. Plane operations should run
-there; the `cmma` matmuls may not, since cubecl does not use Metal's matrix instructions, and
-would then fall back to burn's matmul, as before. Measure `chunk` and a whole song before and
-after.
+### On macOS (4.8)
+
+M5 Pro, Metal, **on battery** (no low power mode), 2026-11-04. "Before" is `3aa4663`, the
+commit before the own kernels, built in a separate worktree; the two alternated in one
+sitting.
+
+`examples/chunk.rs`, one chunk, two runs each (they agreed within 0.05 s):
+
+| | Before | After |
+|---|---|---|
+| f16, s per chunk | 2.45 | **1.68** |
+| f16, first pass | 3.2–3.7 s | 2.9–3.4 s |
+| f16, masks vs PyTorch | 3.32e-3 | 2.74e-3 |
+| f16, GPU memory reserved | 1211 MiB | 1422 MiB |
+| f32, s per chunk | 3.83 | **3.13** |
+| f32, masks / worst layer | 2.78e-6 / 1.41e-5 | 1.81e-6 / 7.20e-6 |
+| f32, GPU memory reserved | 2362 MiB | 2782 MiB |
+
+Per block in f16: time transformer 1.71 → 1.12 s, frequency 0.61 → 0.49 s. Quiet input
+stays finite.
+
+A whole song (Caifanes, 4:39), `examples/separate --native --flac`, a new process each:
+
+| | Before | After | GGUF |
+|---|---|---|---|
+| Separating | 111.5 s | **79.0 s** | 76.7 s |
+| Resident peak | ~1.22 GB | ~1.24 GB | 2.3 GB |
+| Footprint peak | ~2.46 GB | ~2.69 GB | 2.3 GB |
+
+- **Level with ggml here,** 2–3 s apart, within the ~5 s of noise seen across a sitting
+  (see "Time per song (4.5)"); the GGUF ran last. Before, native was 1.45× the GGUF.
+- **Which kernels ran** (the test executable's counters): plane size 32, 4 `cmma`
+  configurations; 696 attentions and all 35206 matmuls on our kernels with matrix
+  instructions, none on the fallbacks. So "cubecl does not use Metal's matrix
+  instructions" was about burn's matmul, not about cubecl.
+- **Test executable on Metal:** 51.0 s for the 3 min test signal, 1.72 s per chunk after a
+  2.98 s first one (no autotune now), 3.53× real time, 940 MiB peak.
+- **Memory:** ~210 MiB more GPU memory reserved per chunk (the 2D matmuls and head
+  buffers), ~230 MiB more footprint at the peak for a whole song. Not looked into.
+- **Battery made little difference:** the same "before" build gave 107–111 s plugged in
+  (4.5), and 111.5 s here.
 
 ### Smaller download (4.5)
 
