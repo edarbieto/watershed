@@ -3,21 +3,14 @@
 use std::f32::consts::FRAC_1_SQRT_2;
 
 use burn::prelude::*;
-use burn::tensor::activation::{glu, sigmoid};
-use burn::tensor::module::attention;
-use burn::tensor::ops::AttentionModuleOptions;
+use burn::tensor::activation::{glu, sigmoid, softmax};
 use burn::tensor::{DType, TensorData};
 
 use crate::config::Config;
-use crate::kernels::{self, Kernel, RotaryTables, matmul};
+use crate::kernels::{self, Kernel, MAX_SCORES, RotaryTables, matmul};
 use crate::weights::{Source, WeightsError};
 
 type Result<T> = std::result::Result<T, WeightsError>;
-
-/// Most attention scores computed at once. Without a kernel that streams them (none on
-/// Metal) burn holds the whole matrix: 657 M values per time layer, 2.6 GB in f32.
-/// Longer batches are split, which costs no measurable time.
-const MAX_SCORES: usize = 1 << 26;
 
 /// `nn.Linear`. PyTorch stores the weight as (out, in); burn wants (in, out).
 pub struct Linear {
@@ -183,18 +176,17 @@ impl Attention {
         };
         let (q, k, v) = (rotary.rotate(part(0)), rotary.rotate(part(1)), part(2));
         let step = (MAX_SCORES / (self.heads * sequence * sequence)).clamp(1, batch);
+        let kernel = Kernel::for_attention(sequence);
         let out = (0..batch)
             .step_by(step)
             .map(|start| {
-                let size = step.min(batch - start);
-                attention(
-                    q.clone().narrow(0, start, size),
-                    k.clone().narrow(0, start, size),
-                    v.clone().narrow(0, start, size),
-                    None,
-                    None,
-                    AttentionModuleOptions::default(),
-                )
+                // Not burn's `attention`: without autotune it ends in burn's matmul, which
+                // can panic on GPUs without matrix instructions.
+                let slice = |t: &Tensor<4>| t.clone().narrow(0, start, step.min(batch - start));
+                let scale = (self.dim_head as f32).sqrt().recip();
+                let scores = matmul(slice(&q) * scale, slice(&k).swap_dims(2, 3), kernel);
+                let weights = kernels::softmax(&scores).unwrap_or_else(|| softmax(scores, 3));
+                matmul(weights, slice(&v), kernel)
             })
             .collect();
         let out = Tensor::cat(out, 0);

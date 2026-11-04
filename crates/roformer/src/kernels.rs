@@ -20,7 +20,7 @@ use cubek::std::InputBinding;
 
 /// Most attention scores held at once: 128 MiB in f16. Longer batches go in slices,
 /// which costs no measurable time and keeps the GPU memory down.
-const MAX_SCORES: usize = 1 << 26;
+pub(crate) const MAX_SCORES: usize = 1 << 26;
 
 /// Rows handled by each cube in the softmax, one plane per row.
 const ROWS_PER_CUBE: u32 = 4;
@@ -34,6 +34,7 @@ static FUSED_ATTENTION: AtomicUsize = AtomicUsize::new(0);
 static FALLBACK_ATTENTION: AtomicUsize = AtomicUsize::new(0);
 static FAST_MATMUL: AtomicUsize = AtomicUsize::new(0);
 static FALLBACK_MATMUL: AtomicUsize = AtomicUsize::new(0);
+static BURN_MATMUL: AtomicUsize = AtomicUsize::new(0);
 
 fn count(counter: &AtomicUsize) {
     counter.fetch_add(1, Ordering::Relaxed);
@@ -70,9 +71,10 @@ pub fn diagnostics(device: &Device) -> String {
         get(&FALLBACK_ATTENTION)
     ));
     lines.push(format!(
-        "matmul: {} fast, {} with burn's",
+        "matmul: {} with matrix instructions, {} without, {} with burn's",
         get(&FAST_MATMUL),
-        get(&FALLBACK_MATMUL)
+        get(&FALLBACK_MATMUL),
+        get(&BURN_MATMUL)
     ));
     lines.join(
         "
@@ -300,6 +302,17 @@ impl Kernel {
         }
     }
 
+    /// The kernel for attention scores over `sequence` steps. Each product is small, but
+    /// there are many: what the autotune chose for the time layers' 1151 steps and the
+    /// frequency layers' 62 bands.
+    pub fn for_attention(sequence: usize) -> Self {
+        if sequence > 256 {
+            Self::Double
+        } else {
+            Self::Simple
+        }
+    }
+
     fn strategy(self) -> cubek::matmul::strategy::Strategy {
         use cubek::matmul::multi_level::Strategy;
         use cubek::matmul::multi_level::components::tile::TileMatmulKind;
@@ -333,49 +346,84 @@ impl Kernel {
     }
 }
 
-/// `lhs @ rhs` with the given kernel, or burn's matmul where that kernel cannot run
-/// (another backend, or a GPU without matrix instructions).
+/// Matmuls that need no matrix instructions, tried in order when `Kernel`'s cannot run:
+/// without autotune, burn's own matmul takes one fixed kernel, which panicked on a Radeon
+/// Vega for asking more shared memory than it has. On the RTX 3050 with its matrix
+/// instructions left out, `double_unit` with small tiles was the fastest of these at
+/// every shape of the model, 5-13× ahead of `simple_unit`. The last needs no shared
+/// memory at all.
+fn fallback_strategies() -> [cubek::matmul::strategy::Strategy; 4] {
+    use cubek::matmul::multi_level::Strategy;
+    use cubek::matmul::multi_level::routines::TileSizeSelection;
+    use cubek::matmul::multi_level::routines::batch::double_unit::DoubleUnitSelectionArgs;
+    use cubek::matmul::multi_level::routines::batch::simple_unit::SimpleUnitSelectionArgs;
+    use cubek::matmul::routine::BlueprintStrategy;
+
+    let double = |tile_size| {
+        Strategy::DoubleUnit(BlueprintStrategy::Inferred(DoubleUnitSelectionArgs {
+            tile_size,
+        }))
+        .into()
+    };
+    [
+        double(TileSizeSelection::MinTileSize),
+        double(TileSizeSelection::MaxTileSize),
+        Strategy::SimpleUnit(BlueprintStrategy::Inferred(SimpleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
+        }))
+        .into(),
+        Strategy::Naive.into(),
+    ]
+}
+
+/// `lhs @ rhs` with the given kernel, or the first of [`fallback_strategies`] that runs
+/// where it cannot (a GPU without matrix instructions). burn's matmul only runs off
+/// cubecl, as on `flex` in the tests.
 pub fn matmul<const D: usize>(lhs: Tensor<D>, rhs: Tensor<D>, kernel: Kernel) -> Tensor<D> {
-    let launched = (|| {
-        let l = lhs.clone().try_into_primitive::<Cube>().ok()?;
-        let r = rhs.clone().try_into_primitive::<Cube>().ok()?;
-        if l.dtype != r.dtype || !matches!(l.dtype, DType::F16 | DType::F32) {
-            return None;
-        }
-        let mut shape = lhs.dims();
-        shape[D - 1] = rhs.dims()[D - 1];
-        let out = empty(&l, &shape, l.dtype);
-        let elem = ElemType::Float(match l.dtype {
-            DType::F16 => FloatKind::F16,
-            _ => FloatKind::F32,
-        });
+    let (Ok(l), Ok(r)) = (
+        lhs.clone().try_into_primitive::<Cube>(),
+        rhs.clone().try_into_primitive::<Cube>(),
+    ) else {
+        count(&BURN_MATMUL);
+        return lhs.matmul(rhs);
+    };
+    let mut shape = lhs.dims();
+    shape[D - 1] = rhs.dims()[D - 1];
+    let out = empty(&l, &shape, l.dtype);
+    let elem = |dtype| match dtype {
+        DType::F16 => ElemType::Float(FloatKind::F16),
+        _ => ElemType::Float(FloatKind::F32),
+    };
+    let (lhs_elem, rhs_elem, out_elem) = (elem(l.dtype), elem(r.dtype), elem(l.dtype));
+    let strategies = std::iter::once(kernel.strategy()).chain(fallback_strategies());
+    for (attempt, strategy) in strategies.enumerate() {
         let mut dtypes = MatmulElems::from_globals(&MatmulGlobalElems {
-            lhs: elem,
-            rhs: elem,
-            out: elem,
+            lhs: lhs_elem,
+            rhs: rhs_elem,
+            out: out_elem,
         });
-        let client = l.client.clone();
-        cubek::matmul::launch::launch_ref(
-            &kernel.strategy(),
-            &client,
-            InputBinding::new(l.binding(), elem),
-            InputBinding::new(r.binding(), elem),
+        let launched = cubek::matmul::launch::launch_ref(
+            &strategy,
+            &l.client,
+            InputBinding::new(l.clone().binding(), lhs_elem),
+            InputBinding::new(r.clone().binding(), rhs_elem),
             out.clone().binding(),
             &mut dtypes,
-        )
-        .ok()?;
-        Some(Tensor::from_primitive::<Cube>(out))
-    })();
-    match launched {
-        Some(out) => {
-            count(&FAST_MATMUL);
-            out
-        }
-        None => {
-            count(&FALLBACK_MATMUL);
-            lhs.matmul(rhs)
+        );
+        if launched.is_ok() {
+            count(if attempt == 0 {
+                &FAST_MATMUL
+            } else {
+                &FALLBACK_MATMUL
+            });
+            return Tensor::from_primitive::<Cube>(out);
         }
     }
+    panic!(
+        "no matmul kernel runs on this GPU for {:?} @ {:?}",
+        lhs.dims(),
+        rhs.dims()
+    );
 }
 
 /// The rotary embedding's angles as f32 tables of (sequence, pairs), for [`attention`].
@@ -450,13 +498,7 @@ fn fused_attention(
     let [q, k, v] = [q, k, v].map(Tensor::<4>::from_primitive::<Cube>);
 
     let output = empty(&qkv_handle, &[batch, sequence, heads * dim], dtype);
-    // Each product is small, but there are many: what the autotune chose for the time
-    // layers' 1151 steps and the frequency layers' 62 bands.
-    let kernel = if sequence > 256 {
-        Kernel::Double
-    } else {
-        Kernel::Simple
-    };
+    let kernel = Kernel::for_attention(sequence);
     let step = (MAX_SCORES / (heads * sequence * sequence)).clamp(1, batch);
     for first in (0..batch).step_by(step) {
         let size = step.min(batch - first);
