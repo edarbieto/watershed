@@ -19,6 +19,13 @@ pub enum Precision {
     Half,
 }
 
+/// Weights that [`BsRoformer::load`] reads as f32 even in [`Precision::Half`]: the
+/// band split, and the rotary frequencies, which become angles. All others are cast to
+/// f16, so a file can store them that way (see [`crate::convert_to_half`]).
+pub(crate) fn stays_f32(name: &str) -> bool {
+    name.starts_with("band_split.") || name.ends_with(".rotary_embed.freqs")
+}
+
 pub struct BsRoformer {
     band_split: BandSplit,
     layers: Vec<(Transformer, Transformer)>,

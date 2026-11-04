@@ -15,7 +15,9 @@ use anyhow::Result;
 use burn::prelude::*;
 use safetensors::SafeTensors;
 use watershed_dsp::{StereoBuffer, Stft};
-use watershed_roformer::{BsRoformer, Cancelled, Config, Precision, Weights, default_device};
+use watershed_roformer::{
+    BsRoformer, Cancelled, Config, Precision, Weights, convert_to_half, default_device,
+};
 
 /// Largest relative error allowed per layer in f32.
 const LIMIT: f64 = 1e-3;
@@ -201,6 +203,38 @@ fn quiet_input_stays_finite_in_f16() -> Result<()> {
         let masks = reference::floats(model.forward(reference::stft(&dump, &device)? * gain));
         assert!(masks.iter().all(|v| v.is_finite()), "input × {gain}");
     }
+    Ok(())
+}
+
+/// Fails if the converted file stores in f16 a weight that the model keeps in f32.
+#[test]
+fn converted_weights_give_the_same_masks_in_f16() -> Result<()> {
+    let device = Device::flex();
+    let config = tiny_config();
+    let dir = std::env::temp_dir().join(format!("watershed-convert-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let (first, second) = (dir.join("a.safetensors"), dir.join("b.safetensors"));
+    convert_to_half(&fixture("tiny.ckpt"), &first)?;
+    convert_to_half(&fixture("tiny.ckpt"), &second)?;
+    assert_eq!(std::fs::read(&first)?, std::fs::read(&second)?);
+
+    let bytes = std::fs::read(fixture("tiny.safetensors"))?;
+    let dump = SafeTensors::deserialize(&bytes)?;
+    let masks = |path: &Path| -> Result<Vec<f32>> {
+        let model = BsRoformer::load(&Weights::open(path)?, &config, Precision::Half, &device)?;
+        Ok(reference::floats(
+            model.forward(reference::stft(&dump, &device)?),
+        ))
+    };
+    let expected = masks(&fixture("tiny.ckpt"))?;
+    let got = masks(&first)?;
+    std::fs::remove_dir_all(&dir)?;
+    assert!(
+        expected
+            .iter()
+            .zip(&got)
+            .all(|(a, b)| a.to_bits() == b.to_bits())
+    );
     Ok(())
 }
 

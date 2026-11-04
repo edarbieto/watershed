@@ -12,8 +12,11 @@ burn = { workspace = true, features = ["wgpu"] }
 burn-cubecl.workspace = true
 cubek.workspace = true
 cubecl-environment.workspace = true
+half.workspace = true
 pytorch-reader.workspace = true
+safetensors.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 serde_yaml_ng.workspace = true
 thiserror.workspace = true
 watershed-dsp.workspace = true
@@ -27,7 +30,7 @@ burn = { workspace = true, features = ["vulkan"] }
 [dev-dependencies]
 anyhow.workspace = true
 burn = { workspace = true, features = ["flex"] }
-safetensors.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

@@ -15,7 +15,7 @@ pub use config::{Config, ConfigError};
 pub use kernels::diagnostics;
 pub use model::{BsRoformer, Precision};
 pub use separate::Cancelled;
-pub use weights::{Weights, WeightsError};
+pub use weights::{Weights, WeightsError, convert_to_half};
 
 use burn::prelude::Device;
 use burn::tensor::DeviceKind;
