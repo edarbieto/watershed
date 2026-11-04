@@ -2574,7 +2574,8 @@ const FORMANTS_HINT: &str = "The formants are the resonances of the throat and m
 const TONALITY_HINT: &str = "Above 8 kHz (breath, sibilants) the sound is moved by a fixed \
      amount instead of scaled with the pitch, which keeps more of the original timbre.";
 const MODEL_NOTE: &str = "For new separations. Both sound the same to the ear. Compact \
-    is a 190 MB download and faster; Full is a 700 MB download and slower.";
+    is a 190 MB download; Full is a 700 MB download that takes 350 MB once installed, \
+    and about as fast or faster on recent GPUs.";
 const STEM_FORMAT_NOTE: &str = "For new separations. Both sound the same as the \
     original to the ear. Ogg Vorbis opens in Reaper, Cubase, Ableton, FL Studio and \
     Bitwig; FLAC in any DAW, Logic and Pro Tools included.";

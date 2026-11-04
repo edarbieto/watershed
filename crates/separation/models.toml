@@ -10,7 +10,11 @@
 #   are but not their names; these become the stem file names.
 # - default: the model used unless the user picks another (exactly one).
 # - native: for the native backend, whose `file` is a PyTorch checkpoint: the
-#   architecture and the checkpoint's .yaml. Models without it are GGUF files.
+#   architecture, the checkpoint's .yaml and `converted`, the f16 safetensors file
+#   the checkpoint is converted to after downloading (half the size). The
+#   checkpoint is deleted then. The conversion gives the same bytes every time;
+#   `cargo run --release -p watershed-roformer --example convert` prints the size
+#   and sha256. Models without `native` are GGUF files.
 
 [[model]]
 id = "bs-roformer-sw-q8_0"
@@ -40,6 +44,11 @@ license = "unknown"
 
 [model.native]
 architecture = "bs_roformer"
+
+[model.native.converted]
+file = "BS-RoFormer-SW-6stem-f16.safetensors"
+size = 351666024
+sha256 = "eb6498d81353cbec0b999de1c5a09fc316b3a2e426819c6e75f720c6586e58ee"
 
 [model.native.config]
 file = "BS-Rofo-SW-Fixed.yaml"

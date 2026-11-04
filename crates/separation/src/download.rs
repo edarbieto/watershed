@@ -26,6 +26,8 @@ pub enum DownloadError {
     },
     #[error("the downloaded file is corrupt: expected {expected}, got {actual}")]
     Corrupt { expected: String, actual: String },
+    #[error("cannot convert the model: {0}")]
+    Convert(String),
 }
 
 /// What the downloaded file must be.
@@ -207,7 +209,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn part_path(dest: &Path) -> PathBuf {
+pub(crate) fn part_path(dest: &Path) -> PathBuf {
     let mut name = dest.file_name().unwrap_or_default().to_os_string();
     name.push(".part");
     dest.with_file_name(name)
