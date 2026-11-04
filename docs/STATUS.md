@@ -124,6 +124,8 @@ machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on ma
    the GGUF backend at all. Done on Windows: the Vulkan gap is closed (see "Own kernels on
    Vulkan (4.8)"). Left: **measure the same build on macOS** (Metal shares the kernels; its
    matmuls may fall back to burn's, see that section), then the choices in "Open questions".
+   Next session: decide the `.ckpt` questions (see "Open questions"), then measure on macOS.
+   Five commits from 2026-11-03 are **local only, not pushed** (the user asked to wait).
    Earlier 4.5 steps, for reference:
    1. ~~RAM left after a run~~: done, it was a leak (see "RAM left after a run (4.5)").
       Tested by the user in the app: two new songs split with the window open, no leak.
@@ -602,7 +604,13 @@ test executable below): the first separation panicked in burn's untuned matmul, 
 for 35 KB of shared memory where the GPU has 32 KB. Fixed: `matmul` falls back to
 `double_unit` (small tiles, then large), `simple_unit`, then `naive`. Forced on the RTX 3050,
 that path takes 6.0 s per chunk (31.8 s with `simple_unit` first), masks 3.06e-3 in f16 and
-1.75e-6 in f32. Not yet run again on the Vega.
+1.75e-6 in f32. **On the Vega it works:** 3 min of test signal in 584 s (0.31× real time),
+19.6 s per chunk after a 35.6 s first one, steady from start to end (no throttling seen),
+so ~12–13 min for a 4 min song. Plane size 64, so all 696 attentions took our kernels; no
+`cmma`, so all 35206 matmuls took the fallbacks. Process peak 2742 MiB (1036 MiB on the RTX
+3050): an integrated GPU's memory is system RAM, which likely counts here, not checked.
+Not compared with ggml on that machine. Ideas if integrated GPUs need more speed: tune the
+fallback for them (tile sizes, f32 against f16 on GPUs whose f16 is not faster), or its CPU.
 
 **Test executable:** `examples/gpu_test.rs` in `crates/separation`, built with `+crt-static`
 (needs only system DLLs and the driver's Vulkan loader). Double-clicked, it downloads the
