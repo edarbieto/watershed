@@ -7,6 +7,9 @@
 *.gguf
 *.onnx
 
+# Release packages built by tools/package
+/dist
+
 # The tiny model that tests crates/roformer in CI
 !crates/roformer/tests/fixtures/*
 
