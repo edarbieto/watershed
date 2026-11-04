@@ -4,11 +4,12 @@ use std::f32::consts::FRAC_1_SQRT_2;
 
 use burn::prelude::*;
 use burn::tensor::activation::{glu, sigmoid};
-use burn::tensor::module::{attention, linear};
+use burn::tensor::module::attention;
 use burn::tensor::ops::AttentionModuleOptions;
 use burn::tensor::{DType, TensorData};
 
 use crate::config::Config;
+use crate::kernels::{self, Kernel, RotaryTables, matmul};
 use crate::weights::{Source, WeightsError};
 
 type Result<T> = std::result::Result<T, WeightsError>;
@@ -39,8 +40,21 @@ impl Linear {
         })
     }
 
+    /// Applied to all leading dimensions as one matrix: burn runs a 3D input as a
+    /// batched matmul, which with many short batches took 1.7× as long on Vulkan.
     pub fn forward<const D: usize>(&self, x: Tensor<D>) -> Tensor<D> {
-        linear(x, self.weight.clone(), self.bias.clone())
+        let mut dims = x.dims();
+        let features = dims[D - 1];
+        let rows = x.shape().num_elements() / features;
+        let outputs = self.weight.dims()[1];
+        let kernel = Kernel::for_shape(rows, features, outputs);
+        let y = matmul(x.reshape([rows, features]), self.weight.clone(), kernel);
+        let y = match &self.bias {
+            Some(bias) => y + bias.clone().unsqueeze(),
+            None => y,
+        };
+        dims[D - 1] = outputs;
+        y.reshape(dims)
     }
 }
 
@@ -85,23 +99,31 @@ pub struct Rotary {
     /// `(a, b)` turns into `(a, b) * cos + (b, a) * sin`.
     cos: Tensor<5>,
     sin: Tensor<5>,
+    /// The same angles for our own kernel, when the device runs it.
+    tables: Option<RotaryTables>,
 }
 
 impl Rotary {
     pub fn new(freqs: &[f32], length: usize, device: &Device, dtype: DType) -> Self {
-        let mut cos = Vec::with_capacity(length * freqs.len() * 2);
-        let mut sin = Vec::with_capacity(length * freqs.len() * 2);
+        let pairs = length * freqs.len();
+        let (mut cos, mut sin) = (Vec::with_capacity(pairs * 2), Vec::with_capacity(pairs * 2));
+        let (mut cos_table, mut sin_table) = (Vec::with_capacity(pairs), Vec::with_capacity(pairs));
         for position in 0..length {
             for freq in freqs {
                 let (s, c) = (position as f32 * freq).sin_cos();
                 cos.extend([c, c]);
                 sin.extend([-s, s]);
+                cos_table.push(c);
+                sin_table.push(s);
             }
         }
         let shape = [1, 1, length, freqs.len(), 2];
+        let table =
+            |values: Vec<f32>| Tensor::<1>::from_data(TensorData::new(values, [pairs]), device);
         Self {
             cos: Tensor::<5>::from_data(TensorData::new(cos, shape), device).cast(dtype),
             sin: Tensor::<5>::from_data(TensorData::new(sin, shape), device).cast(dtype),
+            tables: RotaryTables::new(&table(cos_table), &table(sin_table)),
         }
     }
 
@@ -138,12 +160,21 @@ impl Attention {
 
     /// `x` is (batch, sequence, dim).
     fn forward(&self, x: Tensor<3>, rotary: &Rotary) -> Tensor<3> {
-        let [batch, sequence, _] = x.dims();
         let x = self.norm.forward(x);
-        let qkv: Tensor<5> =
-            self.to_qkv
-                .forward(x.clone())
-                .reshape([batch, sequence, 3, self.heads, self.dim_head]);
+        let qkv = self.to_qkv.forward(x.clone());
+        let gates = self.to_gates.forward(x);
+        let fused = rotary
+            .tables
+            .as_ref()
+            .and_then(|tables| kernels::attention(&qkv, &gates, tables, self.heads));
+        let out = fused.unwrap_or_else(|| self.attention(qkv, gates, rotary));
+        self.to_out.forward(out)
+    }
+
+    /// The same as [`kernels::attention`], with burn's ops.
+    fn attention(&self, qkv: Tensor<3>, gates: Tensor<3>, rotary: &Rotary) -> Tensor<3> {
+        let [batch, sequence, _] = qkv.dims();
+        let qkv: Tensor<5> = qkv.reshape([batch, sequence, 3, self.heads, self.dim_head]);
         let part = |i| {
             qkv.clone()
                 .narrow(2, i, 1)
@@ -167,14 +198,10 @@ impl Attention {
             })
             .collect();
         let out = Tensor::cat(out, 0);
-        let gates = sigmoid(self.to_gates.forward(x))
+        let gates = sigmoid(gates).swap_dims(1, 2).unsqueeze_dim(3);
+        (out * gates)
             .swap_dims(1, 2)
-            .unsqueeze_dim(3);
-        let out =
-            (out * gates)
-                .swap_dims(1, 2)
-                .reshape([batch, sequence, self.heads * self.dim_head]);
-        self.to_out.forward(out)
+            .reshape([batch, sequence, self.heads * self.dim_head])
     }
 }
 

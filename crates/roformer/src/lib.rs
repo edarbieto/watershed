@@ -5,6 +5,7 @@
 //! only: the layers are plain tensors, with no dropout and no gradients.
 
 mod config;
+mod kernels;
 mod layers;
 mod model;
 mod separate;
