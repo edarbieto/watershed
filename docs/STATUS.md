@@ -101,8 +101,9 @@ Last updated: 2026-11-04.
   Windows: burn is now faster than ggml there** (108.8 s against 122.2 s for a whole song,
   no autotune at start, ~1.6 GB of GPU memory instead of 3.4 GB), see "Own kernels on
   Vulkan (4.8)". **On macOS they help too:** 79 s for the 4:39 song (was 111.5 s), level
-  with ggml's 77 s, see "On macOS (4.8)". The time-left estimate fix (4.8) is still to try
-  on Windows.
+  with ggml's 77 s, see "On macOS (4.8)". The time-left estimate fix (4.8): tested by the
+  user on Windows, works. **f16 weights converted on install: done** (see "Weights
+  converted to f16"), to test in the app.
 - **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
   done and tested by the user on macOS (see "Output device and transport keys" and "Solo
@@ -127,9 +128,9 @@ macOS).
       Integrated GPUs with matrix instructions may still be fast enough; the test
       executable (`examples/gpu_test.rs`) on more machines would tell. ggml no longer
       needs to stay as a CPU fallback.
-   3. **f16 weights converted on the user's machine** (decided, see below): download the
-      `.ckpt`, convert it, delete it.
-   4. **Try the time-left fix in the app on Windows** (4.8).
+   3. ~~f16 weights converted on the user's machine.~~ Done, see "Weights converted to
+      f16"; to try in the app on both machines.
+   4. ~~Try the time-left fix in the app on Windows (4.8).~~ Tested by the user: works.
    5. Then **4.7**, removing the GGUF backend. The "Compact" / "Full" names in Settings go
       away with the choice.
    6. **Later, not now:** for machines without a usable GPU, suggest separating with MVSEP,
@@ -680,8 +681,7 @@ The `.ckpt` is 699 MB, the q8 GGUF 188 MB. From reading burn's sources, nothing 
 - burn has quantized tensors (`QuantValue::Q8F` and others), but that is a way of computing.
   The size to win is on disk, and the model casts everything to f16 at load anyway.
 - **Weights stored as f16: ~350 MB,** with no loss beyond what f16 inference already has,
-  and no burn quantization involved. `Weights` reads f32 only today, and it needs a converted
-  file and somewhere to host it.
+  and no burn quantization involved. Done: see "Weights converted to f16".
 - **Weights stored as q8: ~190 MB,** but with the GGUF's quality (36–43 dB, not 52–59).
 
 **Test checklist:** 1–4 passed on macOS.
@@ -700,11 +700,49 @@ of the song. That chunk carries the ~30 s of autotune, so ~65 s for it gives ~40
 fits: only the first separation after starting the app pays it, more on a new build.
 Leaving the first chunk out of the estimate should fix it, on GGUF as well.
 
-**Fixed (4.8), not yet tried in the app:** the estimate now uses the rate since the first
+**Fixed (4.8), tested by the user on Windows: works.** The estimate now uses the rate since the first
 progress above zero in a step, so the first chunk is left out. It shows one chunk later than
 before (on the RTX 3050, ~70 s in instead of ~65 s) and should start near the real time. A
 resumed download also stops counting the bytes already on disk. Unit tests in `separate.rs`
 with the Windows numbers. Both backends report once per chunk and start the step at 0.
+
+### Weights converted to f16
+
+Decided by the user (see "Decisions and open questions"). The app still downloads the 699 MB
+`.ckpt`, then converts it to a 352 MB f16 safetensors file and deletes it.
+
+- **`convert_to_half`** (`crates/roformer/src/weights.rs`) writes every tensor in f16 except
+  those the model reads as f32 even in f16 mode: the band split and the rotary frequencies
+  (`stays_f32` in `model.rs`, next to `load`). `Weights::open` reads a `.safetensors` file
+  (header only; tensors on demand, as with the checkpoint) as well as a `.ckpt`.
+- **Same model, exactly:** on the tiny model in CI the masks in f16 are bit-identical from
+  either file (`converted_weights_give_the_same_masks_in_f16`, checked by breaking the rule:
+  with the band split in f16 it fails). On the real chunk on Metal, every layer's error
+  against PyTorch is the same to the printed digit, and the speed is the same. In f32 a
+  converted file gives f16-rounded weights: the equivalence tests keep using the `.ckpt`.
+- **Deterministic:** two conversions give the same bytes (also a test), so `models.toml`
+  holds the converted file's size and sha256 (`[model.native.converted]`);
+  `examples/convert.rs` prints them. 0.4 s and 388 MB peak on the M5 Pro, so no progress
+  or cancel for that step.
+- **Install** (`ModelEntry::install`): a `.ckpt` already in the models folder (from an older
+  version or an interrupted install) is hashed and used if intact, else downloaded. The
+  conversion goes to `<file>.part`, renamed only once size and sha256 match, so an
+  interrupted or wrong conversion never looks installed; the `.ckpt` is deleted after
+  (and if one is found next to an installed model). Tests on the tiny model cover both.
+- **Seen on the M5 Pro:** the cached `.ckpt` was checked, converted and deleted in ~1.4 s
+  in all, then the 4:39 song separated in 76.8 s.
+- **Not done:** the app shows "Downloading the model" during those ~1.4 s; a model already
+  downloaded shows "0 / 699 MB" meanwhile. Fine at that length; worth a "Preparing the
+  model…" label if it is slower on Windows.
+
+**Test checklist:**
+1. macOS (already converted here): Settings → Full, drop a song not separated yet: it
+   separates and sounds as before.
+2. Windows (the `.ckpt` is still in the cache there): the same; the first separation
+   converts it. Afterwards the models folder (`%LOCALAPPDATA%\Watershed\cache\models`)
+   has the `.safetensors` and no `.ckpt`.
+3. A clean download, on either machine: delete the `.safetensors` from the models folder,
+   separate with Full: it downloads 699 MB with progress, then separates.
 
 ## Changing device without a RAM peak
 
