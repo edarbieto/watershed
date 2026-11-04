@@ -429,8 +429,9 @@ RAM first, then disk. In this order:
 >
 > 1. ~~**The time-left estimate** (4.8)~~: done, see "In the app (4.4)" in STATUS; to try
 >    on Windows.
-> 2. **Optimization** (4.8): the gap on the RTX 3050 is 1.86× the GGUF's time and 2.9× its GPU
->    memory, against ~1.45× in time on the M5 Pro.
+> 2. **Optimization** (4.8): done on Windows (2026-11-03): burn is now faster than the GGUF on
+>    the RTX 3050, see "Own kernels on Vulkan (4.8)" in STATUS. **Next on macOS: measure the
+>    same build on Metal.** The user's goal: v0.1 with the native backend as the default.
 > 3. **Phase 4.5, more adjustments:** system default output, Reaper's transport keys, solo
 >    over mute, start screen, the unsteady tempo icon, the recent songs search and the transposed vocals are done (tested on macOS); the
 >    RAM peak when changing device too. Phase 4.5 has nothing left; next: optimization (item 2).
@@ -481,10 +482,11 @@ song is about 47 chunks.
     fallback (~19 min for a 4:39 song on the M5 Pro today, ggml ~7.5 min). Try `Device::cpu`.
   - **Metal:** the ~35 s per song behind ggml are in the model, since cubecl does not use the
     GPU's matrix instructions there. Look at what `cubecl-wgpu` would need.
-  - **Vulkan:** autotune's cost at every start, `persistence`.
+  - **Vulkan:** done: own attention kernels and fixed matmuls, `autotune` off (2.27 s per
+    chunk against 4.06 s, first pass 4 s against ~30 s).
   - **Download:** weights stored as f16 (~350 MB instead of 699 MB).
   - **Memory:** the 77 MiB left after a run, and the peak (2.2 GB). On the RTX 3050, GPU
-    memory: 3462 MiB against the GGUF's 1207 MiB.
+    memory went from 3462 MiB to ~1.6 GB over idle with the Vulkan work (GGUF ~1.4 GB).
   - **Time-left estimate:** seen by the user on Windows, it appears late and starts near
     40 min for a song that takes 3–4. See "In the app (4.4)" in `STATUS.md`.
   - **Gentler separation:** the idea in `STATUS.md`, if the user decides on it.

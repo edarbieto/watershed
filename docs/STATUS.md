@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-02.
+Last updated: 2026-11-03.
 
 ## Where we are
 
@@ -97,8 +97,10 @@ Last updated: 2026-11-02.
 - **Phase 3.5, minimum window size and maximizing on macOS: done.** Tested by the
   user: both work (macOS now renders with OpenGL). Open question kept: wgpu vs
   OpenGL on macOS (see "Window size and maximizing" below).
-- **Phase 4, native backend:** 4.0 to 4.4 done; 4.5 measured on both machines, but burn
-  is not the default yet (see "Next steps"). The time-left estimate fix (4.8) is still to
+- **Phase 4, native backend:** 4.0 to 4.4 done; 4.5 measured on both machines. **4.8 on
+  Windows: burn is now faster than ggml there** (108.8 s against 122.2 s for a whole song,
+  no autotune at start, ~1.6 GB of GPU memory instead of 3.4 GB), see "Own kernels on
+  Vulkan (4.8)". Not yet measured on macOS. The time-left estimate fix (4.8) is still to
   try on Windows.
 - **Phase 4.5, more adjustments:** system default output, Reaper's Space / Enter and
   arrow keys on the grid, solo over mute, the start screen and the unsteady tempo icon:
@@ -118,8 +120,11 @@ the song info panel, which stays in the plan for later. **Phase 4** (the native
 machines (see "Native backend: burn + wgpu" below). 4.4 tested by the user on macOS:
 "the separation quality is great" (see "In the app (4.4)").
 
-0. **Next: 4.5 measurement** (`PLAN.md` Phase 4), then **4.8 refinement**, new, which
-   can start any time. Start on macOS, in this order:
+0. **Goal set by the user: v0.1 with the native backend as the default**, ideally without
+   the GGUF backend at all. Done on Windows: the Vulkan gap is closed (see "Own kernels on
+   Vulkan (4.8)"). Left: **measure the same build on macOS** (Metal shares the kernels; its
+   matmuls may fall back to burn's, see that section), then the choices in "Open questions".
+   Earlier 4.5 steps, for reference:
    1. ~~RAM left after a run~~: done, it was a leak (see "RAM left after a run (4.5)").
       Tested by the user in the app: two new songs split with the window open, no leak.
    2. ~~Time per song~~: done (see "Time per song (4.5)"): the gap to ggml is in the model.
@@ -179,8 +184,14 @@ Drive should help.
 
 ## Open questions for the user
 
-None right now. Whether ~19 min is acceptable for the CPU fallback waits for 4.8: the user
-postponed it.
+Toward v0.1 with the native backend as the default (asked 2026-11-03):
+
+1. **Download size:** the `.ckpt` is 699 MB against the GGUF's 188 MB. Weights stored as f16
+   would be ~350 MB with no loss, but need a converted file hosted somewhere, and the
+   checkpoint declares no license.
+2. **No usable GPU:** without the GGUF backend the CPU path is burn's `flex`, ~42 min per song
+   on the Ryzen 7 5700G (ggml's CPU backend was estimated ~2.5× faster). Keep the GGUF only as
+   the CPU fallback, make `flex` faster first, or require a GPU for v0.1.
 
 ## Native backend: burn + wgpu
 
@@ -544,6 +555,52 @@ each, with the usual desktop apps open:
   Only the model, no whole song was run on the CPU.
 - **Same thread limit as on macOS:** ~5 of 16.
 - **Memory not measured:** the sampling failed (it read 153 and 0 MiB).
+
+### Own kernels on Vulkan (4.8)
+
+Windows, RTX 3050, driver 610.62, `examples/chunk.rs`, one chunk in f16:
+
+| Build | s per chunk | First pass | Masks vs PyTorch |
+|---|---|---|---|
+| Before (autotune, burn's flash attention) | 4.06 | 75 s (new binary), ~30 s after | 2.85e-3 |
+| + matmul, own softmax, burn's ops around it | 2.90 | 29 s | 2.85e-3 |
+| + linear layers as one 2D matmul | 2.82 | | |
+| + fixed matmul kernels, `autotune` off | 2.73 | 5.0 s | 2.94e-3 |
+| + own kernels to split and merge the heads | **2.27** | **4.0 s** | 2.90e-3 |
+
+f32: 6.1 s per chunk, masks 1.75e-6, no layer above 1e-4; the real-model equivalence test
+passes. GPU memory reserved: 1422 MiB in f16.
+
+- **Where the time went:** a time layer took ~210 ms, ~170 ms of them attention. burn's flash
+  kernel ran at ~1 TFLOPS. As matmul + softmax + matmul, the softmax took ~10 ms per slice of
+  scores against ~5 ms for both matmuls: burn's is five kernels over 127 MB each. Our softmax
+  (`kernels.rs`, one plane per row, sums in f32) takes ~1.2 ms.
+- **Then copies:** cubecl's profiler (`CUBECL_DEBUG_OPTION=profile` plus `CUBECL_DEBUG_LOG`)
+  showed ~150 ms per pass in rotary's `flip` (~3 ms per call) and ~200 ms in copies from the
+  head reshapes. `split_heads` goes from `to_qkv`'s output to q, k and v in one pass, with the
+  rotation and the scale; `merge_heads` writes each slice's output times its sigmoid gate
+  straight into place, so there is no `cat` either.
+- **No autotune:** it made 29 decisions per process, each compiling and timing ~25 kernels. The
+  winners were all tensor-core (`cmma`) matmuls; `Kernel` in `kernels.rs` picks the same three
+  by shape and calls cubek directly. Where a strategy cannot run (no matrix instructions, or
+  another backend) burn's matmul runs instead, which without the feature is untuned.
+- **Linear layers:** a 3D input runs as a batched matmul with the weight broadcast, 16.5 ms
+  against 10 ms as one 2D matmul at the frequency layers' shape (1151 batches of 62).
+- **Fallbacks:** each kernel returns `None` off cubecl or without plane operations of one fixed
+  size, and the layer takes burn's ops, as the CI tests on `flex` do.
+
+A whole song (Caifanes, "Nubes"), `examples/separate`, a new process each, native first:
+
+| | Native (f16) | GGUF |
+|---|---|---|
+| Separating | **108.8 s** | 122.2 s |
+| GPU memory over idle, peak | ~1.6 GB | ~1.4 GB |
+| Resident peak | 1.3 GB | 1.5 GB |
+
+**For macOS:** the kernels are shared, but untested on Metal. Plane operations should run
+there; the `cmma` matmuls may not, since cubecl does not use Metal's matrix instructions, and
+would then fall back to burn's matmul, as before. Measure `chunk` and a whole song before and
+after.
 
 ### Smaller download (4.5)
 
