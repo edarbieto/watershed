@@ -319,11 +319,11 @@ mod tests {
         let content = content();
         let server = Server::start(content.clone(), true);
         let dir = TestDir::new("ok");
-        let dest = dir.0.join("model.gguf");
+        let dest = dir.0.join("model.bin");
         let hash = sha256(&content);
         let last = Mutex::new((0, 0));
         download(
-            &[server.url("/model.gguf")],
+            &[server.url("/model.bin")],
             &dest,
             Expected {
                 size: content.len() as u64,
@@ -345,10 +345,10 @@ mod tests {
         let content = content();
         let server = Server::start(content.clone(), true);
         let dir = TestDir::new("resume");
-        let dest = dir.0.join("model.gguf");
+        let dest = dir.0.join("model.bin");
         std::fs::write(part_path(&dest), &content[..50_000]).unwrap();
         download(
-            &[server.url("/model.gguf")],
+            &[server.url("/model.bin")],
             &dest,
             Expected {
                 size: content.len() as u64,
@@ -367,10 +367,10 @@ mod tests {
         let content = content();
         let server = Server::start(content.clone(), false);
         let dir = TestDir::new("norange");
-        let dest = dir.0.join("model.gguf");
+        let dest = dir.0.join("model.bin");
         std::fs::write(part_path(&dest), &content[..50_000]).unwrap();
         download(
-            &[server.url("/model.gguf")],
+            &[server.url("/model.bin")],
             &dest,
             Expected {
                 size: content.len() as u64,
@@ -388,9 +388,9 @@ mod tests {
         let content = content();
         let server = Server::start(content.clone(), true);
         let dir = TestDir::new("mirror");
-        let dest = dir.0.join("model.gguf");
+        let dest = dir.0.join("model.bin");
         download(
-            &[server.url("/missing/model.gguf"), server.url("/model.gguf")],
+            &[server.url("/missing/model.bin"), server.url("/model.bin")],
             &dest,
             Expected {
                 size: content.len() as u64,
@@ -408,9 +408,9 @@ mod tests {
         let content = content();
         let server = Server::start(content.clone(), true);
         let dir = TestDir::new("corrupt");
-        let dest = dir.0.join("model.gguf");
+        let dest = dir.0.join("model.bin");
         let result = download(
-            &[server.url("/model.gguf")],
+            &[server.url("/model.bin")],
             &dest,
             Expected {
                 size: content.len() as u64,
@@ -432,10 +432,10 @@ mod tests {
         let content = content();
         let server = Server::start(content.clone(), true);
         let dir = TestDir::new("cancel");
-        let dest = dir.0.join("model.gguf");
+        let dest = dir.0.join("model.bin");
         let polls = Mutex::new(0);
         let result = download(
-            &[server.url("/model.gguf")],
+            &[server.url("/model.bin")],
             &dest,
             Expected {
                 size: content.len() as u64,

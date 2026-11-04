@@ -1,4 +1,4 @@
-//! [`Separator`] backend for PyTorch checkpoints, on `burn` + `wgpu`.
+//! The [`Separator`]: BS-RoFormer on `burn` + `wgpu`, from `watershed-roformer`.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
@@ -24,21 +24,22 @@ fn guarded<T>(work: impl FnOnce() -> Result<T, SeparationError>) -> Result<T, Se
             .map(String::as_str)
             .or(panic.downcast_ref::<&str>().copied())
             .unwrap_or("unknown error");
-        Err(SeparationError::Native(format!("GPU error: {text}")))
+        Err(SeparationError::Model(format!("GPU error: {text}")))
     })
 }
 
 fn native(error: impl std::fmt::Display) -> SeparationError {
-    SeparationError::Native(error.to_string())
+    SeparationError::Model(error.to_string())
 }
 
 impl BurnSeparator {
-    /// Loads `checkpoint` with the parameters in the `.yaml` at `config`, for a model
-    /// whose stems are `stem_names`, in the model's output order.
+    /// Loads the weights at `weights` (a checkpoint or its converted f16 file) with the
+    /// parameters in the `.yaml` at `config`, for a model whose stems are `stem_names`,
+    /// in the model's output order.
     ///
     /// Computes in f16, which is as good to the ear as f32 and much faster.
     pub fn load(
-        checkpoint: &Path,
+        weights: &Path,
         config: &Path,
         stem_names: Vec<String>,
     ) -> Result<Self, SeparationError> {
@@ -49,7 +50,7 @@ impl BurnSeparator {
                 names: stem_names.len(),
             });
         }
-        let weights = Weights::open(checkpoint).map_err(native)?;
+        let weights = Weights::open(weights).map_err(native)?;
         let model = guarded(|| {
             BsRoformer::load(&weights, &config, Precision::Half, &default_device()).map_err(native)
         })?;
@@ -117,7 +118,7 @@ mod tests {
     fn a_gpu_panic_becomes_an_error() {
         let result: Result<(), _> = guarded(|| panic!("no adapter"));
         assert!(
-            matches!(&result, Err(SeparationError::Native(e)) if e.contains("no adapter")),
+            matches!(&result, Err(SeparationError::Model(e)) if e.contains("no adapter")),
             "{result:?}"
         );
     }

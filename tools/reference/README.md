@@ -6,7 +6,7 @@ Runs the original PyTorch code from
 
 It serves two purposes:
 
-1. Produce real stems to test the player while the native backend does not exist.
+1. Produce real stems to test the player (before the app could separate).
 2. Produce the ground-truth outputs that the Rust implementation of BS-RoFormer
    is validated against (see the validation strategy in [docs/PLAN.md](../../docs/PLAN.md)).
 

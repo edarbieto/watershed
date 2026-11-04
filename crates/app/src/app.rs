@@ -5,7 +5,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText};
 use watershed_audio::{Beats, Engine, Notify, OutputDevice, Samples, Song, output_devices};
 use watershed_dsp::Peaks;
-use watershed_separation::{ModelEntry, catalog};
+use watershed_separation::catalog;
 use watershed_storage::{Config, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
@@ -313,11 +313,10 @@ impl WatershedApp {
         match separate::target_folder(&library, &song) {
             Target::Existing(folder) => self.open(&[folder], ctx),
             Target::New(folder) => {
-                let model = self.separation_model();
                 self.separating = Some(separate::start(
                     song,
                     folder,
-                    model,
+                    catalog::default_model(),
                     models_dir,
                     self.config.stem_format,
                     ctx.clone(),
@@ -347,13 +346,6 @@ impl WatershedApp {
             self.config.library_folder = Some(folder);
             self.config.save();
         }
-    }
-
-    /// The model for new separations.
-    fn separation_model(&self) -> &'static ModelEntry {
-        let id = self.config.separation_model.as_deref();
-        id.and_then(catalog::find)
-            .unwrap_or_else(catalog::default_model)
     }
 
     /// Opens a finished separation, unless another song is playing: then it waits
@@ -1454,19 +1446,6 @@ impl WatershedApp {
                                 self.config.stem_format = format;
                                 self.config.save();
                             }
-                        });
-                        ui.end_row();
-
-                        ui.label("Separation model");
-                        ui.vertical(|ui| {
-                            let selected = self.separation_model();
-                            for model in catalog::models() {
-                                if ui.radio(model == selected, &model.name).clicked() {
-                                    self.config.separation_model = Some(model.id.clone());
-                                    self.config.save();
-                                }
-                            }
-                            ui.label(RichText::new(MODEL_NOTE).weak().small());
                         });
                         ui.end_row();
 
@@ -2573,9 +2552,6 @@ const FORMANTS_HINT: &str = "The formants are the resonances of the throat and m
      level on the voice.";
 const TONALITY_HINT: &str = "Above 8 kHz (breath, sibilants) the sound is moved by a fixed \
      amount instead of scaled with the pitch, which keeps more of the original timbre.";
-const MODEL_NOTE: &str = "For new separations. Both sound the same to the ear. Compact \
-    is a 190 MB download; Full is a 700 MB download that takes 350 MB once installed, \
-    and about as fast or faster on recent GPUs.";
 const STEM_FORMAT_NOTE: &str = "For new separations. Both sound the same as the \
     original to the ear. Ogg Vorbis opens in Reaper, Cubase, Ableton, FL Studio and \
     Bitwig; FLAC in any DAW, Logic and Pro Tools included.";

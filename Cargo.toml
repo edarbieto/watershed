@@ -21,7 +21,6 @@ burn = { version = "=0.22.1", default-features = false, features = ["std"] }
 burn-cubecl = { version = "=0.22.1", default-features = false, features = ["std"] }
 cubek = { version = "=0.3.1", default-features = false, features = ["matmul", "matmul-multi-level", "stdlib"] }
 cubecl-environment = "=0.11.3"
-cmake = "0.1"
 cpal = "0.18"
 directories = "6"
 eframe = "0.36"

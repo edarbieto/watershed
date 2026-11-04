@@ -1,7 +1,7 @@
-//! A test of the native backend on someone else's machine: double-click it, wait, and
+//! A test of the separation on someone else's machine: double-click it, wait, and
 //! send back the one text file it writes next to itself, `watershed-gpu-test.txt`.
 //!
-//! It downloads the native model (~700 MB) into the models cache folder on first use,
+//! It installs the model (a ~700 MB download) into the models cache folder on first use,
 //! then separates three minutes of a test signal, or a song dropped onto the `.exe`, and
 //! logs the machine, the GPU, the time of each chunk, the peak memory and which kernels
 //! ran. Nothing else is written: the stems are thrown away.
@@ -20,9 +20,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use watershed_dsp::StereoBuffer;
-use watershed_separation::{BurnSeparator, Separator, catalog};
+use watershed_separation::{Separator, catalog};
 
-const MODEL_ID: &str = "bs-roformer-sw";
 const TEST_SECONDS: usize = 180;
 const SAMPLE_RATE: u32 = 44100;
 
@@ -77,7 +76,7 @@ fn run(log: &Log) -> Result<(), String> {
     ));
     system_info(log);
 
-    let entry = catalog::find(MODEL_ID).ok_or("the native model is not in the catalog")?;
+    let entry = catalog::default_model();
     let models = watershed_storage::models_dir().ok_or("no cache folder on this system")?;
     if !entry.is_installed(&models) {
         log.line(&format!(
@@ -121,15 +120,8 @@ fn run(log: &Log) -> Result<(), String> {
     let sampler = memory_sampler(peak.clone(), stop.clone());
 
     let start = Instant::now();
-    let config = models.join(
-        &entry
-            .native
-            .as_ref()
-            .ok_or("the model is not a native one")?
-            .config
-            .file,
-    );
-    let mut separator = BurnSeparator::load(&entry.path_in(&models), &config, entry.stems.clone())
+    let mut separator = entry
+        .load(&models)
         .map_err(|e| format!("cannot load the model: {e}"))?;
     log.line(&format!(
         "model loaded in {:.1} s on {}",

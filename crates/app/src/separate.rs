@@ -8,8 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
-use watershed_separation::bsroformer::LoadOptions;
-use watershed_separation::{ModelEntry, SeparationError, Stage, separate_song};
+use watershed_separation::{ModelEntry, SeparationError, Separator, Stage, separate_song};
 use watershed_storage::{Session, StemFormat};
 
 use crate::stems::song_title;
@@ -270,13 +269,13 @@ fn run(
 
     set(Step::LoadingModel);
     let mut separator = model
-        .load(models_dir, &LoadOptions::default())
+        .load(models_dir)
         .map_err(|e| format!("Cannot load the model: {e}"))?;
     let device = separator.device();
     log::info!("separating {} on {device}", song.display());
     let started = Instant::now();
     separate_song(
-        separator.as_mut(),
+        &mut separator,
         song,
         folder,
         format,

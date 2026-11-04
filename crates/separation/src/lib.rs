@@ -1,24 +1,21 @@
-//! Source separation backends behind a common Separator trait.
+//! Source separation: the model catalog and downloads, and songs to stems.
 
 use std::path::PathBuf;
 
 use watershed_dsp::{DecodeError, FlacError, ResampleError, StereoBuffer, VorbisWriteError};
 
-pub mod bsroformer;
 mod burn;
 pub mod catalog;
 mod download;
-mod gguf;
 mod song;
 
 pub use burn::BurnSeparator;
 pub use catalog::ModelEntry;
 pub use download::{DownloadError, sha256_file};
-pub use gguf::GgufSeparator;
 pub use song::{SeparatedSong, Stage, separate_song};
 
-/// Splits a stereo mix into stems. Implemented by each backend, so the rest of the
-/// app does not care which one runs.
+/// Splits a stereo mix into stems. [`BurnSeparator`] is the real one; tests use their
+/// own.
 pub trait Separator: Send {
     /// The sample rate the input must have; stems come out at the same rate.
     fn sample_rate(&self) -> u32;
@@ -27,7 +24,7 @@ pub trait Separator: Send {
     /// the stem file names.
     fn stem_names(&self) -> &[String];
 
-    /// Where it runs, for the UI, e.g. `Vulkan0 (NVIDIA GeForce RTX 3050)`.
+    /// Where it runs, for the UI, e.g. `Vulkan GPU`.
     fn device(&self) -> String;
 
     /// Returns one buffer per stem, in [`Self::stem_names`] order, each as long as
@@ -50,11 +47,9 @@ pub enum SeparationError {
     StemCount { model: usize, names: usize },
     #[error("input is at {got} Hz but the model needs {expected} Hz")]
     SampleRate { expected: u32, got: u32 },
-    #[error(transparent)]
-    Model(bsroformer::BsrError),
-    /// From the native backend, whose GPU errors arrive as panics.
+    /// From the model, including GPU errors, which arrive as panics.
     #[error("{0}")]
-    Native(String),
+    Model(String),
     #[error("cannot decode the song: {0}")]
     Decode(#[from] DecodeError),
     #[error(transparent)]
@@ -72,13 +67,4 @@ pub enum SeparationError {
     OutputExists(PathBuf),
     #[error("separation cancelled")]
     Cancelled,
-}
-
-impl From<bsroformer::BsrError> for SeparationError {
-    fn from(e: bsroformer::BsrError) -> Self {
-        match e {
-            bsroformer::BsrError::Cancelled => Self::Cancelled,
-            e => Self::Model(e),
-        }
-    }
 }

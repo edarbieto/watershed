@@ -21,10 +21,11 @@ The name is a tribute to "Watershed" by Opeth.
 
 - **Separation:** drop a song and it is split into six stems in a new folder of
   your library (`Music/Watershed` by default), with a progress bar and Cancel. The
-  model (BS-RoFormer SW, 188 MB) downloads on first use and is checked by sha256.
-  Runs on Metal on macOS and Vulkan on Windows and Linux, with a CPU fallback. A 4
-  minute song takes about 1–2 minutes on a laptop or mid-range GPU. Stems are
-  saved as Ogg Vorbis (~25 MB per song) or, in Settings, as 24-bit FLAC.
+  model (BS-RoFormer SW) downloads on first use (700 MB, checked by sha256) and is
+  stored in f16 (350 MB). It runs in Rust (`burn` + `wgpu`) on the GPU: Metal on
+  macOS, Vulkan on Windows and Linux. A GPU is required. A 4 minute song takes
+  about 1–2 minutes on a laptop or mid-range GPU. Stems are saved as Ogg Vorbis
+  (~25 MB per song) or, in Settings, as 24-bit FLAC.
 - **Player:** one row per stem with its waveform, volume, pan, mute and solo;
   master volume and output device. Folders of stems from other tools (for example
   [MVSEP](https://mvsep.com)) open too, and stems that start late can be dragged
@@ -43,27 +44,22 @@ The name is a tribute to "Watershed" by Opeth.
 
 ## Building
 
-Requires Rust 1.95 or newer and CMake. The separation engine
-([BSRoformer.cpp](https://github.com/chenmozhijin/BSRoformer.cpp) and
-[ggml](https://github.com/ggml-org/ggml)) comes in as git submodules, so clone with
-`--recursive` or run:
+Requires Rust 1.95 or newer:
 
 ```sh
-git submodule update --init
 cargo run --release
 ```
 
-The first build takes a few minutes (ggml compiles its GPU shaders). Per platform:
+Per platform:
 
-- **macOS:** `xcode-select --install` and `brew install cmake`.
-- **Windows:** the Visual Studio Build Tools, CMake, LLVM (`winget install
-  LLVM.LLVM`, with `LIBCLANG_PATH` set to its `bin` folder) and the
-  [Vulkan SDK](https://vulkan.lunarg.com) (`VULKAN_SDK` set).
+- **macOS:** `xcode-select --install`.
+- **Windows:** the Visual Studio Build Tools and LLVM (`winget install LLVM.LLVM`,
+  with `LIBCLANG_PATH` set to its `bin` folder).
 - **Linux** (Debian/Ubuntu names):
 
   ```sh
-  sudo apt install cmake libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev \
-    libxcb-xfixes0-dev libwayland-dev libasound2-dev libvulkan-dev glslc spirv-headers
+  sudo apt install libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev \
+    libxcb-xfixes0-dev libwayland-dev libasound2-dev
   ```
 
   Also clang (`libclang-dev`), for the time-stretching library's bindings.
@@ -104,16 +100,15 @@ share an audio interface with Reaper on ASIO. Set both to the same sample rate.
 | `crates/app` | The `watershed` binary: egui user interface |
 | `crates/audio` | Real-time playback engine: mixer, tempo and pitch, limiter, click |
 | `crates/dsp` | Decoding, FLAC and Ogg Vorbis writing, resampling, waveforms, tempo and key estimation |
-| `crates/separation` | Source separation behind a `Separator` trait (BSRoformer.cpp + ggml today), model catalog and downloads |
+| `crates/roformer` | BS-RoFormer in Rust on `burn` + `wgpu`, validated against PyTorch |
+| `crates/separation` | Model catalog, downloads and installation; a song to a folder of stems |
 | `crates/storage` | Sessions, model cache and configuration |
 | `tools/reference` | Development-only PyTorch reference separation ([README](tools/reference/README.md)) |
 
 ## Roadmap
 
-The current separation backend is temporary. The plan is a native Rust
-implementation (`burn` + `wgpu`) that loads community RoFormer checkpoints
-(`.ckpt` + `.yaml`) directly, then ensembles, WAV export and portable builds
-(single `.exe`, `.app`, AppImage). Details in [the plan](docs/PLAN.md).
+Next: release builds (single `.exe`, `.app`, AppImage), then more RoFormer models
+(MelBand-RoFormer) and a model browser. Details in [the plan](docs/PLAN.md).
 
 ## License
 

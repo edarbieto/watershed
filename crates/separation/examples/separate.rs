@@ -1,10 +1,9 @@
-//! Separates one song with the catalog's default model, or its native one with
-//! `--native`, into a new folder of stems (Ogg Vorbis, or FLAC with `--flac`) plus a
-//! session, ready to open in the app. The model is downloaded into the models cache
-//! folder on first use, unless `--model` points to a local GGUF copy.
+//! Separates one song with the catalog's model into a new folder of stems (Ogg Vorbis,
+//! or FLAC with `--flac`) plus a session, ready to open in the app. The model is
+//! downloaded into the models cache folder on first use.
 //!
 //! ```sh
-//! cargo run --release -p watershed-separation --example separate -- song.mp3 out-dir [--native] [--model file.gguf] [--cpu] [--flac] [--memory rss.csv] [--repeat N]
+//! cargo run --release -p watershed-separation --example separate -- song.mp3 out-dir [--flac] [--memory rss.csv] [--repeat N]
 //! ```
 //!
 //! `--memory` samples the process's resident memory every 10 ms, prints its peak
@@ -24,23 +23,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use watershed_separation::bsroformer::{Device, LoadOptions};
-use watershed_separation::{GgufSeparator, Separator, Stage, catalog};
+use watershed_separation::{Separator, Stage, catalog};
 use watershed_storage::StemFormat;
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
-    let (mut cpu, mut flac, mut native, mut model_file, mut memory_csv, mut paths) =
-        (false, false, false, None, None, Vec::new());
-    let mut repeat = None;
+    let (mut flac, mut memory_csv, mut repeat, mut paths) = (false, None, None, Vec::new());
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--cpu" => cpu = true,
             "--flac" => flac = true,
-            "--native" => native = true,
-            "--model" => {
-                model_file = Some(PathBuf::from(args.next().context("--model needs a file")?))
-            }
             "--memory" => {
                 memory_csv = Some(PathBuf::from(args.next().context("--memory needs a file")?))
             }
@@ -52,54 +43,22 @@ fn main() -> anyhow::Result<()> {
         }
     }
     let [song_path, out_dir] = &paths[..] else {
-        bail!("usage: separate <song> <out-dir> [--native] [--model file.gguf] [--cpu] [--flac]");
+        bail!("usage: separate <song> <out-dir> [--flac] [--memory rss.csv] [--repeat N]");
     };
-    if native && (cpu || model_file.is_some()) {
-        bail!("--native takes neither --cpu nor --model");
-    }
 
-    let entry = if native {
-        let mut models = catalog::models().iter();
-        models
-            .find(|m| m.native.is_some())
-            .context("no native model in the catalog")?
-    } else {
-        catalog::default_model()
-    };
-    let models_dir = match &model_file {
-        Some(_) => None,
-        None => {
-            let dir = watershed_storage::models_dir().context("no cache folder on this system")?;
-            if !entry.is_installed(&dir) {
-                println!("downloading {} to {}", entry.name, dir.display());
-            }
-            entry.install(
-                &dir,
-                &|done, total| {
-                    eprint!("\r{:6.1} / {:.1} MB", done as f64 / 1e6, total as f64 / 1e6)
-                },
-                &|| false,
-            )?;
-            eprintln!();
-            Some(dir)
-        }
-    };
+    let entry = catalog::default_model();
+    let models_dir = watershed_storage::models_dir().context("no cache folder on this system")?;
+    if !entry.is_installed(&models_dir) {
+        println!("installing {} in {}", entry.name, models_dir.display());
+    }
+    entry.install(
+        &models_dir,
+        &|done, total| eprint!("\r{:6.1} / {:.1} MB", done as f64 / 1e6, total as f64 / 1e6),
+        &|| false,
+    )?;
+    eprintln!();
 
     let memory = memory_csv.map(MemoryLog::start);
-
-    let options = LoadOptions {
-        device: if cpu { Device::Cpu } else { Device::Auto },
-        ..Default::default()
-    };
-    let load = || -> anyhow::Result<Box<dyn Separator>> {
-        Ok(match (&models_dir, &model_file) {
-            (Some(dir), _) => entry.load(dir, &options)?,
-            (None, Some(path)) => {
-                Box::new(GgufSeparator::load(path, entry.stems.clone(), &options)?)
-            }
-            (None, None) => unreachable!(),
-        })
-    };
 
     if let Some(memory) = &memory {
         memory.report("before loading");
@@ -109,7 +68,7 @@ fn main() -> anyhow::Result<()> {
             memory.set_phase(0);
         }
         let start = Instant::now();
-        let mut separator = load()?;
+        let mut separator = entry.load(&models_dir)?;
         println!(
             "loaded in {:.1} s on {}: {} stems at {} Hz",
             start.elapsed().as_secs_f64(),
@@ -125,7 +84,7 @@ fn main() -> anyhow::Result<()> {
         let start = Instant::now();
         let stage_start = Mutex::new((Stage::Decoding, Instant::now()));
         let separated = watershed_separation::separate_song(
-            separator.as_mut(),
+            &mut separator,
             Path::new(song_path),
             &folder,
             if flac {
@@ -174,10 +133,8 @@ fn main() -> anyhow::Result<()> {
         if let Some(memory) = &memory {
             std::thread::sleep(Duration::from_secs(2));
             memory.report(&format!("after run {run}"));
-            if native {
-                let usage = watershed_roformer::default_device().memory_pool_usage();
-                println!("  burn's pools: {usage:?}");
-            }
+            let usage = watershed_roformer::default_device().memory_pool_usage();
+            println!("  burn's pools: {usage:?}");
             memory.vmmap(run);
         }
     }

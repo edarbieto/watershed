@@ -30,26 +30,22 @@ models and plays them in a multitrack player for practice. Read these first:
   before working, or CI may fail on lints that pass locally.
 - CI: `.github/workflows/ci.yml` (fmt, clippy, tests, release build on Windows, Linux,
   macOS; binaries uploaded as artifacts).
-- BSRoformer.cpp and ggml are **git submodules** in `crates/separation/vendor/`
-  (pinned commits). Clone with `--recursive` or run `git submodule update --init`.
-  Building them needs **CMake**, plus the **Vulkan SDK** on Windows (`VULKAN_SDK`
-  set) or `libvulkan-dev glslc spirv-headers` on Linux. The first build of the
-  crate takes ~2 min (ggml compiles its Vulkan shaders).
+- Separation is pure Rust (`crates/roformer` on burn + wgpu): no C++ build, no
+  submodules, no Vulkan SDK. The C++ backend (BSRoformer.cpp + ggml) was removed in
+  Phase 4.7; it is in the git history before that commit.
 
 ### Windows setup
 
 LLVM (`winget install LLVM.LLVM`, `LIBCLANG_PATH=C:\Program Files\LLVM\bin`) for
-Signalsmith's bindings, CMake, the Vulkan SDK from vulkan.lunarg.com, and the Visual
-Studio Build Tools. Open a new terminal after installing so it sees the new variables.
+Signalsmith's bindings, and the Visual Studio Build Tools. Open a new terminal after
+installing so it sees the new variables.
 
 ### macOS setup
 
 ```sh
 xcode-select --install          # compiler and SDK
 curl https://sh.rustup.rs -sSf | sh
-brew install cmake
 brew install uv                 # only for tools/reference
-git submodule update --init
 cargo run --release -- path/to/stems-folder
 ```
 
@@ -76,8 +72,8 @@ machine or regenerate them with the reference tool from any mp3s.
 | `crates/audio` | `Engine` (cpal stream), `Song`/`Track`/`TrackParams` (atomics), `Samples` (packed 24-bit), `Beats` (beat times for the grid and click), `click.rs`, `mixer.rs` (pure, tested), `stretch.rs` (Signalsmith, three buses: pitched, pitch-locked, vocals), `limiter.rs`; `examples/play.rs`, `examples/stretch.rs` |
 | `crates/dsp` | `decode_file` (symphonia), `write_flac` + `gain_to_fit` (flac-codec, 24-bit), `write_vorbis` (vorbis_rs), `resample` (rubato FFT), `Stft` (matches `torch.stft`/`istft`), `overlap_add` (chunking, matches MSST's `demix`), `Peaks`, `OnsetEnvelope` (tempo estimation, beat tracking with anchors), `Chroma`/`Key` (key estimation); `examples/bpm.rs`, `examples/beats.rs`, `examples/key.rs`, `examples/probe.rs` |
 | `crates/storage` | `Config` (TOML in the OS config dir), `Session` (`.watershed.toml`), `models_dir` |
-| `crates/separation` | `trait Separator`, `GgufSeparator`, `BurnSeparator` (native backend), `separate_song` (song file → folder of FLAC stems + session); `catalog` (`models.toml`: downloadable models, `install` with sha256 check), `download` (resumable, mirrors); `bsroformer::Model` (safe wrapper over BSRoformer.cpp + ggml); `cpp/` C wrapper and CMake project; `build.rs`; `vendor/` submodules; `examples/separate.rs` |
-| `crates/roformer` | Native backend (Phase 4): `BsRoformer` on burn, `layers.rs` (attention, band split, masks), `Weights` (reads `.ckpt`), `Config` (reads the `.yaml`), `Precision`, `separate.rs` (song to stems); `examples/chunk.rs` (timing and comparison with PyTorch), `examples/song.rs` (a whole song, SDR against reference stems); `tests/equivalence.rs` (layers, STFT, chunks and whole songs against PyTorch: tiny model in `tests/fixtures` on the CPU, real one with `--ignored`) |
+| `crates/separation` | `trait Separator`, `BurnSeparator`, `separate_song` (song file → folder of stems + session); `catalog` (`models.toml`: downloadable models; `install` downloads the `.ckpt` with sha256 check, converts it to f16 and deletes it), `download` (resumable, mirrors); `examples/separate.rs`, `examples/gpu_test.rs` (standalone test for other machines) |
+| `crates/roformer` | The model (Phase 4): `BsRoformer` on burn, `layers.rs` (attention, band split, masks), `kernels.rs` (own attention and matmul kernels, fallbacks), `Weights` (reads `.ckpt` or f16 `.safetensors`), `convert_to_half`, `Config` (reads the `.yaml`), `Precision`, `separate.rs` (song to stems); `examples/chunk.rs` (timing and comparison with PyTorch), `examples/song.rs` (a whole song, SDR against reference stems), `examples/convert.rs`; `tests/equivalence.rs` (layers, STFT, chunks and whole songs against PyTorch: tiny model in `tests/fixtures` on the CPU, real one with `--ignored`) |
 | `tools/reference` | dev-only PyTorch reference separation (uv project); `dump_tensors.py` saves a chunk's tensors for validating `crates/roformer`, `make_tiny_fixture.py` makes its CI fixture |
 
 Real-time rule: the cpal callback never allocates, frees, locks or does I/O. Songs go
@@ -98,20 +94,12 @@ dropped on the UI thread. Mixer parameters are atomics.
   like FLAC clip them: scale all stems of a song by one common factor.
 - The BS-RoFormer SW `.yaml` has `audio.hop_length: 441` marked "don't work"; the model
   really uses `model.stft_hop_length: 512`. Always read parameters from the config.
-- **C++ build (`crates/separation`)**: the `cmake` crate fills
-  `CMAKE_<LANG>_FLAGS_RELEASE` with flags that carry no optimization level, so
-  `build.rs` sets them itself (without that, separation ran 2.3× slower). MSVC tools
-  still enforce the 260-character path limit, and ggml's nested Vulkan shader
-  generator build under cargo's deep `OUT_DIR` hit it; `cpp/CMakeLists.txt` shortens
-  it with `EP_BASE`. BSRoformer.cpp is not modified: CMake compiles a patched copy of
-  its `model.cpp` that calls `watershed_bsr_init_backend()` in `cpp/wrapper.cpp` (backend
-  choice and CPU thread count, plus contiguous K/V before flash attention), of its
-  `inference.cpp` (smaller pipeline queues, earlier frees) and of ggml's
-  `ggml-metal-ops.cpp` (no unused flash-attention buffers). If a submodule bump breaks
-  the patch anchors, CMake stops with a clear error.
+- **burn features:** the workspace sets `default-features = false` on burn, which
+  silently left out `autotune` once and `simd`/`rayon` in `burn-flex` another time.
+  When a burn feature "changes nothing", check that it is really in the build.
 - **macOS memory numbers:** malloc keeps freed large blocks, and they count in RSS and
   the footprint. The app's global allocator (`alloc.rs`) maps blocks ≥ 4 MiB directly;
-  C++ allocations still go through malloc. To measure in-use memory only, run with
+  allocations inside system libraries (Metal) still go through malloc. To measure in-use memory only, run with
   `MallocLargeCache=0` (undocumented, for measuring only).
 - **macOS renders with OpenGL** (`eframe::Renderer::Glow`, eframe's `glow` feature
   enabled only for the macOS target), not wgpu: with wgpu the app sometimes took

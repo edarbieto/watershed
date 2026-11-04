@@ -5,9 +5,8 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
-use crate::bsroformer::LoadOptions;
 use crate::download::{self, DownloadError, Expected};
-use crate::{BurnSeparator, GgufSeparator, SeparationError, Separator};
+use crate::{BurnSeparator, SeparationError};
 
 #[derive(Debug, Deserialize)]
 struct CatalogFile {
@@ -25,6 +24,7 @@ static CATALOG: LazyLock<Vec<ModelEntry>> = LazyLock::new(|| {
 pub struct ModelEntry {
     pub id: String,
     pub name: String,
+    /// The PyTorch checkpoint to download.
     pub file: String,
     pub size: u64,
     pub sha256: String,
@@ -33,14 +33,6 @@ pub struct ModelEntry {
     pub license: String,
     #[serde(default)]
     pub default: bool,
-    /// Present on models for the native backend, which `file` is a checkpoint for.
-    /// The others are GGUF files.
-    pub native: Option<NativeModel>,
-}
-
-/// What the native backend needs beside the checkpoint.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct NativeModel {
     pub architecture: Architecture,
     /// The checkpoint's `.yaml`.
     pub config: ConfigFile,
@@ -75,11 +67,7 @@ pub fn models() -> &'static [ModelEntry] {
     &CATALOG
 }
 
-pub fn find(id: &str) -> Option<&'static ModelEntry> {
-    CATALOG.iter().find(|m| m.id == id)
-}
-
-/// The model used unless the user picks another.
+/// The model used for separations.
 pub fn default_model() -> &'static ModelEntry {
     CATALOG
         .iter()
@@ -88,41 +76,28 @@ pub fn default_model() -> &'static ModelEntry {
 }
 
 impl ModelEntry {
-    /// Where this model lives inside the models folder once installed: for a native
-    /// model, the converted file, not the downloaded checkpoint.
+    /// Where this model lives inside the models folder once installed: the converted
+    /// file, not the downloaded checkpoint.
     pub fn path_in(&self, models_dir: &Path) -> PathBuf {
-        models_dir.join(self.installed_file().0)
-    }
-
-    /// The installed file's name and size.
-    fn installed_file(&self) -> (&str, u64) {
-        match &self.native {
-            Some(native) => (&native.converted.file, native.converted.size),
-            None => (&self.file, self.size),
-        }
+        models_dir.join(&self.converted.file)
     }
 
     /// Whether the model's files are there with the right size. The hash is only
-    /// checked when downloading: hashing 200 MB at every start would be slow.
+    /// checked when installing: hashing 350 MB at every start would be slow.
     pub fn is_installed(&self, models_dir: &Path) -> bool {
         let has = |file: &str, size| {
             std::fs::metadata(models_dir.join(file)).is_ok_and(|m| m.len() == size)
         };
-        let (file, size) = self.installed_file();
-        has(file, size)
-            && self
-                .native
-                .as_ref()
-                .is_none_or(|n| has(&n.config.file, n.config.size))
+        has(&self.converted.file, self.converted.size) && has(&self.config.file, self.config.size)
     }
 
     /// Downloads the model into `models_dir`, unless it is already installed, and
     /// returns its path. See [`download::download`] for resuming and verification.
-    /// `progress` follows the main file: a config is a few KB.
+    /// `progress` follows the checkpoint: a config is a few KB.
     ///
-    /// A native model's checkpoint is then converted (see [`NativeModel::converted`])
-    /// and deleted. A checkpoint already there, from an interrupted install or an
-    /// older version, is checked and used instead of downloading it again.
+    /// The checkpoint is then converted (see [`ModelEntry::converted`]) and deleted. A
+    /// checkpoint already there, from an interrupted install or an older version, is
+    /// checked and used instead of downloading it again.
     pub fn install(
         &self,
         models_dir: &Path,
@@ -132,7 +107,7 @@ impl ModelEntry {
         let path = self.path_in(models_dir);
         let checkpoint = models_dir.join(&self.file);
         if self.is_installed(models_dir) {
-            if self.native.is_some() && checkpoint.exists() {
+            if checkpoint.exists() {
                 remove(&checkpoint);
             }
             return Ok(path);
@@ -141,53 +116,37 @@ impl ModelEntry {
             path: models_dir.to_path_buf(),
             source,
         })?;
-        if let Some(native) = &self.native {
-            let config = &native.config;
-            let path = models_dir.join(&config.file);
-            if !std::fs::metadata(&path).is_ok_and(|m| m.len() == config.size) {
-                download::download(
-                    &config.urls,
-                    &path,
-                    Expected {
-                        size: config.size,
-                        sha256: &config.sha256,
-                    },
-                    &|_, _| {},
-                    cancel,
-                )?;
-            }
+        let config = &self.config;
+        let config_path = models_dir.join(&config.file);
+        if !std::fs::metadata(&config_path).is_ok_and(|m| m.len() == config.size) {
+            download::download(
+                &config.urls,
+                &config_path,
+                Expected {
+                    size: config.size,
+                    sha256: &config.sha256,
+                },
+                &|_, _| {},
+                cancel,
+            )?;
         }
         let expected = Expected {
             size: self.size,
             sha256: &self.sha256,
         };
-        if !(self.native.is_some() && is_intact(&checkpoint, expected)) {
+        if !is_intact(&checkpoint, expected) {
             download::download(&self.urls, &checkpoint, expected, progress, cancel)?;
         }
-        if let Some(native) = &self.native {
-            convert(&checkpoint, &path, &native.converted)?;
-            remove(&checkpoint);
-        }
+        convert(&checkpoint, &path, &self.converted)?;
+        remove(&checkpoint);
         Ok(path)
     }
 
     /// Loads the installed model as a separator with this entry's stem names.
-    /// `options` only applies to GGUF models.
-    pub fn load(
-        &self,
-        models_dir: &Path,
-        options: &LoadOptions,
-    ) -> Result<Box<dyn Separator>, SeparationError> {
-        let path = self.path_in(models_dir);
-        let stems = self.stems.clone();
-        Ok(match &self.native {
-            None => Box::new(GgufSeparator::load(&path, stems, options)?),
-            Some(native) => {
-                let Architecture::BsRoformer = native.architecture;
-                let config = models_dir.join(&native.config.file);
-                Box::new(BurnSeparator::load(&path, &config, stems)?)
-            }
-        })
+    pub fn load(&self, models_dir: &Path) -> Result<BurnSeparator, SeparationError> {
+        let Architecture::BsRoformer = self.architecture;
+        let config = models_dir.join(&self.config.file);
+        BurnSeparator::load(&self.path_in(models_dir), &config, self.stems.clone())
     }
 }
 
@@ -253,22 +212,19 @@ mod tests {
         let models = models();
         assert!(!models.is_empty());
         assert_eq!(models.iter().filter(|m| m.default).count(), 1);
-        assert!(default_model().native.is_none());
-        assert!(models.iter().any(|m| m.native.is_some()));
         let unique =
             |values: Vec<&str>| values.iter().collect::<HashSet<_>>().len() == values.len();
         assert!(unique(models.iter().map(|m| m.id.as_str()).collect()));
         assert!(unique(models.iter().map(|m| m.file.as_str()).collect()));
+        let hash = |sha256: &str| {
+            sha256.len() == 64
+                && sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        };
         for m in models {
             assert!(m.size > 0, "{}", m.id);
-            assert_eq!(m.sha256.len(), 64, "{}", m.id);
-            assert!(
-                m.sha256
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-                "{}: sha256 must be lower-case hex",
-                m.id
-            );
+            assert!(hash(&m.sha256), "{}: sha256 must be lower-case hex", m.id);
             assert!(!m.urls.is_empty(), "{}", m.id);
             assert!(m.urls.iter().all(|u| u.starts_with("https://")), "{}", m.id);
             assert!(!m.stems.is_empty() && unique(m.stems.iter().map(String::as_str).collect()));
@@ -280,59 +236,33 @@ mod tests {
                 "{}",
                 m.id
             );
-            if let Some(native) = &m.native {
-                let config = &native.config;
-                assert!(config.size > 0, "{}", m.id);
-                assert_eq!(config.sha256.len(), 64, "{}", m.id);
-                assert!(config.urls.iter().all(|u| u.starts_with("https://")));
-                assert_ne!(config.file, m.file);
-                let converted = &native.converted;
-                assert!(converted.size > 0, "{}", m.id);
-                assert_eq!(converted.sha256.len(), 64, "{}", m.id);
-                assert!(converted.file.ends_with(".safetensors"), "{}", m.id);
-                assert_ne!(converted.file, m.file);
-            }
-            assert_eq!(find(&m.id), Some(m));
+            assert!(m.config.size > 0, "{}", m.id);
+            assert!(hash(&m.config.sha256), "{}", m.id);
+            assert!(!m.config.urls.is_empty(), "{}", m.id);
+            assert!(m.config.urls.iter().all(|u| u.starts_with("https://")));
+            assert!(m.converted.size > 0, "{}", m.id);
+            assert!(hash(&m.converted.sha256), "{}", m.id);
+            assert!(m.converted.file.ends_with(".safetensors"), "{}", m.id);
+            assert!(unique(vec![&m.file, &m.config.file, &m.converted.file]));
         }
     }
 
     #[test]
-    fn installed_means_the_right_size() {
-        let dir = std::env::temp_dir().join(format!("watershed-catalog-{}", std::process::id()));
+    fn installed_means_the_converted_file_and_the_config_at_the_right_size() {
+        let dir = std::env::temp_dir().join(format!("watershed-installed-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let model = ModelEntry {
-            size: 4,
-            ..default_model().clone()
-        };
+        let mut model = default_model().clone();
+        model.converted.size = 4;
+        model.config.size = 2;
+        // The checkpoint alone is not enough: it is converted when installing.
+        std::fs::write(dir.join(&model.file), b"abcdefgh").unwrap();
+        std::fs::write(dir.join(&model.config.file), b"ab").unwrap();
         assert!(!model.is_installed(&dir));
         std::fs::write(model.path_in(&dir), b"abc").unwrap();
         assert!(!model.is_installed(&dir));
         std::fs::write(model.path_in(&dir), b"abcd").unwrap();
         assert!(model.is_installed(&dir));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_native_model_also_needs_its_config() {
-        let dir = std::env::temp_dir().join(format!("watershed-native-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut model = models()
-            .iter()
-            .find(|m| m.native.is_some())
-            .unwrap()
-            .clone();
-        let native = model.native.as_mut().unwrap();
-        native.converted.size = 4;
-        native.config.size = 2;
-        let config_path = dir.join(&native.config.file);
-        let config_file = config_path.clone();
-        // The checkpoint alone is not enough: it is converted when installing.
-        std::fs::write(dir.join(&model.file), b"abcdefgh").unwrap();
-        std::fs::write(config_path, b"ab").unwrap();
-        assert!(!model.is_installed(&dir));
-        std::fs::write(model.path_in(&dir), b"abcd").unwrap();
-        assert!(model.is_installed(&dir));
-        std::fs::remove_file(config_file).unwrap();
+        std::fs::remove_file(dir.join(&model.config.file)).unwrap();
         assert!(!model.is_installed(&dir));
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -342,11 +272,7 @@ mod tests {
     fn tiny_model(dir: &Path) -> ModelEntry {
         let tiny =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../roformer/tests/fixtures/tiny.ckpt");
-        let mut model = models()
-            .iter()
-            .find(|m| m.native.is_some())
-            .unwrap()
-            .clone();
+        let mut model = default_model().clone();
         let checkpoint = dir.join(&model.file);
         std::fs::copy(&tiny, &checkpoint).unwrap();
         model.size = std::fs::metadata(&checkpoint).unwrap().len();
@@ -355,12 +281,11 @@ mod tests {
 
         let reference = dir.join("reference.safetensors");
         watershed_roformer::convert_to_half(&checkpoint, &reference).unwrap();
-        let native = model.native.as_mut().unwrap();
-        native.converted.size = std::fs::metadata(&reference).unwrap().len();
-        native.converted.sha256 = download::sha256_file(&reference).unwrap();
+        model.converted.size = std::fs::metadata(&reference).unwrap().len();
+        model.converted.sha256 = download::sha256_file(&reference).unwrap();
         std::fs::remove_file(&reference).unwrap();
-        native.config.size = 2;
-        std::fs::write(dir.join(&native.config.file), b"ab").unwrap();
+        model.config.size = 2;
+        std::fs::write(dir.join(&model.config.file), b"ab").unwrap();
         model
     }
 
@@ -388,7 +313,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("watershed-badconv-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut model = tiny_model(&dir);
-        model.native.as_mut().unwrap().converted.sha256 = "0".repeat(64);
+        model.converted.sha256 = "0".repeat(64);
         let result = model.install(&dir, &|_, _| {}, &|| false);
         assert!(
             matches!(result, Err(DownloadError::Corrupt { .. })),
