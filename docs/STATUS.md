@@ -112,6 +112,12 @@ Last updated: 2026-11-04.
   over mute, start screen"). Search in the recent songs: done, tested. Transposed vocals
   (formants): done, tested; it helps going down, less going up. The RAM peak when changing
   device: done, tested (see "Changing device without a RAM peak").
+- **Logo: chosen** (distribution, step 1). Five rounded bars of a waveform, one per stem color
+  (vocals, guitar, bass, drums, piano), on the app's dark tile. `assets/icon.svg` full-bleed
+  for Windows and Linux, `assets/icon-macos.svg` on Apple's icon grid (824 px tile in 1024 with
+  transparent margins); PNGs rendered with `resvg`. Set as the window icon (`main.rs`, `icon()`);
+  the user saw it in the macOS Dock: looks good. Not done yet: `.icns`, `.ico` and the
+  AppImage icon, with the release packaging.
 - Reference separation works on CUDA (RTX 3050: a ~5 min song in 73–100 s) and on
   Apple Silicon through MPS (M5 Pro: a 4:39 song in 120 s, 2.6× faster than its CPU,
   same output as the CPU to within 1e-5).
@@ -163,7 +169,8 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
 8. **v0.1:** features are enough for it; what is missing is item 0 and distribution
    (`PLAN.md` section 9): a release workflow that builds on a `v*` tag and uploads to a
    GitHub Release, the `.app` with an icon on macOS, an AppImage on Linux, a README with
-   screenshots. `+crt-static` on Windows is already used by the test executable.
+   screenshots. The logo is chosen (see "Where we are"); the platform icon files come with
+   the packaging. `+crt-static` on Windows is already used by the test executable.
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
 bindings), CMake 4.4, the Vulkan SDK 1.4.363 and the Visual Studio 2026 Build
