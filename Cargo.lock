@@ -8968,7 +8968,7 @@ dependencies = [
 
 [[package]]
 name = "watershed"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "eframe",
  "env_logger",
@@ -8989,7 +8989,7 @@ dependencies = [
 
 [[package]]
 name = "watershed-audio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cpal",
  "log",
@@ -9001,7 +9001,7 @@ dependencies = [
 
 [[package]]
 name = "watershed-dsp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "flac-codec",
  "realfft",
@@ -9013,7 +9013,7 @@ dependencies = [
 
 [[package]]
 name = "watershed-roformer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "burn",
@@ -9033,7 +9033,7 @@ dependencies = [
 
 [[package]]
 name = "watershed-separation"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "log",
@@ -9050,7 +9050,7 @@ dependencies = [
 
 [[package]]
 name = "watershed-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "directories",
  "log",

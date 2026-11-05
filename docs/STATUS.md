@@ -168,7 +168,7 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
    between loop passes.
 8. **v0.1:** features are enough for it; what is missing is item 0 and distribution
    (`PLAN.md` section 9). The logo and the release workflow are done (see "Release
-   workflow"). Tagged `v0.1.0` on 2026-11-05 (the release is a draft until published by hand). The README has download instructions and two screenshots
+   workflow"). Released `v0.1.0` on 2026-11-05. `v0.1.1` (2026-11-05): non-blocking file dialogs (resizing one crashed the macOS app), separate start folders for the song and stems dialogs, and auto update; released by Claude with `gh release edit --draft=false` after the workflow built it. The README has download instructions and two screenshots
    (`docs/screenshots`, taken by the user on macOS, halved to 1x).
 
 ## Auto update
