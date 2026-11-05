@@ -6,6 +6,9 @@ fn main() {
     {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("../../assets/icon.ico");
+        // Task Manager shows the description; both default to the package name.
+        res.set("ProductName", "Watershed");
+        res.set("FileDescription", "Watershed");
         res.compile().expect("compiling the Windows resources");
     }
 }
