@@ -20,3 +20,9 @@ These builds are not signed, so the system warns before the first start:
   **Open Anyway** next to Watershed.
 - **Linux:** make the file executable (`chmod +x Watershed-*.AppImage`) and run it.
   AppImages need FUSE 2 (`libfuse2`, called `libfuse2t64` on Ubuntu 24.04).
+
+## Updating
+
+From v0.1.1 on, Watershed updates itself: **Settings → Updates** downloads the new
+version, checks it and installs it in place of the old one. Coming from v0.1.0,
+download and install this version by hand once, as above.

@@ -21,6 +21,7 @@ use crate::separate::{self, Job, Target};
 use crate::shortcuts;
 use crate::stems::song_title;
 use crate::transport::{Command, Transport};
+use crate::update::{self, Updater};
 use crate::usage::{self, Usage};
 use crate::view::View;
 use crate::waveform::{
@@ -124,6 +125,10 @@ pub struct WatershedApp {
     ready: Option<PathBuf>,
     /// The open file dialog, if any.
     dialog: Option<Dialog>,
+    updater: Updater,
+    /// Set when the user restarts into an installed update: the app starts the new
+    /// version as it exits.
+    restart: bool,
     restore: Option<Restore>,
     /// Set while the open folder is read again: whether the song was playing.
     reloading: Option<bool>,
@@ -190,6 +195,11 @@ pub struct WatershedApp {
 impl WatershedApp {
     pub fn new(ctx: &egui::Context) -> Self {
         let config = Config::load();
+        update::clean_up();
+        let mut updater = Updater::new();
+        if config.check_for_updates {
+            updater.check(true, ctx);
+        }
         let ctx = ctx.clone();
         let notify: Notify = Arc::new(move || ctx.request_repaint());
         let (engine, error) = match Engine::start(config.output_device.as_deref(), notify.clone()) {
@@ -205,6 +215,8 @@ impl WatershedApp {
             separating: None,
             ready: None,
             dialog: None,
+            updater,
+            restart: false,
             restore: None,
             reloading: None,
             error,
@@ -1030,6 +1042,7 @@ impl WatershedApp {
 
             let left = ui.min_rect().width();
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let update = self.updater.available();
                 if ui
                     .selectable_label(self.settings_open, "⚙")
                     .on_hover_text(format!(
@@ -1039,6 +1052,17 @@ impl WatershedApp {
                     .clicked()
                 {
                     self.settings_open = !self.settings_open;
+                }
+                if let Some(version) = update
+                    && ui
+                        .button(
+                            RichText::new(format!("Update to {version}"))
+                                .color(ui.visuals().warn_fg_color),
+                        )
+                        .on_hover_text("A new version is available: see Settings")
+                        .clicked()
+                {
+                    self.settings_open = true;
                 }
                 if ui
                     .selectable_label(self.shortcuts_open, "?")
@@ -1499,6 +1523,25 @@ impl WatershedApp {
                                 config.save();
                             }
                             ui.label(RichText::new(VOCALS_NOTE).weak().small());
+                        });
+                        ui.end_row();
+
+                        ui.label("Updates");
+                        ui.vertical(|ui| {
+                            if ui
+                                .checkbox(
+                                    &mut self.config.check_for_updates,
+                                    "Check for a new version at start",
+                                )
+                                .changed()
+                            {
+                                self.config.save();
+                            }
+                            let can_restart = self.separating.is_none();
+                            if self.updater.ui(ui, can_restart) == Some(update::Action::Restart) {
+                                self.restart = true;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
                         });
                         ui.end_row();
                     });
@@ -2374,6 +2417,7 @@ impl eframe::App for WatershedApp {
         self.poll_restore(ui.ctx());
         self.poll_separation(ui.ctx());
         self.poll_dialog(ui.ctx());
+        self.updater.poll();
         self.handle_input(ui);
         if let Some(engine) = &mut self.engine {
             engine.collect_garbage();
@@ -2498,11 +2542,24 @@ impl eframe::App for WatershedApp {
     #[cfg(target_os = "macos")]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_session();
+        self.relaunch_if_updated();
     }
 
     #[cfg(not(target_os = "macos"))]
     fn on_exit(&mut self) {
         self.save_session();
+        self.relaunch_if_updated();
+    }
+}
+
+impl WatershedApp {
+    /// Starts the updated app, after the session is saved.
+    fn relaunch_if_updated(&self) {
+        if self.restart
+            && let Some(installation) = self.updater.installation()
+        {
+            update::relaunch(installation);
+        }
     }
 }
 

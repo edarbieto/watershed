@@ -555,7 +555,7 @@ Discussed with the user, not designed yet. Ordered by value for practicing.
   count-in, before each pass.
 - [ ] **Cutting pieces of a stem** (in "46 & 2" the bass intro came out in the guitar stem)
   and the **song info panel** (Phase 3.5), already recorded elsewhere.
-- [ ] **Auto update:** the app checks for a newer GitHub Release at start (or from a menu),
+- [x] **Auto update** (done in v0.1.1, see `STATUS.md`, "Auto update"): the app checks for a newer GitHub Release at start (or from a menu),
   shows what changed and installs it. Needs the release workflow of section 9 first. Open
   questions: replacing a running binary (Windows locks it; macOS replaces the whole `.app`),
   verifying the download (signature or sha256 from the release), a setting to turn the check

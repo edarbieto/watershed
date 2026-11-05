@@ -171,6 +171,32 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
    workflow"). Tagged `v0.1.0` on 2026-11-05 (the release is a draft until published by hand). The README has download instructions and two screenshots
    (`docs/screenshots`, taken by the user on macOS, halved to 1x).
 
+## Auto update
+
+Done 2026-11-05, ships in v0.1.1 (v0.1.0 users install v0.1.1 by hand once).
+`crates/app/src/update.rs`, in Settings → Updates (version, "Check for updates", a
+"Check for a new version at start" setting, on by default; when the start check finds a
+release, an "Update to x.y.z" button shows in the top bar).
+
+- **Check:** `GET api.github.com/repos/<repo>/releases/latest` (drafts and
+  pre-releases are not listed, so a draft release is invisible until published).
+  Versions compare as `x.y.z`.
+- **Verified download:** GitHub lists a `sha256:` digest for every release asset; the
+  download reuses `watershed_separation::download` (resumable, size and sha256 checked).
+  An asset without a digest is not installed: the page link shows instead.
+- **Install, per system:** macOS mounts the `.dmg` (`hdiutil`), copies the `.app` next
+  to the installed one with `ditto` and swaps them (`.Watershed-old.app` is deleted;
+  leftovers at the next start). Our own download carries no quarantine attribute, so
+  Gatekeeper does not ask again. Windows unpacks the zip with the system's
+  `tar.exe`, renames the running `watershed.exe` to `watershed.exe.old` (deleted at the
+  next start) and copies the new one. Linux replaces the file in `$APPIMAGE`.
+- **Restart:** "Restart now" closes the window; `on_exit` saves the session and then
+  starts the new version (`open -n` on macOS). Disabled while a separation runs.
+- **Not updatable:** builds inside a Cargo project (`target/`), macOS binaries outside
+  an `.app`, Linux without `APPIMAGE`: they show the reason and the release page link.
+- **Tested on macOS:** a 0.0.9 `.app` in a temp folder found v0.1.0 at start.
+  Windows and Linux installers: compiled on every system, not run yet.
+
 ## Release workflow
 
 Done 2026-11-05. `.github/workflows/release.yml`: pushing a `v*` tag builds the three

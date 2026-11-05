@@ -17,6 +17,7 @@ mod separate;
 mod shortcuts;
 mod stems;
 mod transport;
+mod update;
 mod usage;
 mod view;
 mod waveform;

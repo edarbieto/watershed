@@ -46,6 +46,8 @@ pub struct Config {
     /// limit that leaves the highs closer to the original.
     pub vocal_formants: bool,
     pub vocal_tonality_limit: bool,
+    /// Whether the app looks for a newer release when it starts.
+    pub check_for_updates: bool,
 }
 
 impl Default for Config {
@@ -63,6 +65,7 @@ impl Default for Config {
             click_volume_db: -6.0,
             vocal_formants: true,
             vocal_tonality_limit: true,
+            check_for_updates: true,
         }
     }
 }
@@ -214,6 +217,7 @@ mod tests {
             click_volume_db: -12.5,
             vocal_formants: false,
             vocal_tonality_limit: false,
+            check_for_updates: false,
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), config);
