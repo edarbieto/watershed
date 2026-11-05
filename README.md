@@ -10,12 +10,36 @@ RoFormer model, then opens the stems in a multitrack player built for practice.
 It is meant to run next to your DAW. Your live instrument stays in Reaper (or
 whatever you use); Watershed only plays the backing stems.
 
-> **Status:** early development, used daily by its author on macOS and Windows.
-> No release builds yet: build it from source (below). CI builds binaries for
-> Windows, Linux and macOS on every push. See [the plan](docs/PLAN.md) and
-> [the status](docs/STATUS.md).
-
 The name is a tribute to "Watershed" by Opeth.
+
+![The player: six stems of a song with section markers, a beat grid and an A-B loop over the solo, at 80 % tempo and one semitone down](docs/screenshots/player.png)
+
+## Download
+
+Get the latest version from [Releases](../../releases/latest):
+
+| System | File |
+|---|---|
+| Windows 10/11 (x86_64) | `Watershed-*-windows-x86_64.zip` |
+| macOS 11+ (Apple Silicon) | `Watershed-*-macos-arm64.dmg` |
+| Linux (x86_64, glibc 2.35+) | `Watershed-*-linux-x86_64.AppImage` |
+
+**A GPU is required** to separate songs: Metal on macOS, Vulkan on Windows and
+Linux (any recent NVIDIA, AMD or Intel driver). Playing stems works without one.
+The separation model (700 MB) downloads on the first separation.
+
+The builds are not signed yet, so the system warns before the first start:
+
+- **Windows:** unzip and run `watershed.exe`. If SmartScreen says "Windows protected
+  your PC", choose **More info → Run anyway**.
+- **macOS:** open the `.dmg` and drag Watershed to Applications. The first time, macOS
+  says it cannot check the app: open **System Settings → Privacy & Security** and
+  choose **Open Anyway** next to Watershed.
+- **Linux:** make the file executable (`chmod +x Watershed-*.AppImage`) and run it.
+  AppImages need FUSE 2 (`libfuse2`, called `libfuse2t64` on Ubuntu 24.04).
+
+Watershed is young: tested daily on macOS and Windows by its author, less so on
+Linux. Please [open an issue](../../issues) if something does not work.
 
 ## Features
 
@@ -42,7 +66,9 @@ The name is a tribute to "Watershed" by Opeth.
   song reopens as you left it and is never separated twice. Recently opened songs
   are listed on the start screen.
 
-## Building
+![The start screen while a song is being separated: progress, time left and the recent songs](docs/screenshots/separation.png)
+
+## Building from source
 
 Requires Rust 1.95 or newer:
 
@@ -107,8 +133,9 @@ share an audio interface with Reaper on ASIO. Set both to the same sample rate.
 
 ## Roadmap
 
-Next: release builds (single `.exe`, `.app`, AppImage), then more RoFormer models
-(MelBand-RoFormer) and a model browser. Details in [the plan](docs/PLAN.md).
+Next: more RoFormer models (MelBand-RoFormer) and a model browser, and a gentler
+separation mode that does not keep the GPU at full load. Details in
+[the plan](docs/PLAN.md) and [the status](docs/STATUS.md).
 
 ## License
 

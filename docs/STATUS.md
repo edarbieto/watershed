@@ -168,8 +168,8 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
    between loop passes.
 8. **v0.1:** features are enough for it; what is missing is item 0 and distribution
    (`PLAN.md` section 9). The logo and the release workflow are done (see "Release
-   workflow"). Left: a README
-   with screenshots and download instructions, then tag `v0.1.0`.
+   workflow"). Left: tag `v0.1.0`. The README has download instructions and two screenshots
+   (`docs/screenshots`, taken by the user on macOS, halved to 1x).
 
 ## Release workflow
 
