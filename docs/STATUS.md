@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-04.
+Last updated: 2026-11-05.
 
 ## Where we are
 
@@ -157,8 +157,8 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
    a busy GPU, not RAM.
 5. **RAM, optional leftovers** (see "RAM" below): stream the separated stems to disk
    instead of holding all six.
-6. **macOS, later:** an `.app` wrapper (also fixes Cmd+Tab in development; the release
-   `.app` comes with distribution).
+6. ~~**macOS:** an `.app` wrapper.~~ `tools/package/macos.sh --no-dmg` builds
+   `dist/Watershed.app` (see "Release workflow").
 7. Ideas recorded in `PLAN.md`, not scheduled yet: the **song info panel** (it can reuse
    the tracked beats), disk optimization (design principles), portable builds (section 9),
    cutting pieces of a stem (in "46 & 2" the bass intro came out in the guitar stem). If
@@ -167,10 +167,46 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
    scheduled)": speed trainer, pitch in cents, MIDI pedal, chords on the grid, a gap
    between loop passes.
 8. **v0.1:** features are enough for it; what is missing is item 0 and distribution
-   (`PLAN.md` section 9): a release workflow that builds on a `v*` tag and uploads to a
-   GitHub Release, the `.app` with an icon on macOS, an AppImage on Linux, a README with
-   screenshots. The logo is chosen (see "Where we are"); the platform icon files come with
-   the packaging. `+crt-static` on Windows is already used by the test executable.
+   (`PLAN.md` section 9). The logo and the release workflow are done (see "Release
+   workflow"). Left: try the three packages on real machines (checklist there), a README
+   with screenshots and download instructions, then tag `v0.1.0`.
+
+## Release workflow
+
+Done 2026-11-05. `.github/workflows/release.yml`: pushing a `v*` tag builds the three
+packages and creates a **draft** GitHub Release with them and `.github/release-notes.md`
+(downloads, what each system needs, how to get past the unsigned-app warnings) plus
+GitHub's generated notes; publishing it is by hand. The tag must match the version in
+`Cargo.toml`, or the release job fails. Running it from the Actions tab only builds the
+packages, as workflow artifacts: the first such run passed on all three, ~17 min.
+
+| Package | Built on | Size | How |
+|---|---|---|---|
+| `Watershed-<v>-windows-x86_64.zip` | windows-latest | 21 MB | `.exe` with `+crt-static` (no Visual C++ runtime needed), README and licenses |
+| `Watershed-<v>-macos-arm64.dmg` | macos-latest | 18 MB | `tools/package/macos.sh`: `.app`, ad-hoc signed, Applications link |
+| `Watershed-<v>-linux-x86_64.AppImage` | ubuntu-22.04 | 21 MB | `tools/package/linux.sh`: AppDir by hand, appimagetool 1.9.1 and runtime 20251108 pinned by sha256 |
+
+- **Icons:** `assets/make_icons.py` renders the PNGs, `icon.ico` (16–256 px) and
+  `icon.icns` from the two SVGs with `resvg` and `iconutil`; the outputs are in git, so
+  CI needs neither. The `.exe` gets its icon and version info from `crates/app/build.rs`
+  (`winresource`, Windows only).
+- **Decided here:** macOS arm64 only (no universal binary: Intel Macs would separate
+  slowly anyway); Linux built on Ubuntu 22.04 for glibc 2.35; bundle id
+  `app.watershed.Watershed` (only needs to be unique; no domain behind it). Nothing is
+  signed: Windows SmartScreen and macOS Gatekeeper warn on first start (the release notes
+  say how to continue). Signing and notarization stay for later (`PLAN.md` section 9).
+- **Seen on macOS:** `macos.sh` built and opened the `.app` locally. The Windows zip's
+  `.exe` from CI has the icon and version 0.1.0 in its resources; ProductName and
+  FileDescription were "watershed" there, now set to "Watershed" (not yet seen in a build).
+- **Not tried:** any package on a machine other than where it was built; the AppImage on
+  any Linux.
+
+**Test checklist** (packages from the Actions run, or the draft release):
+1. Windows: unzip, run `watershed.exe` on the desktop: SmartScreen's "Run anyway", the
+   icon in Explorer and the taskbar, "Watershed" in Task Manager, separating a song.
+2. macOS: open the `.dmg`, drag to Applications, open: "Open Anyway" in Privacy &
+   Security, the icon in the Dock and Cmd+Tab, separating a song.
+3. Linux (if a machine is around): `chmod +x`, run, play a folder of stems.
 
 Windows machine setup, for reference: LLVM with `LIBCLANG_PATH` (Signalsmith's
 bindings), CMake 4.4, the Vulkan SDK 1.4.363 and the Visual Studio 2026 Build
