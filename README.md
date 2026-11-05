@@ -2,6 +2,32 @@
 
 Separate a song into stems and practice over them.
 
+## In short, for musicians
+
+- **Drop a song, get the band apart.** Vocals, drums, bass, guitar, piano and the
+  rest, each on its own track, in a minute or two. It all happens on your
+  computer: nothing is uploaded.
+- **Take your part out.** Mute the guitar and play it yourself over the band, or
+  solo the bass to hear what it really plays.
+- **Slow it down without changing the key,** or change the key without changing
+  the speed.
+- **Loop the hard part.** Mark it, loop it, save as many loops as you like, and
+  name the song's sections (verse, chorus, solo) to jump between them.
+- **Play in time.** A click and a count-in that follow the song, even when the
+  band did not play to a click. The tempo and key are shown.
+- **Picks up where you left off.** Your mix, loops and markers are saved with
+  each song.
+- **Free and open source.** Use it next to your DAW: your instrument goes through
+  Reaper (or whatever you use), Watershed plays the band.
+
+**What you need to split songs:** a **Mac with Apple Silicon** (M1 or newer), or
+a **PC with an NVIDIA graphics card** (Windows or Linux; other recent graphics
+cards work too, but are less tested and may be slower). On a PC without one, you
+can still practice over stems you already have, for example from
+[MVSEP](https://mvsep.com). Intel Macs are not supported.
+
+## About
+
 Watershed is an open-source desktop app for musicians who learn songs by ear.
 Drop in an mp3, flac, wav, ogg or m4a file. Watershed splits it locally, on your
 GPU, into vocals, drums, bass, guitar, piano and other with a state-of-the-art
