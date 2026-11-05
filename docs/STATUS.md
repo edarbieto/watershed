@@ -168,7 +168,7 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
    between loop passes.
 8. **v0.1:** features are enough for it; what is missing is item 0 and distribution
    (`PLAN.md` section 9). The logo and the release workflow are done (see "Release
-   workflow"). Left: tag `v0.1.0`. The README has download instructions and two screenshots
+   workflow"). Tagged `v0.1.0` on 2026-11-05 (the release is a draft until published by hand). The README has download instructions and two screenshots
    (`docs/screenshots`, taken by the user on macOS, halved to 1x).
 
 ## Release workflow
@@ -198,6 +198,8 @@ packages, as workflow artifacts: the first such run passed on all three, ~17 min
 - **Seen on macOS:** `macos.sh` built and opened the `.app` locally. The Windows zip's
   `.exe` from CI has the icon and version 0.1.0 in its resources; ProductName and
   FileDescription were "watershed" there; now "Watershed", checked in a second run.
+- **`[skip ci]` skips tag pushes too:** GitHub skips every workflow of a push whose head
+  commit says `[skip ci]`, so never tag such a commit (or the release does not build).
 - **macOS package: tested by the user** (the .dmg from the Actions run): works.
 - **Windows and Linux packages: not tried,** by the user's decision: they ship as built and
   users will report issues.
