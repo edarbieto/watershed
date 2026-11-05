@@ -197,7 +197,7 @@ packages, as workflow artifacts: the first such run passed on all three, ~17 min
   say how to continue). Signing and notarization stay for later (`PLAN.md` section 9).
 - **Seen on macOS:** `macos.sh` built and opened the `.app` locally. The Windows zip's
   `.exe` from CI has the icon and version 0.1.0 in its resources; ProductName and
-  FileDescription were "watershed" there, now set to "Watershed" (not yet seen in a build).
+  FileDescription were "watershed" there; now "Watershed", checked in a second run.
 - **Not tried:** any package on a machine other than where it was built; the AppImage on
   any Linux.
 
