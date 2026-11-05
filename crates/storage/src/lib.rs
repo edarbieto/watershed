@@ -25,8 +25,10 @@ pub fn models_dir() -> Option<PathBuf> {
 pub struct Config {
     /// Id of the last selected output device; `None` follows the system default.
     pub output_device: Option<String>,
-    /// Folder the last song was opened from, to start file dialogs there.
-    pub last_folder: Option<PathBuf>,
+    /// Folder the last song to separate was picked from, to start that dialog there.
+    pub last_song_folder: Option<PathBuf>,
+    /// The last folder of stems opened, to start the "Open folder" dialog next to it.
+    pub last_stems_folder: Option<PathBuf>,
     /// Song folders opened recently, most recent first.
     pub recent: Vec<RecentFolder>,
     /// Where separated songs are written. `None` uses [`default_library_folder`].
@@ -50,7 +52,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             output_device: None,
-            last_folder: None,
+            last_song_folder: None,
+            last_stems_folder: None,
             recent: Vec::new(),
             library_folder: None,
             stem_format: StemFormat::default(),
@@ -197,7 +200,8 @@ mod tests {
         let path = dir.join("config.toml");
         let config = Config {
             output_device: Some("wasapi:{0.0.0.00000000}.{abc}".into()),
-            last_folder: Some(PathBuf::from("songs")),
+            last_song_folder: Some(PathBuf::from("mp3s")),
+            last_stems_folder: Some(PathBuf::from("songs/one")),
             recent: vec![RecentFolder {
                 path: PathBuf::from("songs/one"),
                 opened: 1_700_000_000,

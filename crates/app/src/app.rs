@@ -9,6 +9,7 @@ use watershed_separation::catalog;
 use watershed_storage::{Config, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
+use crate::dialog::{Dialog, Purpose};
 use crate::grid::{self, Change, Grid};
 use crate::key::{self, SongKey};
 use crate::loader::{self, LoadedSong, Loading, Resampled};
@@ -121,6 +122,8 @@ pub struct WatershedApp {
     separating: Option<Job>,
     /// A separated song not opened yet because another one was playing.
     ready: Option<PathBuf>,
+    /// The open file dialog, if any.
+    dialog: Option<Dialog>,
     restore: Option<Restore>,
     /// Set while the open folder is read again: whether the song was playing.
     reloading: Option<bool>,
@@ -201,6 +204,7 @@ impl WatershedApp {
             loading: None,
             separating: None,
             ready: None,
+            dialog: None,
             restore: None,
             reloading: None,
             error,
@@ -260,7 +264,7 @@ impl WatershedApp {
             return;
         }
         if let Some(folder) = files[0].parent() {
-            self.config.last_folder = Some(folder.to_owned());
+            self.config.last_stems_folder = Some(folder.to_owned());
             self.config.save();
         }
         self.error = None;
@@ -306,7 +310,7 @@ impl WatershedApp {
             return;
         };
         if let Some(folder) = song.parent() {
-            self.config.last_folder = Some(folder.to_owned());
+            self.config.last_song_folder = Some(folder.to_owned());
             self.config.save();
         }
         self.error = None;
@@ -326,25 +330,65 @@ impl WatershedApp {
     }
 
     fn pick_song(&mut self, ctx: &egui::Context) {
-        let mut dialog = rfd::FileDialog::new()
+        let mut dialog = rfd::AsyncFileDialog::new()
             .set_title("Separate a song")
             .add_filter("Audio", loader::AUDIO_EXTENSIONS);
-        if let Some(dir) = &self.config.last_folder {
+        if let Some(dir) = self.config.last_song_folder.as_ref().filter(|d| d.is_dir()) {
             dialog = dialog.set_directory(dir);
         }
-        if let Some(song) = dialog.pick_file() {
-            self.separate(song, ctx);
-        }
+        self.open_dialog(Purpose::Song, dialog, false, ctx);
     }
 
-    fn pick_library(&mut self) {
-        let mut dialog = rfd::FileDialog::new().set_title("Folder for separated songs");
+    fn pick_library(&mut self, ctx: &egui::Context) {
+        let mut dialog = rfd::AsyncFileDialog::new().set_title("Folder for separated songs");
         if let Some(dir) = self.config.library_folder().filter(|d| d.is_dir()) {
             dialog = dialog.set_directory(dir);
         }
-        if let Some(folder) = dialog.pick_folder() {
-            self.config.library_folder = Some(folder);
-            self.config.save();
+        self.open_dialog(Purpose::Library, dialog, true, ctx);
+    }
+
+    /// Starts in the folder that holds the last song opened, to show its neighbors.
+    fn pick_folder(&mut self, ctx: &egui::Context) {
+        let mut dialog = rfd::AsyncFileDialog::new().set_title("Open a folder of stems");
+        let start = self.config.last_stems_folder.as_ref().and_then(|folder| {
+            folder
+                .parent()
+                .filter(|d| d.is_dir())
+                .or(Some(folder.as_path()).filter(|d| d.is_dir()))
+        });
+        if let Some(dir) = start {
+            dialog = dialog.set_directory(dir);
+        }
+        self.open_dialog(Purpose::Stems, dialog, true, ctx);
+    }
+
+    /// One dialog at a time: a second request while one is open is ignored.
+    fn open_dialog(
+        &mut self,
+        purpose: Purpose,
+        dialog: rfd::AsyncFileDialog,
+        folder: bool,
+        ctx: &egui::Context,
+    ) {
+        if self.dialog.is_none() {
+            self.dialog = Some(Dialog::open(purpose, dialog, folder, ctx));
+        }
+    }
+
+    fn poll_dialog(&mut self, ctx: &egui::Context) {
+        let Some(answer) = self.dialog.as_ref().and_then(Dialog::poll) else {
+            return;
+        };
+        let (Some(dialog), Some(path)) = (self.dialog.take(), answer) else {
+            return;
+        };
+        match dialog.purpose {
+            Purpose::Song => self.separate(path, ctx),
+            Purpose::Stems => self.open(&[path], ctx),
+            Purpose::Library => {
+                self.config.library_folder = Some(path);
+                self.config.save();
+            }
         }
     }
 
@@ -423,16 +467,6 @@ impl WatershedApp {
                 self.ready = None;
             }
             ui.add_space(4.0);
-        }
-    }
-
-    fn pick_folder(&mut self, ctx: &egui::Context) {
-        let mut dialog = rfd::FileDialog::new().set_title("Open a folder of stems");
-        if let Some(dir) = &self.config.last_folder {
-            dialog = dialog.set_directory(dir);
-        }
-        if let Some(folder) = dialog.pick_folder() {
-            self.open(&[folder], ctx);
         }
     }
 
@@ -1225,7 +1259,7 @@ impl WatershedApp {
             ui.add_space(8.0);
         });
         if change_library {
-            self.pick_library();
+            self.pick_library(ui.ctx());
         }
         if self.config.recent.is_empty() {
             return;
@@ -1423,7 +1457,7 @@ impl WatershedApp {
                                 library.map(|l| l.display().to_string()).unwrap_or_default(),
                             );
                             if ui.small_button("Change…").clicked() {
-                                self.pick_library();
+                                self.pick_library(ctx);
                             }
                         });
                         ui.end_row();
@@ -2339,6 +2373,7 @@ impl eframe::App for WatershedApp {
         self.poll_loading(ui.ctx());
         self.poll_restore(ui.ctx());
         self.poll_separation(ui.ctx());
+        self.poll_dialog(ui.ctx());
         self.handle_input(ui);
         if let Some(engine) = &mut self.engine {
             engine.collect_garbage();
