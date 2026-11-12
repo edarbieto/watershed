@@ -2072,8 +2072,9 @@ impl WatershedApp {
         // waveforms start; the space beside the ruler holds the zoom buttons.
         let ruler_response = ui
             .horizontal(|ui| {
-                ui.allocate_ui_with_layout(
-                    egui::vec2(CONTROLS_WIDTH, RULER_HEIGHT),
+                controls_column(
+                    ui,
+                    RULER_HEIGHT,
                     Layout::left_to_right(Align::Center),
                     |ui| {
                         ui.label(RichText::new("Zoom").weak().small());
@@ -2107,8 +2108,9 @@ impl WatershedApp {
         let mut snap = self.config.snap_to_grid;
         let bar_ruler_response = ui
             .horizontal(|ui| {
-                ui.allocate_ui_with_layout(
-                    egui::vec2(CONTROLS_WIDTH, BAR_RULER_HEIGHT),
+                controls_column(
+                    ui,
+                    BAR_RULER_HEIGHT,
                     Layout::left_to_right(Align::Center),
                     |ui| grid_controls(ui, grid, &mut snap, has_bpm, playhead_secs),
                 );
@@ -2142,102 +2144,111 @@ impl WatershedApp {
                 let silent = peaks.iter().all(Peaks::is_silent);
 
                 ui.horizontal(|ui| {
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(CONTROLS_WIDTH, ROW_HEIGHT),
-                        Layout::top_down(Align::Min),
-                        |ui| {
-                            ui.horizontal(|ui| {
-                                if let Some(name) =
-                                    track_name(ui, &mut self.renaming, i, &loaded.names[i], color)
-                                {
-                                    let name = name.trim();
-                                    let default = &loaded.default_names[i];
-                                    renamed = Some((
-                                        i,
-                                        if name.is_empty() { default } else { name }.to_owned(),
-                                    ));
-                                }
-                                if silent {
-                                    ui.label(RichText::new("silent").weak().small());
-                                }
-                                let offset = params.offset();
-                                if offset != 0 {
-                                    let secs = offset as f64 / rate;
-                                    let response = ui
-                                        .add(
-                                            egui::Label::new(
-                                                RichText::new(format!("{secs:+.3} s"))
-                                                    .weak()
-                                                    .small(),
-                                            )
-                                            .sense(egui::Sense::click()),
-                                        )
-                                        .on_hover_text("Offset. Double-click to reset");
-                                    if response.double_clicked() {
-                                        params.set_offset(0);
-                                    }
-                                }
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui
-                                        .selectable_label(params.solo(), "S")
-                                        .on_hover_text("Solo")
-                                        .clicked()
-                                    {
-                                        params.set_solo(!params.solo());
-                                    }
-                                    if ui
-                                        .selectable_label(params.mute(), "M")
-                                        .on_hover_text("Mute")
-                                        .clicked()
-                                    {
-                                        params.set_mute(!params.mute());
-                                    }
-                                    if ui
-                                        .selectable_label(params.pitch_lock(), "🔒")
-                                        .on_hover_text(PITCH_LOCK_HINT)
-                                        .clicked()
-                                    {
-                                        params.set_pitch_lock(!params.pitch_lock());
-                                    }
-                                    if let Some(movable) = self.movable.get_mut(i)
-                                        && ui
-                                            .selectable_label(*movable, "↔")
-                                            .on_hover_text(MOVE_HINT)
-                                            .clicked()
-                                    {
-                                        *movable = !*movable;
-                                    }
-                                });
-                            });
-                            ui.horizontal(|ui| {
-                                let mut db = gain_to_db(params.gain());
-                                let response =
-                                    ui.add(volume_slider(&mut db)).on_hover_text(VOLUME_HINT);
-                                if double_clicked(&response) {
-                                    params.set_gain(1.0);
-                                } else if response.changed() {
-                                    params.set_gain(db_to_gain(db));
-                                }
-                                let mut pan = params.pan();
-                                let pan_slider = egui::Slider::new(&mut pan, -1.0..=1.0)
-                                    .show_value(true)
-                                    .custom_formatter(|v, _| format_pan(v as f32))
-                                    .custom_parser(parse_pan);
+                    controls_column(ui, ROW_HEIGHT, Layout::top_down(Align::Min), |ui| {
+                        ui.horizontal(|ui| {
+                            if let Some(name) =
+                                track_name(ui, &mut self.renaming, i, &loaded.names[i], color)
+                            {
+                                let name = name.trim();
+                                let default = &loaded.default_names[i];
+                                renamed = Some((
+                                    i,
+                                    if name.is_empty() { default } else { name }.to_owned(),
+                                ));
+                            }
+                            if silent {
+                                ui.label(RichText::new("silent").weak().small());
+                            }
+                            let offset = params.offset();
+                            if offset != 0 {
+                                let secs = offset as f64 / rate;
                                 let response = ui
-                                    .scope(|ui| {
-                                        ui.spacing_mut().slider_width = PAN_SLIDER_WIDTH;
-                                        ui.add(pan_slider)
-                                    })
-                                    .inner
-                                    .on_hover_text("Pan (double-click to center)");
-                                if double_clicked(&response) {
-                                    params.set_pan(0.0);
-                                } else if response.changed() {
-                                    params.set_pan(pan);
+                                    .add(
+                                        egui::Label::new(
+                                            RichText::new(format!("{secs:+.3} s")).weak().small(),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    )
+                                    .on_hover_text("Offset. Double-click to reset");
+                                if response.double_clicked() {
+                                    params.set_offset(0);
+                                }
+                            }
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if ui
+                                    .selectable_label(params.solo(), "S")
+                                    .on_hover_text("Solo")
+                                    .clicked()
+                                {
+                                    params.set_solo(!params.solo());
+                                }
+                                if ui
+                                    .selectable_label(params.mute(), "M")
+                                    .on_hover_text("Mute")
+                                    .clicked()
+                                {
+                                    params.set_mute(!params.mute());
+                                }
+                                if ui
+                                    .selectable_label(params.pitch_lock(), "🔒")
+                                    .on_hover_text(PITCH_LOCK_HINT)
+                                    .clicked()
+                                {
+                                    params.set_pitch_lock(!params.pitch_lock());
+                                }
+                                if let Some(movable) = self.movable.get_mut(i)
+                                    && ui
+                                        .selectable_label(*movable, "↔")
+                                        .on_hover_text(MOVE_HINT)
+                                        .clicked()
+                                {
+                                    *movable = !*movable;
                                 }
                             });
-                        },
-                    );
+                        });
+                        ui.horizontal(|ui| {
+                            let mut db = gain_to_db(params.gain());
+                            let response = ui
+                                .scope(|ui| {
+                                    // The value keeps one width whatever it shows.
+                                    let width = volume_value_width(ui);
+                                    // The volume slider takes what the pan leaves.
+                                    let spacing = ui.spacing().item_spacing.x;
+                                    let pan = PAN_SLIDER_WIDTH
+                                        + ui.spacing().interact_size.x
+                                        + 2.0 * spacing;
+                                    ui.spacing_mut().slider_width =
+                                        (ui.available_width() - width - spacing - pan)
+                                            .max(PAN_SLIDER_WIDTH);
+                                    ui.spacing_mut().interact_size.x = width;
+                                    ui.add(volume_slider(&mut db))
+                                })
+                                .inner
+                                .on_hover_text(VOLUME_HINT);
+                            if double_clicked(&response) {
+                                params.set_gain(1.0);
+                            } else if response.changed() {
+                                params.set_gain(db_to_gain(db));
+                            }
+                            let mut pan = params.pan();
+                            let pan_slider = egui::Slider::new(&mut pan, -1.0..=1.0)
+                                .show_value(true)
+                                .custom_formatter(|v, _| format_pan(v as f32))
+                                .custom_parser(parse_pan);
+                            let response = ui
+                                .scope(|ui| {
+                                    ui.spacing_mut().slider_width = PAN_SLIDER_WIDTH;
+                                    ui.add(pan_slider)
+                                })
+                                .inner
+                                .on_hover_text("Pan (double-click to center)");
+                            if double_clicked(&response) {
+                                params.set_pan(0.0);
+                            } else if response.changed() {
+                                params.set_pan(pan);
+                            }
+                        });
+                    });
 
                     let color = if audible {
                         color
@@ -3026,6 +3037,32 @@ fn bpm_controls(
 
 fn double_clicked(response: &egui::Response) -> bool {
     response.interact(egui::Sense::click()).double_clicked()
+}
+
+/// Lays out `add_contents` in the controls column beside the waveforms, exactly
+/// `CONTROLS_WIDTH` wide: it never grows with its contents (which would move that row's
+/// waveform against the rulers), and what does not fit is clipped.
+fn controls_column<R>(
+    ui: &mut egui::Ui,
+    height: f32,
+    layout: Layout,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(CONTROLS_WIDTH, height), egui::Sense::hover());
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect).layout(layout), |ui| {
+        ui.set_clip_rect(rect.intersect(ui.clip_rect()));
+        add_contents(ui)
+    })
+    .inner
+}
+
+/// The width of the volume value at its widest, so it does not change as the value does.
+fn volume_value_width(ui: &egui::Ui) -> f32 {
+    let style = ui.style().drag_value_text_style.clone();
+    let text = egui::WidgetText::from(format!("{:+.1} dB", MIN_DB + 0.1));
+    let galley = text.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, style);
+    (galley.size().x + 2.0 * ui.spacing().button_padding.x).ceil()
 }
 
 fn volume_slider(db: &mut f32) -> egui::Slider<'_> {
