@@ -575,12 +575,13 @@ same day; their answers are folded in below.
   not flicker. A chord lane above the waveforms, transposed with the pitch. Start with
   major and minor triads, then 7ths and sus. Half a bar only when the two halves clearly
   disagree. (Both approved.)
-- [ ] **Bug: a track's waveform shifts against the ruler when its volume changes**
+- [x] **Bug: a track's waveform shifts against the ruler when its volume changes**
   (playback is right). Likely cause, from reading the code: the controls column is
   `allocate_ui_with_layout(CONTROLS_WIDTH, ..)`, which grows when its contents are wider;
   the fader's value text changes width (`+0.0 dB`, `-12.5 dB`, `-inf dB`), so that row's
   waveform starts further right, while the ruler uses the first row's x range. Fix: a fixed
   width for the value, and an exact-size controls column that never grows.
+  **Done** (see "Waveform shift and tempo at bar 1" in `STATUS.md`).
 - [ ] **Controls grouped better, track selection, playhead drag.**
   - Regroup the top bar (transport / tempo and pitch / key and grid / click / view).
     Mockups first, in HTML (or egui prototypes if HTML costs too much), for the user to pick.
@@ -651,12 +652,14 @@ same day; their answers are folded in below.
 - [ ] **CHANGELOG.md and a feature list.** `CHANGELOG.md` at the root (Keep a Changelog),
   back-filled for v0.1.0 and v0.1.1, reused as the release notes; a feature list in
   `docs/FEATURES.md` linked from the README (approved).
-- [ ] **Dynamic tempo against a tempo set by the user.** With Dynamic on and the user's
+- [x] **Dynamic tempo against a tempo set by the user.** With Dynamic on and the user's
   tempo at 80 BPM, the tracked beats pull the grid to 90 BPM. Reference: the intro of
   "Be Quiet and Drive (Far Away)" (Deftones); its session has bar 1 at 0.31 s, a fixed
   80 BPM mark there and a 4/4 mark at 24.26 s. To find out: whether the fixed mark is
   ignored in that span, or the tracker locks on another pulse (90/80 is not a simple
   ratio like ½ or ×2), and make the user's tempo win where they set it.
+  **Done:** the mark on bar 1 was dropped (see "Waveform shift and tempo at bar 1" in
+  `STATUS.md`).
 - [ ] **Project website.** Musicians do not browse GitHub: a static site with what the app
   does, screenshots, the download buttons per system (latest release) and the feature list
   and changelog. Hosted on GitHub Pages (free, from the repo, e.g. a `site/` folder or a

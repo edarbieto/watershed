@@ -128,6 +128,8 @@ Last updated: 2026-11-11.
 `PLAN.md`, "v0.2: feedback on v0.1.1": cents and reference tuning, key with an online
 prior, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
 remembered window, click on another output, changelog. The user answered the open questions the same day.
+The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed, waiting for the
+user to try them (see "Waveform shift and tempo at bar 1").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2315,6 +2317,27 @@ moved in time.
 3. With ↔ off, dragging still selects a loop; with it on, a click still seeks.
 4. Double-click the offset label: the track goes back to 0.
 5. Close and reopen: the offset is kept and ↔ is off again.
+
+## Waveform shift and tempo at bar 1
+
+Two v0.2 bugs, fixed 2026-11-11, **not yet tried by the user**.
+
+**Waveform shifting with the volume.** Cause as guessed in the plan: the controls column
+grew with its contents, and the fader's value changes width with the value. Now
+`controls_column` (`app.rs`) allocates exactly `CONTROLS_WIDTH` for the rulers' and each
+track's controls and clips what does not fit; the volume value is as wide as its widest
+text (`-59.9 dB`), and the volume slider takes the width the pan leaves (the rows had been
+wider than the column: the pan value got cut once the column stopped growing).
+
+**Fixed tempo on bar 1 ignored with Dynamic on** ("Be Quiet and Drive": 80 BPM fixed on
+bar 1, the grid followed the tracked ~90 BPM). Not the tracker: a change at bar 1 (or
+less than `MIN_CHANGE_GAP` after it, or before it) gave bar 1 its tempo through
+`in_force`, but the first segment was always `fixed: false`, and its tempo never reached
+the tracker, because `anchors()` skipped changes at bar 1. Now the last change at or
+before bar 1 that sets a tempo (`tempo_at_bar_one`) makes the first segment fixed if it
+is, goes to the tracker as bar 1's anchor tempo, and its tag is no longer greyed out.
+Checked in the app: the intro now holds 80 BPM, 8 bars that end right on the 4/4 mark at
+24.26 s. Test: `a_tempo_set_at_bar_one_holds_when_dynamic`.
 
 ## Observations to investigate
 
