@@ -37,7 +37,8 @@ pub struct Config {
     pub stem_format: StemFormat,
     /// Whether a click on a waveform moves the playhead to the nearest grid line.
     pub snap_to_grid: bool,
-    /// Whether the chord lane shows the estimated chords.
+    /// Whether the chord lane estimates and shows the chords. Off by default: the
+    /// user turns it on.
     pub show_chords: bool,
     /// The metronome's sound, channels and level, the same for every song.
     pub click_sound: ClickSound,
@@ -65,7 +66,7 @@ impl Default for Config {
             library_folder: None,
             stem_format: StemFormat::default(),
             snap_to_grid: true,
-            show_chords: true,
+            show_chords: false,
             click_sound: ClickSound::default(),
             click_channels: ClickChannels::default(),
             click_volume_db: -6.0,

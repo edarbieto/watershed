@@ -2449,7 +2449,8 @@ as expected from an estimate.
   clearly differ. Spans quieter than 10 % of the median have no chord. About 1 ms per
   song, so it runs again whenever the grid's beats change (BPM, bar 1, Dynamic, changes).
 - **UI:** a **Chords** row under the bar ruler, with its switch (saved in `config.toml`
-  as `show_chords`; off when the grid is). One block per run of the same chord, the one
+  as `show_chords`, **off by default**, asked by the user; nothing is estimated while off;
+  greyed out when the grid is off). One block per run of the same chord, the one
   playing highlighted; names transposed with the pitch (whole semitones) and spelled with
   flats in flat keys (`Key::uses_flats`, from the key as heard). Names stay in sight when
   their block scrolls past the left edge; 10 pt when 13 pt does not fit. Clicking a chord
