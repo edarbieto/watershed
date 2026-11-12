@@ -138,7 +138,8 @@ by the user: works, not precise, as expected (see "Chords on the grid"). Chords 
 user: backlog. Chords now **off by default** (asked by the user). **Ruler rows: done**, tried and
 approved by the user (grouped order kept) (see "Ruler rows"). **Controls and menus**
 (step 1, first part): built, option A of the mockups chosen by the user; to try (see
-"Controls and menus"). Still in step 1: the selected track, soft delete, dragging the
+"Controls and menus"). Secondary windows (system windows, above the main one,
+modal): tried on macOS and approved by the user; still to try on Windows. Still in step 1: the selected track, soft delete, dragging the
 playhead line.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
