@@ -631,7 +631,7 @@ same day; their answers are folded in below.
     says whether this is what they meant.
   - Reaper and Ableton: not verified that they ever do this. Reaper plays N bars of
     metronome before starting at the cursor; Cubase snaps the start back to the bar line.
-  - **Done** (see "Count-in on the bar line" in `STATUS.md`), to try by the user.
+  - **Done** (see "Count-in on the bar line" in `STATUS.md`), tried by the user: works.
 - [x] **Remember the window:** position, size, maximized or full screen, and the monitor;
   eframe's `persist_window` with the `persistence` feature, or our own fields in
   `config.toml`. A window closed while minimized opens normal. If the

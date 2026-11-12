@@ -131,7 +131,7 @@ remembered window, click on another output, changelog. The user answered the ope
 The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
 the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
 Cents and reference tuning: done, tried by the user: works (see "Cents and
-reference tuning"). Count-in on the bar line: done, to try (see "Count-in on the bar
+reference tuning"). Count-in on the bar line: done, tried by the user: works (see "Count-in on the bar
 line"). Remember the window: done, tried by the user on macOS (maximized included): works; still
 to try on Windows (see "Remember the window").
 
@@ -1888,8 +1888,8 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
 
 ## Count-in on the bar line
 
-Asked by the user (v0.2, rule agreed 2026-11-11). Done 2026-11-12, **not tried by the
-user yet**. Before, the count-in clicked the four beats before the first beat at or after
+Asked by the user (v0.2, rule agreed 2026-11-11). Done 2026-11-12, **tried by the user:
+works**, on "46 & 2" (7/8 parts) and the other songs. Before, the count-in clicked the four beats before the first beat at or after
 the playhead, so from beat 2 it counted "2 3 4 1" and a pickup threw it off.
 
 - **Always in the meter of the bar the playhead is in** (the bar about to play). Seen by
