@@ -468,7 +468,7 @@ song is about 47 chunks.
 - [x] **4.4 Integration:** `BurnSeparator` implements `Separator`: `.yaml` reading,
   catalog with architecture and config, progress and cancel per chunk. Backend
   selectable in Settings, GGUF still the default.
-- [ ] **4.5 Measurement:** time, RAM and VRAM per song, Vulkan vs DX12 on Windows, CPU
+- [x] **4.5 Measurement:** time, RAM and VRAM per song, Vulkan vs DX12 on Windows, CPU
   fallback. Must fit the RTX 3050's 6 GB without spilling; burn then becomes the
   default. Also decided here, with data: whether the default model uses quantized
   weights (`.ckpt` ~700 MB on disk, GGUF 188 MB). **Decided:** f16, converted on the
@@ -477,7 +477,7 @@ song is about 47 chunks.
 - [x] **4.7 Remove the temporary backend:** submodules, CMake, patches and the Vulkan
   SDK in CI. Done 2026-11-04, after the listening test ("almost the same") and the
   decision to require a GPU, with no CPU fallback (`STATUS.md`).
-- [ ] **4.8 Refinement:** make the native backend better once it works, with the same
+- [x] **4.8 Refinement:** make the native backend better once it works, with the same
   rule as the rest of the phase: measure, change one thing, keep it only if a song's
   total improves and the equivalence tests pass. Numbered last so that the other steps
   keep theirs; it can start any time, and only the CPU item comes before 4.7.
@@ -493,7 +493,7 @@ song is about 47 chunks.
     memory went from 3462 MiB to ~1.6 GB over idle with the Vulkan work (GGUF ~1.4 GB).
   - **Time-left estimate:** seen by the user on Windows, it appears late and starts near
     40 min for a song that takes 3–4. See "In the app (4.4)" in `STATUS.md`.
-  - **Gentler separation:** the idea in `STATUS.md`, if the user decides on it.
+  - **Gentler separation:** not done; an idea in `STATUS.md`, if the user decides on it.
 
 ### Phase 4.5: More adjustments
 Small and medium features found while using the app, after Phase 4. Not to be confused
