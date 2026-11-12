@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-05.
+Last updated: 2026-11-11.
 
 ## Where we are
 
@@ -123,6 +123,11 @@ Last updated: 2026-11-05.
   same output as the CPU to within 1e-5).
 
 ## Next steps
+
+**v0.2 (next version):** the user's feedback on v0.1.1 (2026-11-11) is planned in
+`PLAN.md`, "v0.2: feedback on v0.1.1": cents and reference tuning, key with an online
+prior, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
+remembered window, click on another output, changelog. The user answered the open questions the same day.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6

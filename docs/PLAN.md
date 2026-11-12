@@ -531,6 +531,138 @@ with step 4.5 of Phase 4, the measurement step.
   Tested: it helps going down, less going up (see "Transposed vocals" in `STATUS.md`). If
   more is wanted: a monophonic algorithm for the vocal stem, rendered ahead of time.
 
+### v0.2: feedback on v0.1.1
+Asked by the user after using v0.1.1 (2026-11-11). The user answered the open questions the
+same day; their answers are folded in below.
+
+- [ ] **Fine pitch in cents** (moved from "Feature ideas"). The engine already takes the
+  transposition as an `f32` in semitones (`stretch.rs`), so this is UI and session work: a
+  cents value next to the semitones (−50 to +50, step 1), stored in the session
+  as one `f32`. Pitch-locked tracks stay as they are.
+- [ ] **Reference tuning (A = 440, 432, …).** Already measured: `Chroma` finds where the
+  energy falls within the semitone (circular mean, see "Key detection" in `STATUS.md`).
+  Show it as `A = 437.2 Hz` (nearest named reference: 440, 432, 444…) in the Key tooltip
+  and the song info, plus a **"Set to 440 Hz"** button (approved) that sets the cents of the
+  item above to cancel it. Its accuracy on stems still needs checking: the tuning of a song
+  at A = 448.6 Hz was read right, songs at 432 not tried. **Reference song: Soundgarden's
+  "Black Hole Sun"** (chosen by the user): the `key` example on its stems without drums
+  reads G#m with a tuning of −37 cents, A ≈ 430.7 Hz.
+- [ ] **Key with an online source as a prior.** Look the song up (artist and title from
+  the tags or the file name) and let the published key weigh in: e.g. if it is among the
+  top 2–3 estimates, it wins; if it is far off, both show with the reason. Candidates:
+  GetSongBPM API (free with an API key and a backlink, has key and BPM), MusicBrainz
+  (identifies the song, has no key), AcousticBrainz (closed in 2022, dumps only),
+  Spotify audio features (closed to new apps since 2024). Scraping sites like Tunebat: no.
+  Approved: opt-in in Settings (artist and title go to a third party), and the online BPM
+  also helps the BPM estimate. The lookup runs in the background after the song loads, so
+  it adds no loading time, and its answer is stored in the session (one request per song).
+  **GetSongBPM API** (read 2026-11-11 at getsongbpm.com/api; there is no separate terms
+  page): free, also for commercial use, but a **backlink to GetSongBPM.com is mandatory**
+  (website or store listing; "or we will suspend your account without notice"). Register
+  with a website or app id, the backlink URL and an email (done by the user, by hand).
+  Limit: 3000 requests per hour per key, blocked for an hour when exceeded. Base URL
+  `https://api.getsong.co/`, key as `api_key` or the `X-API-KEY` header.
+  `/search/?type=both&lookup=song:<title> artist:<artist>` returns songs with `tempo`
+  (integer), `time_sig` (beta), `key_of` (e.g. `"Em"`), `open_key`. Nothing is said about
+  caching or sharing a key.
+  Plan: the backlink in the README (and the About / Settings text); one key for the app,
+  given to CI as a secret and built into release binaries (not in the repo, though it can
+  still be pulled out of a binary), with a Settings field for the user's own key; one
+  request per song, stored in the session.
+- [ ] **Chords on the grid** (moved from "Feature ideas"). One chord per bar or half bar
+  from the chroma already computed for the key (stems without drums, maybe the bass stem
+  for the root), matched against chord templates and smoothed (HMM / Viterbi) so it does
+  not flicker. A chord lane above the waveforms, transposed with the pitch. Start with
+  major and minor triads, then 7ths and sus. Half a bar only when the two halves clearly
+  disagree. (Both approved.)
+- [ ] **Bug: a track's waveform shifts against the ruler when its volume changes**
+  (playback is right). Likely cause, from reading the code: the controls column is
+  `allocate_ui_with_layout(CONTROLS_WIDTH, ..)`, which grows when its contents are wider;
+  the fader's value text changes width (`+0.0 dB`, `-12.5 dB`, `-inf dB`), so that row's
+  waveform starts further right, while the ruler uses the first row's x range. Fix: a fixed
+  width for the value, and an exact-size controls column that never grows.
+- [ ] **Controls grouped better, track selection, playhead drag.**
+  - Regroup the top bar (transport / tempo and pitch / key and grid / click / view).
+    Mockups first, in HTML (or egui prototypes if HTML costs too much), for the user to pick.
+  - A **selected track**: click its name or its waveform; ↑/↓ moves the selection.
+    Shortcuts: **`M` mutes** the selected track, **`S` solos** it, Delete / Backspace
+    deletes it; **adding a marker moves to `Shift+M`** (decided by the user).
+  - **Delete a track** (with a button too): a soft delete, the file stays on disk and the
+    session lists it (e.g. `deleted_tracks`); undoable.
+  - **Drag the playhead with the mouse** without moving bar 1: dragging the time ruler or
+    the playhead line seeks. **Bar 1 moves with Alt + drag** on the bar ruler (Option on
+    macOS); a plain drag there seeks too.
+  - Rename **"1 here" to "Set first bar"** (bar 1 is not always where the audio starts:
+    pickups, free intros).
+  - Missing buttons for what only has a shortcut today, and the `?` window kept in sync.
+- [ ] **Undo / redo:** Cmd+Z and Cmd+Shift+Z on macOS, Ctrl+Z and Ctrl+Shift+Z (and
+  Ctrl+Y) elsewhere. Scope: everything saved in the session (mixer, offsets,
+  names, loops, markers, grid, tempo and signature changes, BPM, key, pitch, tempo,
+  deleted tracks), not the playhead or the zoom (approved). A slider drag is one step. Done as
+  snapshots of the session state, per song, kept in memory only.
+- [ ] **Count-in on the bar, overlapping a pickup.** Today the count-in clicks the four
+  beats before the first beat at or after the playhead, so it always lasts one bar but
+  starts wherever the playhead is in its bar: from beat 2 it counts "2 3 4 1", and from
+  the start of a song with a pickup (anacrusis) it is off too. Asked by the user (rule
+  agreed 2026-11-11):
+  - The count-in always lands on a bar line: it counts the bar(s) before the first bar
+    line at or after the playhead, accent first ("1 2 3 4" in 4/4), with no gap. The song
+    comes in at the playhead, at its real place on the grid, and the clicks go on over it
+    up to that bar line, which clicks as the "1". No click dropped or doubled. Nothing of
+    the song plays before the playhead.
+  - **Overlap** when the playhead is in the second half of its bar (by time, so it works
+    for 4/4, 3/4, 7/8, 9/8, 6/4 alike): from beat 4 it counts "1 2 3" and the song
+    comes in on the 4; a pickup sounds as the end of the counted bar.
+  - **One bar more** when the playhead is early in its bar: from beat 2 it counts
+    "1 2 3 4 | 1" and the song comes in on the 2. On a bar line: "1 2 3 4", song on the 1.
+  - A setting, on by default. Off: as in Reaper, one whole bar of clicks in the meter and
+    tempo of the bar the playhead is in (time signature and tempo changes included), then
+    the song from the playhead, wherever it falls in the bar.
+  - Nothing has to detect a pickup: it is whatever comes before the first bar, which the
+    grid already knows (bar 1, set by the user or estimated). The rule only uses the beat
+    times, so a wrong bar 1 gives a wrong count, as it already does for the click.
+  - Test with "My Own Summer" (Deftones): 72 BPM, bar 1 at 0.92 s, a drum pickup before it.
+    From 0:00: 1 2 3, the audio starts just before the 4 (0:00 is 0.09 s before
+    beat 4), the 4 clicks over the drum pickup, then the 1 on bar 1. The user listens and
+    says whether this is what they meant.
+  - Reaper and Ableton: not verified that they ever do this. Reaper plays N bars of
+    metronome before starting at the cursor; Cubase snaps the start back to the bar line.
+- [ ] **Remember the window:** position, size, maximized or full screen, and the monitor;
+  eframe's `persist_window` with the `persistence` feature, or our own fields in
+  `config.toml`. A window closed while minimized opens normal. If the
+  monitor is gone, back to the default place.
+- [ ] **Click on another output.** Ableton's "Cue" sends to other channels of the **same**
+  interface (e.g. outputs 3–4), which is sample-accurate and common. Watershed already
+  routes the click Left / Right / Both; the step is opening the device with all its
+  channels and choosing the pair for the mix and the pair for the click. A **different
+  device** (e.g. mix on the speakers, click on a USB headset) needs a second stream: the
+  two clocks drift and the latencies differ, so the click would need drift correction
+  (resampling) and an offset, and it can still wander by milliseconds. The user's case:
+  mix on the MacBook speakers, click on external headphones. Plan:
+  1. Output channel pairs for the mix and the click on a device with more than 2 outputs.
+  2. Try it on macOS with an **Aggregate Device** (Audio MIDI Setup: speakers + USB
+     headphones, drift correction on): the system does the clock work and Watershed sees
+     one 4-channel device. Headphones in the MacBook's jack are not a second device (they
+     replace the speakers), and Bluetooth adds ~150–250 ms: neither works for the click.
+  3. Only if 2 is not enough: a second stream with our own drift correction. If the
+     latency is too much, the click stays on Left / Right / Both.
+  The Yamaha AG03 shows 2 outputs to the computer as far as known (its headphone and
+  monitor outs carry the same mix): to check in Audio MIDI Setup.
+- [ ] **CHANGELOG.md and a feature list.** `CHANGELOG.md` at the root (Keep a Changelog),
+  back-filled for v0.1.0 and v0.1.1, reused as the release notes; a feature list in
+  `docs/FEATURES.md` linked from the README (approved).
+- [ ] **To investigate: distorted guitar "pumps" with the kick** (rock, metal,
+  alternative): the guitar stem dips on each kick and recovers on the next beat, like a
+  side-chain compressor. Two causes, to tell apart by measuring: (1) the model works with
+  masks per time–frequency bin, and a kick covers a wide band at the moment it hits, so
+  those bins go to the drums and the guitar loses them there; distorted guitar is dense and
+  noisy, close to drums in the spectrum; (2) the master itself: loud rock masters run the
+  whole mix through a bus compressor and limiter that duck everything on each kick, and
+  the stems inherit it. Check: the envelope of the guitar stem and of the original mix
+  around the kick onsets (already tracked), and the same song through other models
+  (MVSEP's guitar models, ensembles) when the model browser exists. Accepted by the user as
+  a limit of the model; nothing to fix in the app, the measurement is optional.
+
 ### Phase 5: Extras
 - [ ] Ensembles.
 - [ ] Cloud backend (MVSEP API), considered only for machines with no usable GPU. Free
@@ -546,11 +678,12 @@ Discussed with the user, not designed yet. Ordered by value for practicing.
 - [ ] **Speed trainer:** a loop that raises the tempo by X % every N repetitions (e.g. from
   70 % to 100 %). Builds on the A-B loops.
 - [ ] **Fine pitch in cents:** for recordings not tuned to 440 Hz or slightly off (common on
-  old records). Today the pitch moves in whole semitones.
+  old records). Today the pitch moves in whole semitones. Moved to v0.2.
 - [ ] **MIDI pedal or keyboard control:** play / pause, back to the loop start, set A and B
   without letting go of the instrument.
 - [ ] **Chords on the grid:** one estimated chord per bar or beat, from the chroma already
-  computed for the key. The most ambitious idea here, and approximate like the key.
+  computed for the key. The most ambitious idea here, and approximate like the key. Moved
+  to v0.2.
 - [ ] **Gap or pre-roll between loop passes:** a few seconds of silence, or a bar of
   count-in, before each pass.
 - [ ] **Cutting pieces of a stem** (in "46 & 2" the bass intro came out in the guitar stem)
