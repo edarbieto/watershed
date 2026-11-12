@@ -130,6 +130,8 @@ prior, chords, the waveform shift bug, track selection and regrouped controls, u
 remembered window, click on another output, changelog. The user answered the open questions the same day.
 The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
 the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
+Cents and reference tuning: done, **waiting for the user to try them** (see "Cents and
+reference tuning").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2151,6 +2153,35 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
 4. A mark with only a time signature behaves as before; with both, the tag shows
    both.
 5. Close and reopen: the marks are kept (the session now writes `[[changes]]`).
+
+## Cents and reference tuning
+
+v0.2, done 2026-11-12, **not yet tried by the user**.
+
+**Cents.** A `+0 ct` value beside the semitones in the bottom bar: drag or type, −50 to
++50, double-click resets it. The engine and the session keep one `f32` in semitones (the
+fraction is the cents), so old sessions load as they were. `split_cents` (`app.rs`) shows
+it as whole semitones and cents; exactly half a semitone stays on the semitone nearer to
+zero (+50 ct is not shown as +1 st −50 ct). The key shown follows the whole semitones.
+
+**Reference tuning.** The Key tooltip and the top of its menu show the song's tuning as
+`A = 430.7 Hz`, with `(about 432)` when within 3 cents of 432, 435, 442 or 444 Hz, and
+"as heard" when cents are applied. **Set to 440 Hz** sets the cents to cancel the measured
+tuning (Black Hole Sun: +37 ct), keeping the semitones; disabled when already within half
+a cent.
+
+**Accuracy, checked** on Black Hole Sun's stems without drums, relabelling their sample
+rate to move them to known tunings (`key` example):
+
+| Moved to | Expected | Measured |
+|---|---|---|
+| A = 440 | 0 | −1 |
+| A = 432 | −32 | −32 |
+| A = 444 | +16 | +15 |
+| A = 425 | −60 | Gm, +39 (G#m −60 is Gm +40) |
+
+The tuning is measured against the nearest semitone, so beyond ±50 cents it reads as the
+neighbouring key; Set to 440 Hz then tunes to that key, which is right.
 
 ## Key detection
 

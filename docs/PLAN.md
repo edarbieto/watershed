@@ -535,18 +535,21 @@ with step 4.5 of Phase 4, the measurement step.
 Asked by the user after using v0.1.1 (2026-11-11). The user answered the open questions the
 same day; their answers are folded in below.
 
-- [ ] **Fine pitch in cents** (moved from "Feature ideas"). The engine already takes the
+- [x] **Fine pitch in cents** (moved from "Feature ideas"). The engine already takes the
   transposition as an `f32` in semitones (`stretch.rs`), so this is UI and session work: a
   cents value next to the semitones (−50 to +50, step 1), stored in the session
-  as one `f32`. Pitch-locked tracks stay as they are.
-- [ ] **Reference tuning (A = 440, 432, …).** Already measured: `Chroma` finds where the
+  as one `f32`. Pitch-locked tracks stay as they are. **Done** (see "Cents and reference
+  tuning" in `STATUS.md`).
+- [x] **Reference tuning (A = 440, 432, …).** Already measured: `Chroma` finds where the
   energy falls within the semitone (circular mean, see "Key detection" in `STATUS.md`).
   Show it as `A = 437.2 Hz` (nearest named reference: 440, 432, 444…) in the Key tooltip
   and the song info, plus a **"Set to 440 Hz"** button (approved) that sets the cents of the
   item above to cancel it. Its accuracy on stems still needs checking: the tuning of a song
   at A = 448.6 Hz was read right, songs at 432 not tried. **Reference song: Soundgarden's
   "Black Hole Sun"** (chosen by the user): the `key` example on its stems without drums
-  reads G#m with a tuning of −37 cents, A ≈ 430.7 Hz.
+  reads G#m with a tuning of −37 cents, A ≈ 430.7 Hz. **Done** in the Key tooltip and
+  menu (the song info panel does not exist yet); accuracy checked, see "Cents and reference
+  tuning" in `STATUS.md`.
 - [ ] **Key with an online source as a prior.** Look the song up (artist and title from
   the tags or the file name) and let the published key weigh in: e.g. if it is among the
   top 2–3 estimates, it wins; if it is far off, both show with the reason. Candidates:
@@ -692,7 +695,7 @@ Discussed with the user, not designed yet. Ordered by value for practicing.
 
 - [ ] **Speed trainer:** a loop that raises the tempo by X % every N repetitions (e.g. from
   70 % to 100 %). Builds on the A-B loops.
-- [ ] **Fine pitch in cents:** for recordings not tuned to 440 Hz or slightly off (common on
+- [x] **Fine pitch in cents:** for recordings not tuned to 440 Hz or slightly off (common on
   old records). Today the pitch moves in whole semitones. Moved to v0.2.
 - [ ] **MIDI pedal or keyboard control:** play / pause, back to the loop start, set A and B
   without letting go of the instrument.
