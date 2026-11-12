@@ -27,9 +27,14 @@ ureq.workspace = true
 # OpenGL on macOS: see `main.rs`.
 eframe = { workspace = true, features = ["glow"] }
 libc.workspace = true
+# The system menu bar: see `menu.rs`.
+muda = { version = "0.21", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+# The window's menu bar: see `menu.rs`.
+muda = { version = "0.21", default-features = false }
+raw-window-handle = "0.6"
 
 # The icon and version info inside the .exe: see `build.rs`.
 [target.'cfg(windows)'.build-dependencies]

@@ -16,6 +16,7 @@ use crate::key::{self, SongKey};
 use crate::loader::{self, LoadedSong, Loading, Resampled};
 use crate::loops::Loops;
 use crate::markers::Markers;
+use crate::menu::{self, MenuCommand, Menus, Status};
 use crate::metronome::{self, Metronome};
 use crate::playhead::Playhead;
 use crate::rulers::{self, GridAction, LoopAction, RulerAction};
@@ -61,7 +62,8 @@ const SIDE_PANEL_WIDTH: f32 = 280.0;
 /// Narrowest waveform the minimum window size leaves room for.
 const MIN_WAVEFORM_WIDTH: f32 = 200.0;
 /// Below this, the song title is left out of the top bar (it is in the window title).
-const MIN_TITLE_WIDTH: f32 = 100.0;
+/// Characters of the song title shown in the top bar.
+const MAX_TITLE_CHARS: usize = 48;
 /// Number keys jump to markers 1 to 9, like Reaper.
 const MARKER_KEYS: [Key; 9] = [
     Key::Num1,
@@ -201,10 +203,15 @@ pub struct WatershedApp {
     /// in the last frame (it is focused and cleared when it opens).
     recent_menu_search: String,
     recent_menu_open: bool,
+    /// File, Edit, Playback, View and Help: the system's menus, or drawn here.
+    menus: Menus,
+    /// The About window, where the system has none (Linux).
+    about_open: bool,
 }
 
 impl WatershedApp {
-    pub fn new(ctx: &egui::Context, storage: Option<&dyn eframe::Storage>) -> Self {
+    pub fn new(cc: &eframe::CreationContext) -> Self {
+        let (ctx, storage) = (&cc.egui_ctx, cc.storage);
         let config = Config::load();
         update::clean_up();
         let mut updater = Updater::new();
@@ -265,6 +272,8 @@ impl WatershedApp {
             recent_search: String::new(),
             recent_menu_search: String::new(),
             recent_menu_open: false,
+            menus: Menus::new(cc),
+            about_open: false,
         }
     }
 
@@ -804,9 +813,6 @@ impl WatershedApp {
             self.open(&dropped, ui.ctx());
         }
 
-        if ui.input_mut(|i| i.consume_shortcut(&SETTINGS_SHORTCUT)) {
-            self.settings_open = !self.settings_open;
-        }
         if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
@@ -1030,61 +1036,206 @@ impl WatershedApp {
         }
     }
 
+    /// The menus: brought up to date, drawn where the system has none, and the
+    /// commands chosen in them (or by their Cmd / Ctrl keys) run.
+    fn menus(&mut self, ui: &mut egui::Ui) {
+        let recent: Vec<PathBuf> = self.config.recent.iter().map(|r| r.path.clone()).collect();
+        let statuses: std::collections::HashMap<MenuCommand, Status> = menu::commands(recent.len())
+            .into_iter()
+            .map(|command| (command, self.menu_status(command, &recent)))
+            .collect();
+        let status = |command| {
+            statuses.get(&command).copied().unwrap_or(Status {
+                enabled: false,
+                checked: false,
+            })
+        };
+        let mut chosen = self.menus.chosen();
+        chosen.extend(menu::shortcut_pressed(ui.ctx()));
+        self.menus.update(&status, &recent);
+        if !self.menus.is_native() {
+            egui::Panel::top("menu_bar").show(ui, |ui| {
+                chosen.extend(self.menus.bar(ui, &status, &recent));
+            });
+        }
+        for command in chosen {
+            if status(command).enabled {
+                self.run_menu(command, &recent, ui.ctx());
+            }
+        }
+    }
+
+    /// Whether a menu command can run now, and whether its item is checked.
+    fn menu_status(&self, command: MenuCommand, recent: &[PathBuf]) -> Status {
+        use MenuCommand as C;
+        let loaded = self.loaded.is_some() && self.engine.is_some();
+        let grid = loaded && self.grid.enabled && self.bpm.value().is_some();
+        let beats = self.metronome_beats().is_some();
+        let current = self
+            .loaded
+            .as_ref()
+            .and_then(|loaded| loaded.files[0].parent());
+        let (enabled, checked) = match command {
+            C::About
+            | C::CheckForUpdates
+            | C::Settings
+            | C::Quit
+            | C::OpenFolder
+            | C::SeparateSong
+            | C::Shortcuts
+            | C::Website
+            | C::ReportProblem => (true, false),
+            C::OpenRecent(index) => (
+                recent
+                    .get(index)
+                    .is_some_and(|path| path.is_dir() && Some(path.as_path()) != current),
+                false,
+            ),
+            C::ClearRecent => (!recent.is_empty(), false),
+            C::Reload
+            | C::ShowInFolder
+            | C::AddMarker
+            | C::SetA
+            | C::SetB
+            | C::PlayPause
+            | C::PlayStop
+            | C::Stop
+            | C::ToStart
+            | C::Back
+            | C::Forward
+            | C::ResetTempo
+            | C::ResetPitch
+            | C::ZoomIn
+            | C::ZoomOut => (loaded, false),
+            C::ZoomToFit => (loaded && !self.view.is_full(), false),
+            C::ClearLoop => (
+                loaded && (self.loops.a.is_some() || self.loops.b.is_some()),
+                false,
+            ),
+            C::SaveLoop => (loaded && self.loops.region().is_some(), false),
+            C::Loop => (loaded && self.loops.region().is_some(), self.loops.enabled),
+            C::Click => (beats, self.metronome.click),
+            C::CountIn => (beats, self.metronome.count_in),
+            C::TapTempo => (loaded && self.grid.enabled, false),
+            C::Grid => (loaded, self.grid.enabled),
+            C::Snap => (true, self.config.snap_to_grid),
+            C::Dynamic => (grid && self.grid.can_follow(), self.grid.dynamic),
+            C::Chords => (grid, self.config.show_chords),
+            C::SidePanel => (loaded, self.config.show_side_panel),
+        };
+        Status { enabled, checked }
+    }
+
+    fn run_menu(&mut self, command: MenuCommand, recent: &[PathBuf], ctx: &egui::Context) {
+        use MenuCommand as C;
+        match command {
+            C::About => self.about_open = true,
+            C::CheckForUpdates => {
+                self.updater.check(false, ctx);
+                self.settings_open = true;
+            }
+            C::Settings => self.settings_open = true,
+            C::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            C::OpenFolder => self.pick_folder(ctx),
+            C::SeparateSong => self.pick_song(ctx),
+            C::OpenRecent(index) => {
+                if let Some(path) = recent.get(index) {
+                    self.open(std::slice::from_ref(path), ctx);
+                }
+            }
+            C::ClearRecent => {
+                self.config.recent.clear();
+                self.config.save();
+            }
+            C::Reload => self.reload(ctx),
+            C::ShowInFolder => {
+                if let Some(folder) = self
+                    .loaded
+                    .as_ref()
+                    .and_then(|loaded| loaded.files[0].parent())
+                {
+                    menu::show_in_file_manager(folder);
+                }
+            }
+            C::AddMarker => self.apply(Action::AddMarker),
+            C::SetA => self.apply(Action::SetA),
+            C::SetB => self.apply(Action::SetB),
+            C::ClearLoop => self.apply(Action::ClearLoop),
+            C::SaveLoop => {
+                self.loops.save();
+            }
+            C::PlayPause => self.apply(Action::PlayPause),
+            C::PlayStop => self.apply(Action::PlayStop),
+            C::Stop => {
+                if let Some(engine) = &mut self.engine {
+                    engine.stop();
+                }
+                self.transport_keys.seeked(0.0);
+            }
+            C::ToStart => self.apply(Action::ToStart),
+            C::Back => self.apply(Action::Skip(-SKIP_SECS)),
+            C::Forward => self.apply(Action::Skip(SKIP_SECS)),
+            C::Loop => self.apply(Action::ToggleLoop),
+            C::Click => self.apply(Action::ToggleClick),
+            C::CountIn => self.metronome.count_in = !self.metronome.count_in,
+            C::TapTempo => self.apply(Action::Tap),
+            C::ResetTempo => {
+                if let Some(engine) = &mut self.engine {
+                    engine.set_tempo(1.0);
+                }
+            }
+            C::ResetPitch => {
+                if let Some(engine) = &mut self.engine {
+                    engine.set_semitones(0.0);
+                }
+            }
+            C::ZoomIn => self.apply(Action::Zoom(ZOOM_STEP)),
+            C::ZoomOut => self.apply(Action::Zoom(1.0 / ZOOM_STEP)),
+            C::ZoomToFit => self.apply(Action::ZoomToFit),
+            C::Grid => self.grid.enabled = !self.grid.enabled,
+            C::Snap => {
+                self.config.snap_to_grid = !self.config.snap_to_grid;
+                self.config.save();
+            }
+            C::Dynamic => self.grid.dynamic = !self.grid.dynamic,
+            C::Chords => {
+                self.config.show_chords = !self.config.show_chords;
+                self.config.save();
+            }
+            C::SidePanel => {
+                self.config.show_side_panel = !self.config.show_side_panel;
+                self.config.save();
+            }
+            C::Shortcuts => self.shortcuts_open = true,
+            C::Website => ctx.open_url(egui::OpenUrl::new_tab(menu::PROJECT_URL)),
+            C::ReportProblem => ctx.open_url(egui::OpenUrl::new_tab(menu::ISSUES_URL)),
+        }
+    }
+
+    /// The About window, where the system has none.
+    fn about_window(&mut self, ctx: &egui::Context) {
+        egui::Window::new("About Watershed")
+            .open(&mut self.about_open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.heading(format!("Watershed {}", env!("CARGO_PKG_VERSION")));
+                ui.label(env!("CARGO_PKG_DESCRIPTION"));
+                ui.hyperlink(menu::PROJECT_URL);
+            });
+    }
+
+    /// The song (a menu of the recent ones, with a search) and what is known about
+    /// it; the output device, the master volume and the machine's load.
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui.button("Open folder…").clicked() {
-                self.pick_folder(ui.ctx());
-            }
-            if ui
-                .button("Separate song…")
-                .on_hover_text("Split a song file into stems (vocals, drums, bass, …)")
-                .clicked()
-            {
-                self.pick_song(ui.ctx());
-            }
             self.recent_menu(ui);
-            if ui
-                .add_enabled(self.loaded.is_some(), egui::Button::new("Reload"))
-                .on_hover_text(
-                    "Read the song folder again, for added, removed or renamed stems (F5). \
-                     Tracks that are still there keep their settings.",
-                )
-                .clicked()
-            {
-                self.reload(ui.ctx());
+            if let Some(info) = self.song_info() {
+                ui.label(RichText::new(info).weak());
             }
 
             let left = ui.min_rect().width();
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let update = self.updater.available();
-                if ui
-                    .selectable_label(self.settings_open, "⚙")
-                    .on_hover_text(format!(
-                        "Settings ({})",
-                        ui.ctx().format_shortcut(&SETTINGS_SHORTCUT)
-                    ))
-                    .clicked()
-                {
-                    self.settings_open = !self.settings_open;
-                }
-                if let Some(version) = update
-                    && ui
-                        .button(
-                            RichText::new(format!("Update to {version}"))
-                                .color(ui.visuals().warn_fg_color),
-                        )
-                        .on_hover_text("A new version is available: see Settings")
-                        .clicked()
-                {
-                    self.settings_open = true;
-                }
-                if ui
-                    .selectable_label(self.shortcuts_open, "?")
-                    .on_hover_text("Keyboard shortcuts (?)")
-                    .clicked()
-                {
-                    self.shortcuts_open = !self.shortcuts_open;
-                }
                 if let Some(engine) = &self.engine {
                     let mut db = gain_to_db(engine.master_gain());
                     let response = ui.add(volume_slider(&mut db)).on_hover_text(VOLUME_HINT);
@@ -1098,21 +1249,48 @@ impl WatershedApp {
                 }
                 self.device_picker(ui);
                 ui.label("Output");
+                ui.separator();
                 self.usage_label(ui);
-                self.top_bar_width = left + ui.spacing().item_spacing.x + ui.min_rect().width();
-                // Last, so a long title gets what is left and is cut short instead
-                // of overlapping the controls on the right. The window title has it
-                // too, for when there is no room here.
-                if let Some(loaded) = &self.loaded
-                    && ui.available_width() > MIN_TITLE_WIDTH
+                if let Some(version) = self.updater.available()
+                    && ui
+                        .button(
+                            RichText::new(format!("Update to {version}"))
+                                .color(ui.visuals().warn_fg_color),
+                        )
+                        .on_hover_text("A new version is available: see Settings")
+                        .clicked()
                 {
-                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        ui.add(egui::Label::new(RichText::new(&loaded.title).strong()).truncate())
-                            .on_hover_text(&loaded.title);
-                    });
+                    self.settings_open = true;
                 }
+                self.top_bar_width = left + ui.spacing().item_spacing.x + ui.min_rect().width();
             });
         });
+    }
+
+    /// `Key A · 150 BPM · 4/4 · 3:31`: the key as heard, the BPM, bar 1's time
+    /// signature and the length, as far as known.
+    fn song_info(&self) -> Option<String> {
+        let loaded = self.loaded.as_ref()?;
+        let semitones = self
+            .engine
+            .as_ref()
+            .map_or(0.0, |e| split_cents(e.semitones()).0) as i32;
+        let mut parts = Vec::new();
+        if let Some(key) = self.song_key.value() {
+            parts.push(format!("Key {}", key.transposed(semitones)));
+        }
+        if let Some(bpm) = self.bpm.value() {
+            parts.push(format!("{bpm:.0} BPM"));
+        }
+        if self.grid.enabled {
+            parts.push(format!(
+                "{}/{}",
+                self.grid.beats_per_bar, self.grid.beat_unit
+            ));
+        }
+        let secs = loaded.song.duration_secs().round() as u64;
+        parts.push(format!("{}:{:02}", secs / 60, secs % 60));
+        Some(parts.join(" · "))
     }
 
     /// Keeps the window from getting smaller than its contents need, so controls
@@ -1174,7 +1352,14 @@ impl WatershedApp {
             // be clicked: the items close it themselves.
             let config = egui::containers::menu::MenuConfig::new()
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-            let (_, menu) = egui::containers::menu::MenuButton::new("Recent")
+            // The open song's title, shortened: its full title is in the window's.
+            let label = match &self.loaded {
+                Some(loaded) => {
+                    RichText::new(format!("{} ⏷", shorten(&loaded.title, MAX_TITLE_CHARS))).strong()
+                }
+                None => RichText::new("Recent songs ⏷"),
+            };
+            let (_, menu) = egui::containers::menu::MenuButton::new(label)
                 .config(config)
                 .ui(ui, |ui| {
                     let current = self
@@ -1255,6 +1440,7 @@ impl WatershedApp {
         let mut open = None;
         let mut forget = None;
         let mut change_library = false;
+        let (mut pick_folder, mut pick_song) = (false, false);
         ui.vertical_centered(|ui| {
             ui.add_space(48.0);
             ui.label(
@@ -1281,6 +1467,12 @@ impl WatershedApp {
             let row = measure(text.clone())
                 + ui.spacing().item_spacing.x
                 + measure(RichText::new("Change…").small());
+            // The buttons below, also in the File menu.
+            let padding = 2.0 * ui.spacing().button_padding.x;
+            let buttons = measure(RichText::new("Open Folder…"))
+                + measure(RichText::new("Separate Song…"))
+                + 2.0 * padding
+                + ui.spacing().item_spacing.x;
             ui.horizontal(|ui| {
                 ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
                 ui.label(text)
@@ -1288,6 +1480,18 @@ impl WatershedApp {
                 if ui.small_button("Change…").clicked() {
                     change_library = true;
                 }
+            });
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                ui.add_space(((ui.available_width() - buttons) / 2.0).max(0.0));
+                pick_folder = ui
+                    .button("Open Folder…")
+                    .on_hover_text("Open a folder of stems")
+                    .clicked();
+                pick_song = ui
+                    .button("Separate Song…")
+                    .on_hover_text("Split a song file into stems (vocals, drums, bass, …)")
+                    .clicked();
             });
             if self.config.recent.is_empty() {
                 return;
@@ -1298,6 +1502,12 @@ impl WatershedApp {
         });
         if change_library {
             self.pick_library(ui.ctx());
+        }
+        if pick_folder {
+            self.pick_folder(ui.ctx());
+        }
+        if pick_song {
+            self.pick_song(ui.ctx());
         }
         if self.config.recent.is_empty() {
             return;
@@ -1573,6 +1783,14 @@ impl WatershedApp {
             .grid_beats()
             .filter(|_| self.grid.dynamic || self.grid.tempo_changed_by(position))
             .map(|beats| self.grid.local_bpm(&beats, position));
+        let bar_beat = self.grid_beats().and_then(|beats| {
+            // The beat at or before the playhead, from bar 1 on.
+            let index = beats.first_from(position + 1e-4) - 1;
+            (index >= 0).then(|| {
+                let (bar, beat) = beats.bar_of(index);
+                format!("bar {}.{}", bar + 1, beat + 1)
+            })
+        });
         ui.horizontal(|ui| {
             let Some(engine) = &mut self.engine else {
                 ui.label("No audio output");
@@ -1584,168 +1802,188 @@ impl WatershedApp {
                     .on_hover_text(hint)
                     .clicked()
             };
-            if button(ui, "⏮", "Back to the start, or to the loop start (Home)") {
-                action = Some(Action::ToStart);
-            }
-            if button(
-                ui,
-                "⏪",
-                "Back 5 seconds, or to the previous grid line with snap on (Left arrow)",
-            ) {
-                action = Some(Action::Skip(-SKIP_SECS));
-            }
-            let play_label = if engine.is_playing() { "⏸" } else { "▶" };
-            if button(
-                ui,
-                play_label,
-                "Play / pause where it is (Enter). Space stops and goes back to where \
+            group(ui, "Transport", |ui| {
+                if button(ui, "⏮", "Back to the start, or to the loop start (Home)") {
+                    action = Some(Action::ToStart);
+                }
+                if button(
+                    ui,
+                    "⏪",
+                    "Back 5 seconds, or to the previous grid line with snap on (Left arrow)",
+                ) {
+                    action = Some(Action::Skip(-SKIP_SECS));
+                }
+                let play_label = if engine.is_playing() { "⏸" } else { "▶" };
+                if button(
+                    ui,
+                    play_label,
+                    "Play / pause where it is (Enter). Space stops and goes back to where \
                  playback started.",
-            ) {
-                action = Some(Action::PlayPause);
-            }
-            if button(ui, "⏹", "Stop") {
-                engine.stop();
-                self.transport_keys.seeked(0.0);
-            }
-            if button(
-                ui,
-                "⏩",
-                "Forward 5 seconds, or to the next grid line with snap on (Right arrow)",
-            ) {
-                action = Some(Action::Skip(SKIP_SECS));
-            }
+                ) {
+                    action = Some(Action::PlayPause);
+                }
+                if button(ui, "⏹", "Stop") {
+                    engine.stop();
+                    self.transport_keys.seeked(0.0);
+                }
+                if button(
+                    ui,
+                    "⏩",
+                    "Forward 5 seconds, or to the next grid line with snap on (Right arrow)",
+                ) {
+                    action = Some(Action::Skip(SKIP_SECS));
+                }
 
-            if let Some(loaded) = &self.loaded {
-                let rate = f64::from(engine.sample_rate());
-                ui.label(
-                    RichText::new(format!(
-                        "{} / {}",
-                        format_time(engine.position() as f64 / rate),
-                        format_time(loaded.song.duration_secs())
-                    ))
-                    .monospace(),
+                if let Some(loaded) = &self.loaded {
+                    let rate = f64::from(engine.sample_rate());
+                    ui.label(
+                        RichText::new(format!(
+                            "{} / {}",
+                            format_time(engine.position() as f64 / rate),
+                            format_time(loaded.song.duration_secs())
+                        ))
+                        .monospace(),
+                    );
+                    // Room kept, so the bar does not change width as the bars count up.
+                    let width = text_width(ui, RichText::new("bar 000.00").monospace());
+                    add_with_width(
+                        ui,
+                        width,
+                        egui::Label::new(
+                            RichText::new(bar_beat.unwrap_or_default())
+                                .monospace()
+                                .weak(),
+                        ),
+                    )
+                    .on_hover_text("Bar and beat at the playhead");
+                }
+            });
+
+            ui.separator();
+            group(ui, "Loop", |ui| {
+                if ui
+                    .add_enabled(enabled, egui::Button::new("A"))
+                    .on_hover_text("Start a new loop here (A)")
+                    .clicked()
+                {
+                    action = Some(Action::SetA);
+                }
+                if ui
+                    .add_enabled(enabled, egui::Button::new("B"))
+                    .on_hover_text("Set the loop end here and start looping (B)")
+                    .clicked()
+                {
+                    action = Some(Action::SetB);
+                }
+                let can_loop = self.loops.region().is_some();
+                if ui
+                    .add_enabled(
+                        can_loop,
+                        egui::Button::selectable(self.loops.enabled, "Loop"),
+                    )
+                    .on_hover_text("Loop between A and B (L). Drag on a waveform to select a loop.")
+                    .clicked()
+                {
+                    action = Some(Action::ToggleLoop);
+                }
+                let has_ends = self.loops.a.is_some() || self.loops.b.is_some();
+                if ui
+                    .add_enabled(has_ends, egui::Button::new("Clear"))
+                    .on_hover_text("Forget A and B (saved loops stay)")
+                    .clicked()
+                {
+                    action = Some(Action::ClearLoop);
+                }
+                // The space is kept when there is no loop, so the bar (and the minimum
+                // window size) does not change width when one is set.
+                let ends = if has_ends {
+                    let end = |t: Option<f64>| t.map_or("?".to_owned(), format_time);
+                    format!("{} → {}", end(self.loops.a), end(self.loops.b))
+                } else {
+                    String::new()
+                };
+                let width = text_width(ui, RichText::new("00:00.0 → 00:00.0").monospace());
+                add_with_width(
+                    ui,
+                    width,
+                    egui::Label::new(RichText::new(ends).monospace().weak()),
                 );
-            }
+            });
 
             ui.separator();
-            if ui
-                .add_enabled(enabled, egui::Button::new("A"))
-                .on_hover_text("Start a new loop here (A)")
-                .clicked()
-            {
-                action = Some(Action::SetA);
-            }
-            if ui
-                .add_enabled(enabled, egui::Button::new("B"))
-                .on_hover_text("Set the loop end here and start looping (B)")
-                .clicked()
-            {
-                action = Some(Action::SetB);
-            }
-            let can_loop = self.loops.region().is_some();
-            if ui
-                .add_enabled(
-                    can_loop,
-                    egui::Button::selectable(self.loops.enabled, "Loop"),
-                )
-                .on_hover_text("Loop between A and B (L). Drag on a waveform to select a loop.")
-                .clicked()
-            {
-                action = Some(Action::ToggleLoop);
-            }
-            let has_ends = self.loops.a.is_some() || self.loops.b.is_some();
-            if ui
-                .add_enabled(has_ends, egui::Button::new("Clear"))
-                .on_hover_text("Forget A and B (saved loops stay)")
-                .clicked()
-            {
-                action = Some(Action::ClearLoop);
-            }
-            // The space is kept when there is no loop, so the bar (and the minimum
-            // window size) does not change width when one is set.
-            let ends = if has_ends {
-                let end = |t: Option<f64>| t.map_or("?".to_owned(), format_time);
-                format!("{} → {}", end(self.loops.a), end(self.loops.b))
-            } else {
-                String::new()
-            };
-            let width = text_width(ui, RichText::new("00:00.0 → 00:00.0").monospace());
-            add_with_width(
-                ui,
-                width,
-                egui::Label::new(RichText::new(ends).monospace().weak()),
-            );
+            group(ui, "Tempo", |ui| {
+                let mut percent = engine.tempo() * 100.0;
+                let response = ui
+                    .add(
+                        egui::Slider::new(&mut percent, MIN_TEMPO_PCT..=MAX_TEMPO_PCT)
+                            .step_by(1.0)
+                            .suffix(" %"),
+                    )
+                    .on_hover_text("Tempo, without changing the pitch (double-click to reset)");
+                if double_clicked(&response) {
+                    engine.set_tempo(1.0);
+                } else if response.changed() {
+                    engine.set_tempo(percent / 100.0);
+                }
+                bpm_controls(
+                    ui,
+                    &mut self.bpm,
+                    &mut self.grid,
+                    local_bpm,
+                    f64::from(engine.tempo()),
+                    enabled,
+                );
+            });
 
             ui.separator();
-            let mut percent = engine.tempo() * 100.0;
-            let response = ui
-                .add(
-                    egui::Slider::new(&mut percent, MIN_TEMPO_PCT..=MAX_TEMPO_PCT)
-                        .step_by(1.0)
-                        .suffix(" %"),
-                )
-                .on_hover_text("Tempo, without changing the pitch (double-click to reset)");
-            if double_clicked(&response) {
-                engine.set_tempo(1.0);
-            } else if response.changed() {
-                engine.set_tempo(percent / 100.0);
-            }
-            ui.label("Tempo");
-            bpm_controls(
-                ui,
-                &mut self.bpm,
-                &mut self.grid,
-                local_bpm,
-                f64::from(engine.tempo()),
-                enabled,
-            );
-
-            ui.separator();
-            // The transposition is one value, shown as whole semitones and cents.
-            let (mut semitones, mut cents) = split_cents(engine.semitones());
-            let response = ui
-                .add(
-                    egui::Slider::new(&mut semitones, -MAX_SEMITONES..=MAX_SEMITONES)
-                        .step_by(1.0)
-                        .custom_formatter(|v, _| format!("{v:+.0} st"))
-                        .custom_parser(|t| t.trim().trim_end_matches("st").trim().parse().ok()),
-                )
-                .on_hover_text("Transpose in semitones (double-click to reset)");
-            if double_clicked(&response) {
-                engine.set_semitones(cents / 100.0);
-            } else if response.changed() {
-                engine.set_semitones(semitones + cents / 100.0);
-            }
-            let response = ui
-                .add(
-                    egui::DragValue::new(&mut cents)
-                        .range(-MAX_CENTS..=MAX_CENTS)
-                        .speed(0.25)
-                        .fixed_decimals(0)
-                        .custom_formatter(|v, _| format!("{v:+.0} ct"))
-                        .custom_parser(|t| t.trim().trim_end_matches("ct").trim().parse().ok()),
-                )
-                .on_hover_text(
-                    "Fine pitch in cents, a hundredth of a semitone: drag or type \
+            group(ui, "Pitch & key", |ui| {
+                // The transposition is one value, shown as whole semitones and cents.
+                let (mut semitones, mut cents) = split_cents(engine.semitones());
+                let response = ui
+                    .add(
+                        egui::Slider::new(&mut semitones, -MAX_SEMITONES..=MAX_SEMITONES)
+                            .step_by(1.0)
+                            .custom_formatter(|v, _| format!("{v:+.0} st"))
+                            .custom_parser(|t| t.trim().trim_end_matches("st").trim().parse().ok()),
+                    )
+                    .on_hover_text("Transpose in semitones (double-click to reset)");
+                if double_clicked(&response) {
+                    engine.set_semitones(cents / 100.0);
+                } else if response.changed() {
+                    engine.set_semitones(semitones + cents / 100.0);
+                }
+                let response = ui
+                    .add(
+                        egui::DragValue::new(&mut cents)
+                            .range(-MAX_CENTS..=MAX_CENTS)
+                            .speed(0.25)
+                            .fixed_decimals(0)
+                            .custom_formatter(|v, _| format!("{v:+.0} ct"))
+                            .custom_parser(|t| t.trim().trim_end_matches("ct").trim().parse().ok()),
+                    )
+                    .on_hover_text(
+                        "Fine pitch in cents, a hundredth of a semitone: drag or type \
                      (double-click to reset)",
-                );
-            if double_clicked(&response) {
-                engine.set_semitones(semitones);
-            } else if response.changed() {
-                engine.set_semitones(semitones + cents.round() / 100.0);
-            }
-            ui.label("Pitch");
-            let (semitones, cents) = split_cents(engine.semitones());
-            if let Some(cents) =
-                key::controls(ui, &mut self.song_key, semitones as i32, cents, enabled)
-            {
-                engine.set_semitones(semitones + cents / 100.0);
-            }
+                    );
+                if double_clicked(&response) {
+                    engine.set_semitones(semitones);
+                } else if response.changed() {
+                    engine.set_semitones(semitones + cents.round() / 100.0);
+                }
+                let (semitones, cents) = split_cents(engine.semitones());
+                if let Some(cents) =
+                    key::controls(ui, &mut self.song_key, semitones as i32, cents, enabled)
+                {
+                    engine.set_semitones(semitones + cents / 100.0);
+                }
+            });
 
             ui.separator();
-            if metronome::controls(ui, &mut self.metronome, &mut self.config, has_beats) {
-                self.config.save();
-            }
+            group(ui, "Metronome", |ui| {
+                if metronome::controls(ui, &mut self.metronome, &mut self.config, has_beats) {
+                    self.config.save();
+                }
+            });
 
             let used = ui.min_rect().width();
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -2558,8 +2796,10 @@ impl eframe::App for WatershedApp {
 
         self.update_playhead();
 
+        self.menus(ui);
         self.settings_window(ui.ctx());
         shortcuts::window(ui.ctx(), &mut self.shortcuts_open);
+        self.about_window(ui.ctx());
         let top_bar = egui::Panel::top("top_bar").show(ui, |ui| {
             let margins = panel_margins(ui);
             ui.add_space(4.0);
@@ -2577,7 +2817,7 @@ impl eframe::App for WatershedApp {
             }
             ui.add_space(2.0);
         });
-        let side_width = if self.loaded.is_some() {
+        let side_width = if self.loaded.is_some() && self.config.show_side_panel {
             egui::Panel::right("side_panel")
                 .resizable(true)
                 .default_size(SIDE_PANEL_WIDTH)
@@ -2758,8 +2998,6 @@ fn file_name(path: &std::path::Path) -> String {
 }
 
 const VOLUME_HINT: &str = "Double-click to reset to 0 dB";
-const SETTINGS_SHORTCUT: egui::KeyboardShortcut =
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Comma);
 const CHANGE_POPUP_WIDTH: f32 = 300.0;
 const CHANGE_NOTE: &str = "The tempo counts the beats of bar 1's time signature. \
     With Dynamic on, roughly is enough: the beats are found around it.";
@@ -2845,7 +3083,7 @@ fn panel_margins(ui: &egui::Ui) -> f32 {
     ui.ctx().content_rect().width() - ui.max_rect().width()
 }
 
-/// The grid switch, the time signature and "1 here", beside the bar ruler.
+/// The grid switch, the time signature, "Set first bar" and snap, beside the grid rows.
 fn grid_controls(
     ui: &mut egui::Ui,
     grid: &mut Grid,
@@ -2880,7 +3118,7 @@ fn grid_controls(
             .on_hover_text("Note value of a beat: the BPM counts these");
         ui.add_space(6.0);
         if ui
-            .add_enabled(has_bpm, egui::Button::new("1 here").small())
+            .add_enabled(has_bpm, egui::Button::new("Set first bar").small())
             .on_hover_text(
                 "Start bar 1 at the playhead. Or drag the bar 1 row; double-click it to \
                  go back to the estimate.",
@@ -3229,6 +3467,25 @@ fn volume_slider(db: &mut f32) -> egui::Slider<'_> {
                 format!("{v:+.1} dB")
             }
         })
+}
+
+/// A group of the bottom bar: a small caption over its controls.
+fn group(ui: &mut egui::Ui, caption: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.label(RichText::new(caption.to_uppercase()).small().weak());
+        ui.horizontal(add_contents);
+    });
+}
+
+/// `text` cut to `max` characters, with an ellipsis when cut.
+fn shorten(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_owned()
+    } else {
+        let cut: String = text.chars().take(max.saturating_sub(1)).collect();
+        format!("{}…", cut.trim_end())
+    }
 }
 
 /// A transposition in semitones as whole semitones and cents (-50 to 50).

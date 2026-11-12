@@ -40,6 +40,8 @@ pub struct Config {
     /// Whether the chord lane estimates and shows the chords. Off by default: the
     /// user turns it on.
     pub show_chords: bool,
+    /// Whether the markers and loops panel is shown.
+    pub show_side_panel: bool,
     /// The metronome's sound, channels and level, the same for every song.
     pub click_sound: ClickSound,
     pub click_channels: ClickChannels,
@@ -67,6 +69,7 @@ impl Default for Config {
             stem_format: StemFormat::default(),
             snap_to_grid: true,
             show_chords: false,
+            show_side_panel: true,
             click_sound: ClickSound::default(),
             click_channels: ClickChannels::default(),
             click_volume_db: -6.0,
@@ -221,6 +224,7 @@ mod tests {
             stem_format: StemFormat::Lossless,
             snap_to_grid: false,
             show_chords: false,
+            show_side_panel: false,
             click_sound: ClickSound::Wood,
             click_channels: ClickChannels::Left,
             click_volume_db: -12.5,
