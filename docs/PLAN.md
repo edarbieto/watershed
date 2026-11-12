@@ -574,8 +574,10 @@ same day; their answers are folded in below.
   - **Delete a track** (with a button too): a soft delete, the file stays on disk and the
     session lists it (e.g. `deleted_tracks`); undoable.
   - **Drag the playhead with the mouse** without moving bar 1: dragging the time ruler or
-    the playhead line seeks. **Bar 1 moves with Alt + drag** on the bar ruler (Option on
-    macOS); a plain drag there seeks too.
+    the playhead line seeks. ~~Bar 1 moves with Alt + drag on the bar ruler.~~ Superseded
+    by the ruler rows (2026-11-12, see "Ruler rows" in `STATUS.md`): bar 1 has its own
+    row, and the time and bars rows seek. Dragging the playhead line over the waveforms is
+    still to do.
   - Rename **"1 here" to "Set first bar"** (bar 1 is not always where the audio starts:
     pickups, free intros).
   - Missing buttons for what only has a shortcut today, and the `?` window kept in sync.

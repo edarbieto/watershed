@@ -135,7 +135,8 @@ line"). Remember the window: done, tried by the user on macOS (maximized include
 to try on Windows (see "Remember the window"). The key with an online prior moved to the
 backlog (decided by the user on 2026-11-12, see `PLAN.md`). **Chords on the grid: done**, tried
 by the user: works, not precise, as expected (see "Chords on the grid"). Chords set by the
-user: backlog.
+user: backlog. Chords now **off by default** (asked by the user). **Ruler rows: built, to try
+by the user** (see "Ruler rows").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2424,6 +2425,42 @@ moved in time.
 3. With ↔ off, dragging still selects a loop; with it on, a click still seeks.
 4. Double-click the offset label: the track goes back to 0.
 5. Close and reopen: the offset is kept and ↔ is off again.
+
+## Ruler rows
+
+Asked by the user 2026-11-12: bar 1's time signature tag and a change at bar 1 (e.g. a fixed
+tempo there) were drawn on top of each other in the bar ruler's top row. The two rulers
+(time + markers, tags + bars) became one row per job, in two groups (`rulers.rs`), with the
+grid rows together next to the chords (the user's pick between that and their own order;
+if it does not convince, the fallback is their order: time, bars, bar 1, markers, changes,
+chords).
+
+| Group | Row | Gestures |
+|---|---|---|
+| Time (zoom buttons beside) | Seconds, the playhead's handle | Click / drag: seek, never snapped |
+| | Loop | Drag on empty space: new loop; drag near an end: move it; click inside: loop on / off. Snaps when snap is on |
+| | Markers | Double-click: add; click a marker: go to it |
+| Grid (grid controls beside) | Bar 1: flag `Bar 1 · 4/4` | Drag the row: move bar 1; double-click: back to the estimate; click the flag: time signature |
+| | Changes | Right-click: add; click a tag: edit; drag a tag: move |
+| | Bars and beats | Click / drag: to the nearest line drawn |
+| | Chords | As before |
+
+Empty rows show a faint hint ("Drag here to set a loop", "Double-click here to add a
+marker", "Right-click here to change the tempo or time signature"). The time row used to
+snap a seek despite its tooltip; it no longer does. The `?` window and the tooltips name
+the rows. The minimum window size counts the chord lane too (it was left out).
+
+**Test checklist:**
+1. A song with a change at bar 1 ("Be Quiet and Drive"): bar 1's flag and the change no
+   longer overlap.
+2. Drag on the loop row: a loop; drag its ends; click it on and off. With snap on, it
+   lands on grid lines.
+3. Double-click the markers row: a marker; click it from elsewhere: the playhead goes there.
+4. Drag the bar 1 row: bar 1 moves; double-click: back. Click the flag: the time signature
+   popup.
+5. Right-click the changes row; click and drag a tag.
+6. Click and drag the time row (exact) and the bars row (to lines).
+7. Is the grouped order better than your order? Is any row too thin or too tall?
 
 ## Chords on the grid
 
