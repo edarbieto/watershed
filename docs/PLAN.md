@@ -695,6 +695,12 @@ Discussed with the user, not designed yet. Ordered by value for practicing.
 
 - [ ] **Speed trainer:** a loop that raises the tempo by X % every N repetitions (e.g. from
   70 % to 100 %). Builds on the A-B loops.
+- [ ] **Set to 440 Hz in either direction** (idea, not needed for now: the user can set the
+  cents by hand). The tuning is measured against the nearest semitone, so a song recorded
+  in G at A = 440 and sped up 63 cents (Black Hole Sun, per Stereogum) reads as G#m −37 ct
+  (A = 430.7 Hz); librosa agrees. "Set to 440 Hz" gives +37 ct (in tune, in G#); playing it
+  as tabbed (drop D, in G) needs −63 ct. A second choice in the Key menu would offer both:
+  `+37 ct → G#m` and `−63 ct → Gm`.
 - [x] **Fine pitch in cents:** for recordings not tuned to 440 Hz or slightly off (common on
   old records). Today the pitch moves in whole semitones. Moved to v0.2.
 - [ ] **MIDI pedal or keyboard control:** play / pause, back to the loop start, set A and B
