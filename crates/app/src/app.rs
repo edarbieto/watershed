@@ -218,7 +218,7 @@ pub struct WatershedApp {
 
 impl WatershedApp {
     pub fn new(cc: &eframe::CreationContext) -> Self {
-        #[cfg(windows)]
+        #[cfg(any(target_os = "macos", windows))]
         crate::subwindow::owner::init(cc);
         let (ctx, storage) = (&cc.egui_ctx, cc.storage);
         let config = Config::load();

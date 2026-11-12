@@ -1,17 +1,23 @@
-//! Secondary windows (settings, keyboard shortcuts, about) as windows of the system,
-//! with its title bar, instead of egui windows drawn inside the main one.
+//! Secondary windows (settings, keyboard shortcuts, about): always above the main
+//! window and never a separate entry in the window switchers.
 //!
-//! They belong to the main window: one icon in the Dock and in Cmd+Tab on macOS (the
-//! system groups windows by app). On Windows they are owned by the main window, so they
-//! have no taskbar button, stay out of Alt+Tab, stay above the main window and minimize
-//! with it. On Linux (X11) they are dialog windows.
+//! - **macOS:** windows of the system, made child windows of the main one: above it,
+//!   moved with it, left out of Cmd+` (window cycling), Mission Control and the Window
+//!   menu. Cmd+Tab lists apps, so it shows Watershed once (with or without a `.app`).
+//! - **Windows:** windows of the system owned by the main one: above it, minimized
+//!   with it, no taskbar button, not in Alt+Tab.
+//! - **Linux:** egui windows inside the main one. winit has no way to make a window
+//!   the child (transient) of another on X11 or Wayland, and only that keeps a window
+//!   above its parent and out of the switchers there.
 //!
-//! Each one is an immediate egui viewport: it is drawn in the same frame as the main
-//! window, with the app's state at hand. The window fits its contents.
+//! The system windows are immediate egui viewports: drawn in the same frame as the
+//! main window, with the app's state at hand. They fit their contents. egui does not
+//! hand out a viewport's native handle, so `owner::attach` finds the window by title.
 
 use eframe::egui;
 
 /// The space around the contents.
+#[cfg(any(target_os = "macos", windows))]
 const MARGIN: f32 = 16.0;
 
 /// The window's id, also used to focus it.
@@ -43,6 +49,36 @@ pub fn show(
     open: &mut bool,
     contents: impl FnOnce(&mut egui::Ui),
 ) {
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let mut window = egui::Window::new(title)
+            .id(egui::Id::new(("subwindow", name)))
+            .open(open)
+            .collapsible(false)
+            .resizable(false);
+        if let Width::Fixed(w) = width {
+            window = window.default_width(w);
+        }
+        window.show(ctx, |ui| {
+            if let Width::Fit = width {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            }
+            contents(ui);
+        });
+    }
+    #[cfg(any(target_os = "macos", windows))]
+    native(ctx, name, title, width, open, contents);
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn native(
+    ctx: &egui::Context,
+    name: &str,
+    title: &str,
+    width: Width,
+    open: &mut bool,
+    contents: impl FnOnce(&mut egui::Ui),
+) {
     let viewport = id(name);
     let place = egui::Id::new(("subwindow-place", name));
     if !*open {
@@ -64,8 +100,7 @@ pub fn show(
     });
     let position = ctx.data_mut(|d| *d.get_temp_mut_or(place, opening));
 
-    #[allow(unused_mut)]
-    let mut builder = egui::ViewportBuilder::default()
+    let builder = egui::ViewportBuilder::default()
         .with_title(title)
         .with_inner_size(start)
         .with_position(position)
@@ -73,11 +108,6 @@ pub fn show(
         .with_minimize_button(false)
         .with_maximize_button(false)
         .with_taskbar(false);
-    #[cfg(target_os = "linux")]
-    {
-        builder = builder.with_window_type(egui::X11WindowType::Dialog);
-    }
-
     let mut contents = Some(contents);
     let close = ctx.show_viewport_immediate(viewport, builder, |ui, class| {
         let mut draw = |ui: &mut egui::Ui| {
@@ -102,7 +132,6 @@ pub fn show(
             .inner;
         fit(ui.ctx(), width, used);
 
-        #[cfg(windows)]
         owner::attach(title);
 
         ui.ctx().input_mut(|i| {
@@ -118,6 +147,7 @@ pub fn show(
 }
 
 /// Resizes the window to its contents, when they changed size.
+#[cfg(any(target_os = "macos", windows))]
 fn fit(ctx: &egui::Context, width: Width, used: egui::Rect) {
     let Some(inner) = ctx.input(|i| i.viewport().inner_rect) else {
         return;
@@ -135,7 +165,66 @@ fn fit(ctx: &egui::Context, width: Width, used: egui::Rect) {
     }
 }
 
-/// The main window owns the secondary ones (Windows only).
+/// The secondary windows become child windows of the main one (macOS).
+#[cfg(target_os = "macos")]
+pub mod owner {
+    use std::sync::atomic::{AtomicIsize, Ordering};
+
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApp, NSView, NSWindowCollectionBehavior, NSWindowOrderingMode};
+
+    /// The main window's number (0: unknown).
+    static MAIN: AtomicIsize = AtomicIsize::new(0);
+
+    /// Remembers the main window, from the app's creation.
+    pub fn init(cc: &eframe::CreationContext) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if let Ok(handle) = cc.window_handle()
+            && let RawWindowHandle::AppKit(handle) = handle.as_raw()
+        {
+            // Safety: the handle's view is the main window's live NSView, used on the
+            // main thread (the app is created there).
+            let view = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
+            if let Some(window) = view.window() {
+                MAIN.store(window.windowNumber(), Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Makes the window titled `title` a child of the main window, if it is not one
+    /// yet: above the main window, moved with it, out of Cmd+`, Mission Control and the
+    /// Window menu.
+    pub fn attach(title: &str) {
+        let main = MAIN.load(Ordering::Relaxed);
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        if main == 0 {
+            return;
+        }
+        let windows = NSApp(mtm).windows();
+        let parent = windows.iter().find(|w| w.windowNumber() == main);
+        let child = windows
+            .iter()
+            .find(|w| w.windowNumber() != main && w.title().to_string() == title);
+        let (Some(parent), Some(child)) = (parent, child) else {
+            return;
+        };
+        if child.parentWindow().is_some() {
+            return;
+        }
+        child.setCollectionBehavior(
+            child.collectionBehavior()
+                | NSWindowCollectionBehavior::IgnoresCycle
+                | NSWindowCollectionBehavior::Transient,
+        );
+        child.setExcludedFromWindowsMenu(true);
+        // Safety: both are live windows of this app, on the main thread.
+        unsafe { parent.addChildWindow_ordered(&child, NSWindowOrderingMode::Above) };
+    }
+}
+
+/// The main window owns the secondary ones (Windows).
 #[cfg(windows)]
 pub mod owner {
     use std::sync::atomic::{AtomicIsize, Ordering};

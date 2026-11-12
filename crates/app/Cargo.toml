@@ -29,6 +29,23 @@ eframe = { workspace = true, features = ["glow"] }
 libc.workspace = true
 # The system menu bar: see `menu.rs`.
 muda = { version = "0.21", default-features = false }
+# Child windows: see `subwindow.rs`.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSApplication",
+    "NSGraphics",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSEnumerator",
+    "NSString",
+] }
+raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 # The secondary windows' owner: see `subwindow.rs`.
