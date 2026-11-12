@@ -28,8 +28,8 @@ models and plays them in a multitrack player for practice. Read these first:
 - Rust stable, MSRV 1.95 (eframe 0.36 requires it). **CI uses the latest stable**,
   which may have newer clippy lints than the local toolchain: run `rustup update`
   before working, or CI may fail on lints that pass locally.
-- CI: `.github/workflows/ci.yml` (fmt, clippy, tests, release build on Windows, Linux,
-  macOS; binaries uploaded as artifacts).
+- CI: `.github/workflows/ci.yml` (fmt, clippy, tests on Windows, Linux, macOS; skipped
+  when only docs change). Release builds: `release.yml`, on a `v*` tag or by hand.
 - Separation is pure Rust (`crates/roformer` on burn + wgpu): no C++ build, no
   submodules, no Vulkan SDK. The C++ backend (BSRoformer.cpp + ggml) was removed in
   Phase 4.7; it is in the git history before that commit.
