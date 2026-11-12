@@ -125,6 +125,9 @@ pub fn pressed(ctx: &egui::Context) -> bool {
     })
 }
 
+/// The tallest the list gets before it scrolls.
+const MAX_HEIGHT: f32 = 520.0;
+
 /// The window's name (see `subwindow.rs`).
 pub const WINDOW: &str = "shortcuts";
 
@@ -134,6 +137,9 @@ pub fn window(ctx: &egui::Context, open: &mut bool) {
     } else {
         "Ctrl"
     };
+    // The list is long: it scrolls past most of the main window's height.
+    let main_height = ctx.input(|i| i.viewport().inner_rect.map(|r| r.height()));
+    let max_height = main_height.map_or(MAX_HEIGHT, |h| (h * 0.75).min(MAX_HEIGHT));
     crate::subwindow::show(
         ctx,
         WINDOW,
@@ -141,32 +147,41 @@ pub fn window(ctx: &egui::Context, open: &mut bool) {
         crate::subwindow::Width::Fit,
         open,
         |ui| {
-            // One grid, so the columns line up across sections.
-            egui::Grid::new("shortcuts")
-                .num_columns(2)
-                .spacing([16.0, 4.0])
-                .show(ui, |ui| {
-                    for (index, (title, rows)) in SECTIONS.iter().enumerate() {
-                        ui.vertical(|ui| {
-                            if index > 0 {
-                                ui.add_space(8.0);
-                            }
-                            ui.label(RichText::new(*title).strong());
-                        });
-                        ui.end_row();
-                        for (keys, what) in *rows {
-                            let keys = RichText::new(keys.replace("{cmd}", cmd));
-                            // Keys in monospace; gestures are words.
-                            ui.label(if *title == "Mouse" {
-                                keys
-                            } else {
-                                keys.monospace()
-                            });
-                            ui.label(*what);
-                            ui.end_row();
-                        }
-                    }
-                });
+            egui::ScrollArea::vertical()
+                .max_height(max_height)
+                // Not limited by the window's current height, which follows the
+                // contents (see `subwindow::fit`).
+                .min_scrolled_height(max_height)
+                .show(ui, |ui| grid(ui, cmd));
         },
     );
+}
+
+/// Every section in one grid, so the columns line up across them.
+fn grid(ui: &mut egui::Ui, cmd: &str) {
+    egui::Grid::new("shortcuts")
+        .num_columns(2)
+        .spacing([16.0, 4.0])
+        .show(ui, |ui| {
+            for (index, (title, rows)) in SECTIONS.iter().enumerate() {
+                ui.vertical(|ui| {
+                    if index > 0 {
+                        ui.add_space(8.0);
+                    }
+                    ui.label(RichText::new(*title).strong());
+                });
+                ui.end_row();
+                for (keys, what) in *rows {
+                    let keys = RichText::new(keys.replace("{cmd}", cmd));
+                    // Keys in monospace; gestures are words.
+                    ui.label(if *title == "Mouse" {
+                        keys
+                    } else {
+                        keys.monospace()
+                    });
+                    ui.label(*what);
+                    ui.end_row();
+                }
+            }
+        });
 }

@@ -24,6 +24,10 @@ use eframe::egui;
 /// The space around the contents.
 #[cfg(any(target_os = "macos", windows))]
 const MARGIN: f32 = 16.0;
+/// For how long after opening a window is kept centered on the main one, while its
+/// contents settle its size.
+#[cfg(any(target_os = "macos", windows))]
+const CENTER_SECS: f64 = 0.5;
 
 /// The window's id, also used to focus it.
 pub fn id(name: &str) -> egui::ViewportId {
@@ -99,7 +103,7 @@ fn native(
     let viewport = id(name);
     let place = egui::Id::new(("subwindow-place", name));
     if !*open {
-        ctx.data_mut(|d| d.remove::<egui::Pos2>(place));
+        ctx.data_mut(|d| d.remove::<(egui::Pos2, f64)>(place));
         return;
     }
 
@@ -108,14 +112,16 @@ fn native(
         Width::Fit => 480.0,
     };
     let start = egui::vec2(start_width, 320.0);
-    // Where it opens: near the top of the main window, centered. Kept while it is
-    // open, since a builder that changes moves the window.
+    // Where it opens: centered on the main window. Kept in the builder while it is
+    // open, since a builder that changes moves the window; once its contents give it
+    // its size, `fit` centers it again.
     // (egui's locks do not nest: read the main window before taking `data_mut`.)
     let main = ctx.input(|i| i.viewport().outer_rect);
-    let opening = main.map_or(egui::pos2(120.0, 120.0), |r| {
-        egui::pos2(r.center().x - start.x / 2.0, r.top() + 80.0)
-    });
-    let position = ctx.data_mut(|d| *d.get_temp_mut_or(place, opening));
+    let opening = main.map_or(egui::pos2(120.0, 120.0), |r| r.center() - start / 2.0);
+    let now = ctx.input(|i| i.time);
+    let (position, opened_at) = ctx.data_mut(|d| *d.get_temp_mut_or(place, (opening, now)));
+    // Only right after opening: later the user may have moved it.
+    let center_on = main.filter(|_| now - opened_at < CENTER_SECS);
 
     let builder = egui::ViewportBuilder::default()
         .with_title(title)
@@ -147,7 +153,7 @@ fn native(
             .frame(frame)
             .show(ui, |ui| ui.scope(|ui| draw(ui)).response.rect)
             .inner;
-        fit(ui.ctx(), width, used);
+        fit(ui.ctx(), width, used, center_on);
 
         owner::attach(title);
 
@@ -161,7 +167,7 @@ fn native(
         #[cfg(windows)]
         owner::release();
         *open = false;
-        ctx.data_mut(|d| d.remove::<egui::Pos2>(place));
+        ctx.data_mut(|d| d.remove::<(egui::Pos2, f64)>(place));
     }
 }
 
@@ -209,10 +215,13 @@ pub fn hold_main_input(ctx: &egui::Context, raw: &mut egui::RawInput, open: &str
     }
 }
 
-/// Resizes the window to its contents, when they changed size.
+/// Resizes the window to its contents, when they changed size, and centers it on
+/// `center_on` (the main window's outer rect) if given.
 #[cfg(any(target_os = "macos", windows))]
-fn fit(ctx: &egui::Context, width: Width, used: egui::Rect) {
-    let Some(inner) = ctx.input(|i| i.viewport().inner_rect) else {
+fn fit(ctx: &egui::Context, width: Width, used: egui::Rect, center_on: Option<egui::Rect>) {
+    let (Some(inner), Some(outer)) =
+        ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect))
+    else {
         return;
     };
     let wanted = egui::vec2(
@@ -225,6 +234,14 @@ fn fit(ctx: &egui::Context, width: Width, used: egui::Rect) {
     .ceil();
     if (wanted - inner.size()).abs().max_elem() > 0.5 {
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(wanted));
+    }
+    if let Some(main) = center_on {
+        // The title bar and borders stay as they are.
+        let size = wanted + (outer.size() - inner.size());
+        let position = (main.center() - size / 2.0).round();
+        if (position - outer.min).abs().max_elem() > 0.5 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(position));
+        }
     }
 }
 

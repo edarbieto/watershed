@@ -5,6 +5,14 @@ use watershed_dsp::Peaks;
 
 use crate::view::View;
 
+/// The colors of a waveform: the track's, and the background (shaded when the track
+/// is selected).
+#[derive(Clone, Copy)]
+pub struct WaveLook {
+    pub color: Color32,
+    pub background: Color32,
+}
+
 /// What the user did on a waveform.
 pub enum WaveformAction {
     /// Clicked, or the playhead line dragged: seek to this frame.
@@ -115,7 +123,7 @@ pub fn marker_color(ui: &egui::Ui) -> Color32 {
 pub fn waveform(
     ui: &mut egui::Ui,
     peaks: &[Peaks; 2],
-    color: Color32,
+    look: WaveLook,
     height: f32,
     overlay: &Overlay,
     offset: i64,
@@ -124,7 +132,8 @@ pub fn waveform(
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
+    let WaveLook { color, background } = look;
+    painter.rect_filled(rect, 2.0, background);
     let timeline = Timeline::new(rect.x_range(), &overlay.visible);
     let playhead_x = timeline.x_of(overlay.position);
     // Whether this drag started on the playhead line, kept for the whole drag.

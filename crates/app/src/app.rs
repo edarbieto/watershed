@@ -28,7 +28,9 @@ use crate::transport::{Command, Transport};
 use crate::update::{self, Updater};
 use crate::usage::{self, Usage};
 use crate::view::View;
-use crate::waveform::{GridLine, Overlay, SignatureTag, WaveformAction, scrollbar, waveform};
+use crate::waveform::{
+    GridLine, Overlay, SignatureTag, WaveLook, WaveformAction, scrollbar, waveform,
+};
 use crate::window::WindowMemory;
 
 /// The secondary windows' names (see `subwindow.rs`).
@@ -2765,10 +2767,19 @@ impl WatershedApp {
                         color.gamma_multiply(0.3)
                     };
                     let movable = self.movable.get(i).copied().unwrap_or(false);
+                    let background = ui.visuals().extreme_bg_color;
+                    let look = WaveLook {
+                        color,
+                        background: if selected {
+                            selected_shade(ui, background)
+                        } else {
+                            background
+                        },
+                    };
                     let (rect, action) = waveform(
                         ui,
                         peaks,
-                        color,
+                        look,
                         ROW_HEIGHT,
                         &overlay,
                         params.offset(),
@@ -2795,26 +2806,12 @@ impl WatershedApp {
                     select = Some(i);
                 }
                 if selected {
-                    let visuals = ui.visuals();
                     let controls =
                         Rect::from_min_size(rect.min, egui::vec2(CONTROLS_WIDTH, rect.height()))
                             .expand(2.0);
-                    ui.painter().set(
-                        background,
-                        egui::Shape::Vec(vec![
-                            egui::Shape::rect_filled(
-                                controls,
-                                4.0,
-                                visuals.selection.bg_fill.gamma_multiply(0.35),
-                            ),
-                            egui::Shape::rect_stroke(
-                                rect.expand(2.0),
-                                4.0,
-                                egui::Stroke::new(1.0, visuals.selection.stroke.color),
-                                egui::StrokeKind::Inside,
-                            ),
-                        ]),
-                    );
+                    let fill = selected_shade(ui, ui.visuals().panel_fill);
+                    ui.painter()
+                        .set(background, egui::Shape::rect_filled(controls, 4.0, fill));
                     if self.scroll_to_selected {
                         ui.scroll_to_rect(rect.expand(4.0), None);
                     }
@@ -3747,6 +3744,12 @@ fn ruler_group(
 }
 
 /// Lays out `add_contents` in the controls column beside the waveforms, exactly
+/// The background `base` of the selected track: a little closer to the text color, so
+/// lighter in the dark theme and darker in the light one.
+fn selected_shade(ui: &egui::Ui, base: Color32) -> Color32 {
+    base.lerp_to_gamma(ui.visuals().strong_text_color(), 0.1)
+}
+
 /// `CONTROLS_WIDTH` wide: it never grows with its contents (which would move that row's
 /// waveform against the rulers), and what does not fit is clipped.
 fn controls_column<R>(
