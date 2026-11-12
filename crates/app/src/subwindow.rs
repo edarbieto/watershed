@@ -102,9 +102,19 @@ fn native(
 ) {
     let viewport = id(name);
     let place = egui::Id::new(("subwindow-place", name));
+    let theme_applied = egui::Id::new(("subwindow-theme", name));
     if !*open {
-        ctx.data_mut(|d| d.remove::<(egui::Pos2, f64)>(place));
+        ctx.data_mut(|d| {
+            d.remove::<(egui::Pos2, f64)>(place);
+            d.remove::<egui::SystemTheme>(theme_applied);
+        });
         return;
+    }
+    // Its title bar light or dark like the app (see `WatershedApp::apply_appearance`).
+    let theme = system_theme(ctx.options(|o| o.theme_preference));
+    if ctx.data(|d| d.get_temp(theme_applied)) != Some(theme) {
+        ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::SetTheme(theme));
+        ctx.data_mut(|d| d.insert_temp(theme_applied, theme));
     }
 
     let start_width = match width {
@@ -167,7 +177,19 @@ fn native(
         #[cfg(windows)]
         owner::release();
         *open = false;
-        ctx.data_mut(|d| d.remove::<(egui::Pos2, f64)>(place));
+        ctx.data_mut(|d| {
+            d.remove::<(egui::Pos2, f64)>(place);
+            d.remove::<egui::SystemTheme>(theme_applied);
+        });
+    }
+}
+
+/// The theme of the system windows for egui's theme preference.
+pub fn system_theme(preference: egui::ThemePreference) -> egui::SystemTheme {
+    match preference {
+        egui::ThemePreference::Light => egui::SystemTheme::Light,
+        egui::ThemePreference::Dark => egui::SystemTheme::Dark,
+        egui::ThemePreference::System => egui::SystemTheme::SystemDefault,
     }
 }
 

@@ -56,6 +56,8 @@ pub struct Config {
     pub vocal_tonality_limit: bool,
     /// Whether the app looks for a newer release when it starts.
     pub check_for_updates: bool,
+    /// Light or dark, or as the system is.
+    pub appearance: Appearance,
 }
 
 impl Default for Config {
@@ -77,8 +79,20 @@ impl Default for Config {
             vocal_formants: true,
             vocal_tonality_limit: true,
             check_for_updates: true,
+            appearance: Appearance::default(),
         }
     }
+}
+
+/// The app's colors.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Appearance {
+    /// Follows the system's light or dark mode, also when it changes.
+    #[default]
+    System,
+    Light,
+    Dark,
 }
 
 /// The sound of the metronome click.
@@ -232,6 +246,7 @@ mod tests {
             vocal_formants: false,
             vocal_tonality_limit: false,
             check_for_updates: false,
+            appearance: Appearance::Light,
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), config);

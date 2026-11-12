@@ -6,7 +6,7 @@ use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText};
 use watershed_audio::{Beats, Engine, Notify, OutputDevice, Samples, Song, output_devices};
 use watershed_dsp::Peaks;
 use watershed_separation::catalog;
-use watershed_storage::{Config, Session, StemFormat, TrackState};
+use watershed_storage::{Appearance, Config, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
 use crate::chords::{self, SongChords};
@@ -245,7 +245,7 @@ impl WatershedApp {
             Ok(engine) => (Some(engine), None),
             Err(e) => (None, Some(e.to_string())),
         };
-        Self {
+        let app = Self {
             config,
             window: WindowMemory::load(storage),
             engine,
@@ -297,7 +297,9 @@ impl WatershedApp {
             recent_menu_open: false,
             menus: Menus::new(cc),
             about_open: false,
-        }
+        };
+        app.apply_appearance(&cc.egui_ctx);
+        app
     }
 
     fn sample_rate(&self) -> u32 {
@@ -1890,6 +1892,23 @@ impl WatershedApp {
     }
 
     /// The settings window, stored in `config.toml`.
+    /// Colors the app, its windows' title bars and the Windows menu bar as the
+    /// appearance setting says.
+    fn apply_appearance(&self, ctx: &egui::Context) {
+        let preference = match self.config.appearance {
+            Appearance::System => egui::ThemePreference::System,
+            Appearance::Light => egui::ThemePreference::Light,
+            Appearance::Dark => egui::ThemePreference::Dark,
+        };
+        ctx.set_theme(preference);
+        let theme = subwindow::system_theme(preference);
+        ctx.send_viewport_cmd_to(
+            egui::ViewportId::ROOT,
+            egui::ViewportCommand::SetTheme(theme),
+        );
+        self.menus.set_theme(theme);
+    }
+
     fn settings_window(&mut self, ctx: &egui::Context) {
         let mut open = self.settings_open;
         subwindow::show(
@@ -1903,6 +1922,22 @@ impl WatershedApp {
                     .num_columns(2)
                     .spacing([16.0, 12.0])
                     .show(ui, |ui| {
+                        ui.label("Appearance");
+                        ui.horizontal(|ui| {
+                            let mut appearance = self.config.appearance;
+                            ui.selectable_value(&mut appearance, Appearance::System, "System");
+                            ui.selectable_value(&mut appearance, Appearance::Light, "Light");
+                            ui.selectable_value(&mut appearance, Appearance::Dark, "Dark");
+                            if appearance != self.config.appearance {
+                                self.config.appearance = appearance;
+                                self.config.save();
+                                self.apply_appearance(ctx);
+                            }
+                        })
+                        .response
+                        .on_hover_text("System follows the light or dark mode of the system");
+                        ui.end_row();
+
                         ui.label("Output device");
                         self.device_picker(ui);
                         ui.end_row();

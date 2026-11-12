@@ -4,9 +4,9 @@
 //! the app draws the same menus in a bar of its own.
 //!
 //! Every command in the menus also exists somewhere in the window or as a key; the
-//! menus make them discoverable. Keys without Cmd / Ctrl (Space, A, M, …) are left
-//! to the app on macOS, so they still type into text fields; the menus there show
-//! only the Cmd ones. Windows shows them all as text, and the app handles them.
+//! menus make them discoverable. Keys without Cmd / Ctrl (Space, A, M, …) are the
+//! app's, so they still type into text fields; the menus only show them (macOS as key
+//! equivalents, which the window gets first; Windows as text).
 
 use std::path::{Path, PathBuf};
 
@@ -85,8 +85,10 @@ enum Keys {
     /// With Cmd (Ctrl elsewhere) or a function key: the native menu takes it on
     /// macOS; the app handles it elsewhere.
     Shortcut(KeyboardShortcut),
-    /// A plain key the app handles itself, only shown (on Windows and Linux).
-    Text(&'static str),
+    /// A key without Cmd / Ctrl (Shift at most), which the app handles itself, so it
+    /// still types into text fields. The menus only show it: macOS gives such key
+    /// equivalents to the window first (checked), Windows shows it as text.
+    Key(KeyboardShortcut),
 }
 
 #[derive(Clone, Copy)]
@@ -112,6 +114,21 @@ enum System {
     FullScreen,
 }
 
+const fn key(key: Key) -> Keys {
+    Keys::Key(KeyboardShortcut::new(Modifiers::NONE, key))
+}
+
+const fn shift(key: Key) -> Keys {
+    Keys::Key(KeyboardShortcut::new(Modifiers::SHIFT, key))
+}
+
+/// The key that deletes: ⌫ on a Mac keyboard, Delete elsewhere (the app takes both).
+const DELETE: Key = if cfg!(target_os = "macos") {
+    Key::Backspace
+} else {
+    Key::Delete
+};
+
 const fn cmd(key: Key) -> Keys {
     Keys::Shortcut(KeyboardShortcut::new(Modifiers::COMMAND, key))
 }
@@ -135,44 +152,44 @@ fn menus() -> Vec<(&'static str, Vec<Entry>)> {
         Item(C::SeparateSong, "Separate Song…", cmd_shift(Key::O)),
         Entry::Recent,
         Separator,
-        Item(C::Reload, "Reload Folder", Keys::Text("F5")),
+        Item(C::Reload, "Reload Folder", key(Key::F5)),
         Item(C::ShowInFolder, SHOW_IN_FOLDER, Keys::None),
     ];
     let edit = vec![
-        Item(C::AddMarker, "Add Marker", Keys::Text("Shift+M")),
+        Item(C::AddMarker, "Add Marker", shift(Key::M)),
         Separator,
-        Item(C::PreviousTrack, "Select Previous Track", Keys::Text("Up")),
-        Item(C::NextTrack, "Select Next Track", Keys::Text("Down")),
-        Check(C::MuteTrack, "Mute Track", Keys::Text("M")),
-        Check(C::SoloTrack, "Solo Track", Keys::Text("S")),
-        Item(C::DeleteTrack, "Delete Track", Keys::Text("Delete")),
+        Item(C::PreviousTrack, "Select Previous Track", key(Key::ArrowUp)),
+        Item(C::NextTrack, "Select Next Track", key(Key::ArrowDown)),
+        Check(C::MuteTrack, "Mute Track", key(Key::M)),
+        Check(C::SoloTrack, "Solo Track", key(Key::S)),
+        Item(C::DeleteTrack, "Delete Track", key(DELETE)),
         Item(C::RestoreTracks, "Restore Deleted Tracks", Keys::None),
         Separator,
-        Item(C::SetA, "Set Loop Start", Keys::Text("A")),
-        Item(C::SetB, "Set Loop End", Keys::Text("B")),
+        Item(C::SetA, "Set Loop Start", key(Key::A)),
+        Item(C::SetB, "Set Loop End", key(Key::B)),
         Item(C::ClearLoop, "Clear Loop", Keys::None),
         Item(C::SaveLoop, "Save Loop", Keys::None),
     ];
     let playback = vec![
-        Item(C::PlayPause, "Play / Pause", Keys::Text("Enter")),
-        Item(C::PlayStop, "Play / Return", Keys::Text("Space")),
+        Item(C::PlayPause, "Play / Pause", key(Key::Enter)),
+        Item(C::PlayStop, "Play / Return", key(Key::Space)),
         Item(C::Stop, "Stop", Keys::None),
         Separator,
-        Item(C::ToStart, "To Start", Keys::Text("Home")),
-        Item(C::Back, "Back", Keys::Text("Left")),
-        Item(C::Forward, "Forward", Keys::Text("Right")),
+        Item(C::ToStart, "To Start", key(Key::Home)),
+        Item(C::Back, "Back", key(Key::ArrowLeft)),
+        Item(C::Forward, "Forward", key(Key::ArrowRight)),
         Separator,
-        Check(C::Loop, "Loop", Keys::Text("L")),
-        Check(C::Click, "Click", Keys::Text("C")),
+        Check(C::Loop, "Loop", key(Key::L)),
+        Check(C::Click, "Click", key(Key::C)),
         Check(C::CountIn, "Count-in", Keys::None),
         Separator,
-        Item(C::TapTempo, "Tap Tempo", Keys::Text("T")),
+        Item(C::TapTempo, "Tap Tempo", key(Key::T)),
         Item(C::ResetTempo, "Reset Tempo", Keys::None),
         Item(C::ResetPitch, "Reset Pitch", Keys::None),
     ];
     let view = vec![
-        Item(C::ZoomIn, "Zoom In", Keys::Text("+")),
-        Item(C::ZoomOut, "Zoom Out", Keys::Text("-")),
+        Item(C::ZoomIn, "Zoom In", key(Key::Plus)),
+        Item(C::ZoomOut, "Zoom Out", key(Key::Minus)),
         Item(C::ZoomToFit, "Zoom to Fit", Keys::None),
         Separator,
         Check(C::Grid, "Beat Grid", Keys::None),
@@ -183,7 +200,7 @@ fn menus() -> Vec<(&'static str, Vec<Entry>)> {
         Check(C::SidePanel, "Markers and Loops Panel", Keys::None),
     ];
     let mut help = vec![
-        Item(C::Shortcuts, "Keyboard Shortcuts", Keys::Text("?")),
+        Item(C::Shortcuts, "Keyboard Shortcuts", key(Key::Questionmark)),
         Item(C::Website, "Watershed on GitHub", Keys::None),
         Item(C::ReportProblem, "Report a Problem…", Keys::None),
     ];
@@ -309,6 +326,16 @@ impl Menus {
         false
     }
 
+    /// Light or dark menus, where the app colors them (the Windows menu bar; macOS
+    /// draws its menus as the system is).
+    #[cfg_attr(not(windows), allow(unused_variables, clippy::unused_self))]
+    pub fn set_theme(&self, theme: egui::SystemTheme) {
+        #[cfg(windows)]
+        if let Some(native) = &self.native {
+            native.set_theme(theme);
+        }
+    }
+
     /// The commands chosen in the native menus since the last call.
     pub fn chosen(&self) -> Vec<MenuCommand> {
         self.chosen.try_iter().collect()
@@ -362,7 +389,7 @@ fn draw_entry(
     let keys_text = |ui: &egui::Ui, keys: Keys| match keys {
         Keys::None => String::new(),
         Keys::Shortcut(shortcut) => ui.ctx().format_shortcut(&shortcut),
-        Keys::Text(text) => text.to_owned(),
+        Keys::Key(shortcut) => ui.ctx().format_shortcut(&shortcut),
     };
     match entry {
         Entry::Item(command, label, keys) => {
@@ -431,6 +458,8 @@ mod native {
     use std::sync::mpsc::Sender;
 
     use eframe::egui::{Key, KeyboardShortcut};
+    #[cfg(target_os = "macos")]
+    use muda::accelerator::KeyAccelerator;
     use muda::accelerator::{Accelerator, CMD_OR_CTRL, Code, Modifiers};
     use muda::{
         AboutMetadata, CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuId, MenuItem,
@@ -455,6 +484,9 @@ mod native {
         recent_menu: Option<Submenu>,
         recent_shown: Option<Vec<PathBuf>>,
         last: HashMap<MenuCommand, Status>,
+        /// The main window, which holds the menu bar on Windows.
+        #[cfg(windows)]
+        hwnd: isize,
     }
 
     impl NativeMenu {
@@ -473,6 +505,8 @@ mod native {
                         Entry::Item(MenuCommand::About, ..) => Box::new(about()),
                         Entry::Item(command, label, keys) => {
                             let item = MenuItem::new(text(label, keys), true, accelerator(keys));
+                            #[cfg(target_os = "macos")]
+                            show_key(keys, |k| item.set_key_accelerator(Some(k)));
                             ids.insert(item.id().clone(), command);
                             items.push((command, Item::Normal(item.clone())));
                             Box::new(item)
@@ -484,6 +518,8 @@ mod native {
                                 false,
                                 accelerator(keys),
                             );
+                            #[cfg(target_os = "macos")]
+                            show_key(keys, |k| item.set_key_accelerator(Some(k)));
                             ids.insert(item.id().clone(), command);
                             items.push((command, Item::Check(item.clone())));
                             Box::new(item)
@@ -545,7 +581,7 @@ mod native {
                 let hwnd = handle.hwnd.get();
                 // Safety: the window outlives the app, which owns the menu.
                 let installed =
-                    unsafe { menu.init_for_hwnd_with_theme(hwnd, muda::MenuTheme::Dark) };
+                    unsafe { menu.init_for_hwnd_with_theme(hwnd, muda::MenuTheme::Auto) };
                 if let Err(e) = installed {
                     log::warn!("menu: {e}");
                     return None;
@@ -557,7 +593,22 @@ mod native {
                 recent_menu,
                 recent_shown: None,
                 last: HashMap::new(),
+                #[cfg(windows)]
+                hwnd,
             })
+        }
+
+        #[cfg(windows)]
+        pub fn set_theme(&self, theme: eframe::egui::SystemTheme) {
+            let theme = match theme {
+                eframe::egui::SystemTheme::Light => muda::MenuTheme::Light,
+                eframe::egui::SystemTheme::Dark => muda::MenuTheme::Dark,
+                eframe::egui::SystemTheme::SystemDefault => muda::MenuTheme::Auto,
+            };
+            // Safety: the window outlives the app, which owns the menu.
+            if let Err(e) = unsafe { self._menu.set_theme_for_hwnd(self.hwnd, theme) } {
+                log::warn!("menu: {e}");
+            }
         }
 
         pub fn update(&mut self, status: &dyn Fn(MenuCommand) -> Status, recent: &[PathBuf]) {
@@ -626,11 +677,62 @@ mod native {
         )
     }
 
-    /// The label, with a plain key shown as text on Windows (the app handles it).
+    /// The label, with a key the app handles shown as text on Windows (a native
+    /// accelerator there would take the key from text fields).
     fn text(label: &str, keys: Keys) -> String {
         match keys {
-            Keys::Text(key) if cfg!(windows) => format!("{label}\t{key}"),
+            Keys::Key(shortcut) if cfg!(windows) => {
+                let names = eframe::egui::ModifierNames::NAMES;
+                format!("{label}\t{}", shortcut.format(&names, false))
+            }
             _ => label.to_owned(),
+        }
+    }
+
+    /// Shows a key the app handles beside the item (macOS). AppKit offers a key
+    /// without Cmd to the window before the menus, so the app still gets it, and text
+    /// fields too; the menu never runs the item for it.
+    #[cfg(target_os = "macos")]
+    fn show_key(keys: Keys, set: impl FnOnce(KeyAccelerator) -> muda::Result<()>) {
+        let Keys::Key(KeyboardShortcut {
+            modifiers,
+            logical_key,
+        }) = keys
+        else {
+            return;
+        };
+        use muda::accelerator::{Key as K, NamedKey as N};
+        let named = |key| Some(K::Named(key));
+        let key = match logical_key {
+            Key::ArrowUp => named(N::ArrowUp),
+            Key::ArrowDown => named(N::ArrowDown),
+            Key::ArrowLeft => named(N::ArrowLeft),
+            Key::ArrowRight => named(N::ArrowRight),
+            Key::Enter => named(N::Enter),
+            Key::Home => named(N::Home),
+            Key::Backspace => named(N::Backspace),
+            Key::Delete => named(N::Delete),
+            Key::F5 => named(N::F5),
+            Key::Space => Some(K::Character(" ".into())),
+            Key::Plus => Some(K::Character("+".into())),
+            Key::Minus => Some(K::Character("-".into())),
+            Key::Questionmark => Some(K::Character("?".into())),
+            other => {
+                let name = other.name();
+                (name.chars().count() == 1).then(|| K::Character(name.to_lowercase()))
+            }
+        };
+        let Some(key) = key else {
+            log::warn!("menu: no key equivalent for {logical_key:?}");
+            return;
+        };
+        let mods = if modifiers.shift {
+            Modifiers::SHIFT
+        } else {
+            Modifiers::empty()
+        };
+        if let Err(e) = set(KeyAccelerator::new(mods, key)) {
+            log::warn!("menu: {e}");
         }
     }
 
