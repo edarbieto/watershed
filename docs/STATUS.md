@@ -2512,6 +2512,15 @@ entry in the window switchers (`subwindow.rs`).
 - **Linux:** egui windows inside the main one, as before. winit cannot make a window the
   child (transient) of another on X11 or Wayland, which is what keeps it above its parent
   and out of the switchers there.
+- **Modal** (asked by the user): while one is open, the main window takes no clicks or
+  keys, and the menus allow only About, Quit, GitHub and Report a Problem.
+  - macOS: `App::raw_input_hook` drops the main window's pointer and key events; a click
+    or key press beeps (`NSBeep`) and brings the open window to the front.
+  - Windows: the main window is disabled (`EnableWindow`) while it owns an open window;
+    the system beeps and flashes that window on a click. It is enabled again before the
+    window closes, or Windows would activate another app's window.
+  - Linux: an egui `Modal`, which dims the main window; Esc or Close closes it, a click
+    outside does not.
 - egui does not hand out a viewport's native window, so it is found by its title.
 - The system windows open centered near the top of the main window and fit their
   contents (Settings at a fixed width, its notes wrap). Not resizable; no minimize or
@@ -2520,7 +2529,9 @@ entry in the window switchers (`subwindow.rs`).
 - The `?` list gained ⌘O, ⇧⌘O, ⌘Q and Esc / ⌘W.
 - Checked on macOS (window order from `CGWindowListCopyWindowInfo`): before the child
   windows, raising the main window put Settings behind it; now Settings stays above the
-  main window, under other apps' windows; Cmd+` from Settings goes to the main window
+  main window, under other apps' windows; a click on the time row of the main window
+  seeks with no window open and does nothing with Settings open (focus back to Settings);
+  File → Open Folder is greyed out while Settings is open, Quit is not; Cmd+` from Settings goes to the main window
   and stays there; the Window menu lists no windows. A first try froze the app: egui's
   locks do not nest (`ctx.input` inside `ctx.data_mut`).
 
@@ -2537,6 +2548,8 @@ entry in the window switchers (`subwindow.rs`).
    app, they go behind it; Cmd+` and Cmd+Tab show no extra entry; Esc / ⌘W close them.
    Windows: no extra taskbar button or Alt+Tab entry; above the main window, minimized
    with it.
+8. With Settings open, click the main window: a beep, nothing changes there, Settings
+   comes to the front (Windows: it flashes). Linux: the main window is dimmed.
 
 ## Chords on the grid
 
