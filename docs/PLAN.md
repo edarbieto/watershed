@@ -651,6 +651,18 @@ same day; their answers are folded in below.
 - [ ] **CHANGELOG.md and a feature list.** `CHANGELOG.md` at the root (Keep a Changelog),
   back-filled for v0.1.0 and v0.1.1, reused as the release notes; a feature list in
   `docs/FEATURES.md` linked from the README (approved).
+- [ ] **Dynamic tempo against a tempo set by the user.** With Dynamic on and the user's
+  tempo at 80 BPM, the tracked beats pull the grid to 90 BPM. Reference: the intro of
+  "Be Quiet and Drive (Far Away)" (Deftones); its session has bar 1 at 0.31 s, a fixed
+  80 BPM mark there and a 4/4 mark at 24.26 s. To find out: whether the fixed mark is
+  ignored in that span, or the tracker locks on another pulse (90/80 is not a simple
+  ratio like ½ or ×2), and make the user's tempo win where they set it.
+- [ ] **Project website.** Musicians do not browse GitHub: a static site with what the app
+  does, screenshots, the download buttons per system (latest release) and the feature list
+  and changelog. Hosted on GitHub Pages (free, from the repo, e.g. a `site/` folder or a
+  `gh-pages` branch, deployed by a workflow). To decide: plain HTML or a generator, the
+  address (`<user>.github.io/watershed` or a custom domain), languages (English first,
+  Spanish?).
 - [ ] **To investigate: distorted guitar "pumps" with the kick** (rock, metal,
   alternative): the guitar stem dips on each kick and recovers on the next beat, like a
   side-chain compressor. Two causes, to tell apart by measuring: (1) the model works with
