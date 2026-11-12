@@ -13,6 +13,38 @@ pub struct Beats {
     meters: Vec<Meter>,
 }
 
+/// One bar of evenly spaced count-in clicks, the first accented, that need not be on
+/// the grid.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LeadBar {
+    /// The first click.
+    pub start: f64,
+    pub beat: f64,
+    pub per_bar: u32,
+}
+
+impl LeadBar {
+    /// The clicks: time and accent.
+    pub fn clicks(self) -> impl Iterator<Item = (f64, bool)> {
+        (0..self.per_bar).map(move |k| (self.start + f64::from(k) * self.beat, k == 0))
+    }
+}
+
+/// What a count-in clicks: maybe a [`LeadBar`], then the grid's beats from `grid.0` up
+/// to before `grid.1` (none when they are equal), the last ones over the song.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CountInClicks {
+    pub lead: Option<LeadBar>,
+    pub grid: (f64, f64),
+}
+
+impl CountInClicks {
+    /// Where the first click falls.
+    pub fn start(&self) -> f64 {
+        self.lead.map_or(self.grid.0, |lead| lead.start)
+    }
+}
+
 /// Bars of `per_bar` beats from beat `from` on, up to the next meter: where the
 /// time signature changes. A bar cut short by the next meter is a bar too.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -128,59 +160,78 @@ impl Beats {
         (index - meter.from as i64).rem_euclid(i64::from(meter.per_bar)) == 0
     }
 
-    /// The length of the bar that ends at the first beat at or after `time`: as
-    /// many beats back as the bar before that beat has.
-    pub fn bar_before(&self, time: f64) -> f64 {
+    /// The index of the last beat at or before `time`.
+    fn beat_from(&self, time: f64) -> i64 {
         let index = self.first_from(time);
-        self.time(index) - self.time(index - i64::from(self.per_bar(index - 1)))
+        if self.time(index) > time {
+            index - 1
+        } else {
+            index
+        }
     }
 
-    /// The index of the first bar line (a beat that starts a bar) at or after `time`.
-    pub fn bar_line_from(&self, time: f64) -> i64 {
-        let mut index = self.first_from(time);
+    /// The index of the bar line (a beat that starts a bar) at or before `time`:
+    /// where the bar `time` is in starts.
+    fn bar_line_at(&self, time: f64) -> i64 {
+        let mut index = self.beat_from(time);
         while !self.accented(index) {
-            index += 1;
+            index -= 1;
         }
         index
     }
 
-    /// The index of the bar line before beat `index`: where the bar that ends at
-    /// `index` starts.
-    fn bar_line_before(&self, index: i64) -> i64 {
-        let mut before = index - 1;
-        while !self.accented(before) {
-            before -= 1;
+    /// The index of the bar line after the one at `index`.
+    fn next_bar_line(&self, index: i64) -> i64 {
+        let mut next = index + 1;
+        while !self.accented(next) {
+            next += 1;
         }
-        before
+        next
     }
 
-    /// A count-in that lands on a bar line, for playback starting at `time`: where its
-    /// first click falls, and the bar line it counts towards (the first at or after
-    /// `time`, which also clicks unless `time` is on it). From a bar line it counts the
-    /// bar before it. From the second half of a bar (by time) it counts that bar from
-    /// its start and the song comes in at `time`, over the last clicks; from the first
-    /// half it counts one bar more. `tolerance` treats a `time` that close to a bar
-    /// line as on it.
-    pub fn count_in_to_bar(&self, time: f64, tolerance: f64) -> (f64, f64) {
-        let line = self.bar_line_from(time - tolerance);
+    /// A count-in that lands on a bar line, for playback starting at `time`, in the
+    /// meter and tempo of the bar `time` is in (the bar about to play). From a bar line
+    /// it counts one bar shaped like the one starting there. From the second half of a
+    /// bar (by time) it counts that bar's own beats from its start, and the song comes
+    /// in at `time` over the last ones, up to the next bar line, which clicks as the
+    /// "1". From the first half it counts one bar more before that. `tolerance` treats
+    /// a `time` that close to a bar line as on it.
+    pub fn count_in_to_bar(&self, time: f64, tolerance: f64) -> CountInClicks {
+        let line = self.bar_line_at(time + tolerance);
         let at = self.time(line);
-        let start = self.bar_line_before(line);
-        if at - time <= tolerance {
-            return (self.time(start), at);
+        let per_bar = self.per_bar(line);
+        let beat = self.time(line + 1) - at;
+        let lead = LeadBar {
+            start: at - f64::from(per_bar) * beat,
+            beat,
+            per_bar,
+        };
+        if time - at <= tolerance {
+            return CountInClicks {
+                lead: Some(lead),
+                grid: (at, at),
+            };
         }
-        let from = self.time(start);
-        if (time - from) / (at - from) >= 0.5 {
-            (from, at)
-        } else {
-            (self.time(self.bar_line_before(start)), at)
+        let next = self.time(self.next_bar_line(line));
+        let late = (time - at) / (next - at) >= 0.5;
+        CountInClicks {
+            lead: (!late).then_some(lead),
+            grid: (at, next + tolerance),
         }
     }
 
-    /// The beats per bar and the beat length where `time` is, for a count-in of one
-    /// whole bar that does not follow the grid.
-    pub fn bar_at(&self, time: f64) -> (u32, f64) {
-        let index = self.first_from(time).max(1);
-        (self.per_bar(index - 1), self.beat_at(time))
+    /// One whole bar of clicks ending at `time`, in the meter of the bar `time` is in
+    /// and the tempo of its beat, wherever `time` falls in that bar. `tolerance` as in
+    /// [`Beats::count_in_to_bar`].
+    pub fn count_in_bar(&self, time: f64, tolerance: f64) -> LeadBar {
+        let per_bar = self.per_bar(self.bar_line_at(time + tolerance));
+        let index = self.beat_from(time + tolerance);
+        let beat = self.time(index + 1) - self.time(index);
+        LeadBar {
+            start: time - f64::from(per_bar) * beat,
+            beat,
+            per_bar,
+        }
     }
 
     /// The length of the beat that `time` falls in.
@@ -210,7 +261,6 @@ mod tests {
         assert_eq!(found, expected);
         assert!(beats.accented(0) && beats.accented(3) && beats.accented(-3));
         assert!(!beats.accented(-1));
-        assert_eq!(beats.bar_before(100.0), 150.0);
         assert_eq!(Beats::steady(0.0, 0.0, 4, 10.0), None);
     }
 
@@ -226,7 +276,6 @@ mod tests {
         assert_eq!(beats.time(5), 36.0);
         let found: Vec<f64> = beats.within(-10.0..30.0).map(|(_, t)| t).collect();
         assert_eq!(found, vec![-10.0, 0.0, 10.0, 18.0, 24.0]);
-        assert_eq!(beats.bar_before(24.0), 14.0);
         assert_eq!(beats.beat_at(20.0), 6.0);
         assert_eq!(beats.beat_at(-5.0), 10.0);
         assert_eq!(beats.scaled(2.0).unwrap().time(3), 48.0);
@@ -253,10 +302,6 @@ mod tests {
             bars,
             [(-1, 3), (0, 0), (1, 1), (2, 0), (2, 2), (3, 0), (6, 2)]
         );
-        // A count-in into beat 6 counts 4 beats back, the meter before it; into
-        // beat 9, 3.
-        assert_eq!(beats.bar_before(6.0), 4.0);
-        assert_eq!(beats.bar_before(9.0), 3.0);
         assert_eq!(beats.scaled(2.0).unwrap().bar_of(9), (3, 0));
         let unordered = vec![
             Meter {
@@ -271,41 +316,53 @@ mod tests {
         assert_eq!(Beats::with_meters(vec![0.0, 1.0], unordered), None);
     }
 
+    /// The first click and the grid range of a count-in, as start, grid start and
+    /// grid end, and the beats per bar of its lead bar (0 without one).
+    fn plan(beats: &Beats, time: f64, tolerance: f64) -> (f64, f64, f64, u32) {
+        let clicks = beats.count_in_to_bar(time, tolerance);
+        let per_bar = clicks.lead.map_or(0, |lead| lead.per_bar);
+        (clicks.start(), clicks.grid.0, clicks.grid.1, per_bar)
+    }
+
     #[test]
     fn count_in_lands_on_a_bar_line() {
         // 4/4, a beat every 10 from bar 1 at 100.
         let beats = Beats::steady(100.0, 10.0, 4, 300.0).unwrap();
-        // On a bar line (or within the tolerance): the bar before it.
-        assert_eq!(beats.count_in_to_bar(140.0, 0.1), (100.0, 140.0));
-        assert_eq!(beats.count_in_to_bar(140.05, 0.1), (100.0, 140.0));
+        // On a bar line (or within the tolerance): one bar before it, no grid beats.
+        assert_eq!(plan(&beats, 140.0, 0.1), (100.0, 140.0, 140.0, 4));
+        assert_eq!(plan(&beats, 140.05, 0.1), (100.0, 140.0, 140.0, 4));
+        assert_eq!(plan(&beats, 139.95, 0.1), (100.0, 140.0, 140.0, 4));
         // Beat 4: "1 2 3", the song on the 4, then the 1 at 180.
-        assert_eq!(beats.count_in_to_bar(170.0, 0.1), (140.0, 180.0));
+        assert_eq!(plan(&beats, 170.0, 0.1), (140.0, 140.0, 180.1, 0));
         // Halfway counts as late.
-        assert_eq!(beats.count_in_to_bar(160.0, 0.1), (140.0, 180.0));
+        assert_eq!(plan(&beats, 160.0, 0.1), (140.0, 140.0, 180.1, 0));
         // Beat 2: "1 2 3 4 | 1", the song on the 2.
-        assert_eq!(beats.count_in_to_bar(150.0, 0.1), (100.0, 180.0));
+        assert_eq!(plan(&beats, 150.0, 0.1), (100.0, 140.0, 180.1, 4));
         // Before bar 1, at the grid's pace: a pickup ending at bar 1.
-        assert_eq!(beats.count_in_to_bar(85.0, 0.1), (60.0, 100.0));
-        assert_eq!(beats.count_in_to_bar(65.0, 0.1), (20.0, 100.0));
+        assert_eq!(plan(&beats, 85.0, 0.1), (60.0, 60.0, 100.1, 0));
+        assert_eq!(plan(&beats, 65.0, 0.1), (20.0, 60.0, 100.1, 4));
+        let lead: Vec<(f64, bool)> = beats.count_in_bar(65.0, 0.1).clicks().collect();
+        assert_eq!(
+            lead,
+            [(25.0, true), (35.0, false), (45.0, false), (55.0, false)]
+        );
 
-        // 7/8 after a bar of 4: by time, so a 7-beat bar is late from halfway
-        // through its 4th beat.
-        let meters = vec![
-            Meter {
-                from: 0,
-                per_bar: 4,
-            },
-            Meter {
-                from: 4,
-                per_bar: 7,
-            },
-        ];
+        // As in "46 & 2": 4/4, then 7/8 from beat 4, back to 4/4 at beat 11.
+        let meters = [(0, 4), (4, 7), (11, 4)]
+            .map(|(from, per_bar)| Meter { from, per_bar })
+            .to_vec();
         let beats = Beats::with_meters((0..30).map(f64::from).collect(), meters).unwrap();
-        assert_eq!(beats.count_in_to_bar(7.5, 0.01), (4.0, 11.0));
-        assert_eq!(beats.count_in_to_bar(8.0, 0.01), (4.0, 11.0));
-        assert_eq!(beats.count_in_to_bar(7.4, 0.01), (0.0, 11.0));
-        assert_eq!(beats.bar_at(6.0), (7, 1.0));
-        assert_eq!(beats.bar_at(2.5), (4, 1.0));
+        // On the bar line where the 7/8 starts: a bar of 7, not the 4/4 before it.
+        assert_eq!(plan(&beats, 4.0, 0.01), (-3.0, 4.0, 4.0, 7));
+        assert_eq!(beats.count_in_bar(4.0, 0.01).per_bar, 7);
+        // By time, so the 7/8 bar is late from halfway through its 4th beat.
+        assert_eq!(plan(&beats, 7.5, 0.01), (4.0, 4.0, 11.01, 0));
+        // Early in the 7/8 bar: the extra bar is a 7/8 one too.
+        assert_eq!(plan(&beats, 6.0, 0.01), (-3.0, 4.0, 11.01, 7));
+        // On the 4/4 after it: a bar of 4.
+        assert_eq!(plan(&beats, 11.0, 0.01), (7.0, 11.0, 11.0, 4));
+        assert_eq!(beats.count_in_bar(11.0, 0.01).per_bar, 4);
+        assert_eq!(beats.count_in_bar(10.5, 0.01).per_bar, 7);
     }
 
     #[test]

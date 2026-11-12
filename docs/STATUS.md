@@ -1892,22 +1892,30 @@ Asked by the user (v0.2, rule agreed 2026-11-11). Done 2026-11-12, **not tried b
 user yet**. Before, the count-in clicked the four beats before the first beat at or after
 the playhead, so from beat 2 it counted "2 3 4 1" and a pickup threw it off.
 
+- **Always in the meter of the bar the playhead is in** (the bar about to play). Seen by
+  the user on "46 & 2" with the playhead on the bar line where a 7/8 part starts: the
+  first version counted the 4/4 bar before it. Now a count from a bar line is one bar
+  shaped like the bar that starts there (its beats per bar, the length of its first
+  beat), not the grid's bar before it.
 - **On (default), `Beats::count_in_to_bar`:** the count goes to the first bar line at or
-  after the playhead, on the grid. From a bar line: the bar before it ("1 2 3 4", song on
-  the 1). From the second half of a bar, **by time** (so 7/8 and 9/8 work too): that bar
-  from its start, the song comes in at the playhead over the last clicks, and the bar line
-  clicks as the "1" (from beat 4: "1 2 3", song on the 4). From the first half: one bar
-  more (from beat 2: "1 2 3 4 | 1", song on the 2). These clicks sound even with the Click
-  off; beats before bar 1 count at the pace of the grid's first beat.
-- **Off:** as in Reaper, one whole bar of clicks in the meter and tempo of the bar the
-  playhead is in, then the song from the playhead, wherever it falls in its bar.
+  after the playhead. From a bar line: one bar of the playhead's meter ("1 2 3 4" in 4/4,
+  seven clicks in 7/8), song on the 1. From the second half of a bar, **by time** (so 7/8
+  and 9/8 work too): that bar's own grid beats from its start, the song comes in at the
+  playhead over the last clicks, and the next bar line clicks as the "1" (from beat 4:
+  "1 2 3", song on the 4). From the first half: one bar more before it, in the same meter
+  (from beat 2: "1 2 3 4 | 1", song on the 2). These clicks sound even with the Click off;
+  beats before bar 1 count at the pace of the grid's first beat.
+- **Off, `Beats::count_in_bar`:** as in Reaper, one whole bar of clicks in the meter of the
+  bar the playhead is in and the tempo of the beat starting there, then the song from the
+  playhead, wherever it falls in its bar.
 - **Nothing before the playhead:** the stretcher's seek fills its pre-roll with the song
   before the target, so ~45 ms of what came before the playhead used to play first (also
   in the old count-in; its test could not see it, its song started at the playhead). With
   a count-in the pre-roll is now silent before the target, with a 2 ms fade-in at it.
   Seeks without a count-in keep the old pre-roll, so a click on the waveform is heard at
   once.
-- **Tests:** `count_in_lands_on_a_bar_line` (beats, 4/4, before bar 1, 7/8),
+- **Tests:** `count_in_lands_on_a_bar_line` (beats, 4/4, before bar 1, 7/8 between bars of
+  4/4), `count_in_follows_the_meter_of_the_bar_about_to_play` (both ways),
   `clicks_and_count_in_follow_a_tempo_map` (both ways on a tempo map),
   `count_in_to_the_bar_line_overlaps_the_song` (engine: clicks and where the song comes
   in, from beat 4 and from beat 2).
@@ -1918,8 +1926,8 @@ the playhead, so from beat 2 it counted "2 3 4 1" and a pickup threw it off.
    the 4 clicks over the drum pickup, then the 1 on bar 1. Is this what you meant?
 2. From a bar line: "1 2 3 4", song on the 1. From beat 2: "1 2 3 4 | 1", song on the 2.
    From beat 4: "1 2 3", song on the 4. Also with the Click on (no doubled clicks).
-3. A song in 7/8 or with time signature changes ("46 & 2"): the count follows the bar the
-   playhead is in.
+3. "46 & 2" with the playhead on the bar line where a 7/8 part starts (its session has it
+   at 36.98 s): seven clicks, in 7/8. Also from inside a 7/8 bar.
 4. The checkbox off: one bar of clicks, then the song from the playhead.
 
 ## Dynamic tempo

@@ -9,7 +9,7 @@ use std::f32::consts::TAU;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
-use crate::{AtomicF32, Beats};
+use crate::{AtomicF32, Beats, CountInClicks};
 
 /// Beats closer than this to a seek target still click: a playhead snapped to a
 /// beat can land a frame or two before or after it.
@@ -91,16 +91,8 @@ pub(crate) struct CountIn {
     /// Song frame "heard" so far, counting up from the first click to where playback
     /// starts.
     pub heard: f64,
-    /// `None` follows the grid. Otherwise one whole bar of `per_bar` beats, `beat`
-    /// frames apart, from `start`: the count-in that ignores where bars fall.
-    free: Option<FreeBar>,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct FreeBar {
-    start: f64,
-    beat: f64,
-    per_bar: u32,
+    /// What it clicks, in song frames.
+    clicks: CountInClicks,
 }
 
 /// Plays the click on the audio thread. Nothing here allocates after
@@ -153,37 +145,27 @@ impl Clicker {
     }
 
     /// Starts a count-in before `target`, or `None` without a grid. With `to_bar`
-    /// it follows the grid up to a bar line ([`Beats::count_in_to_bar`]), whose
-    /// clicks go on over the song up to that bar line. Otherwise it is one whole bar
-    /// in the meter and tempo at `target`, ending there.
+    /// it lands on a bar line ([`Beats::count_in_to_bar`]), its last clicks going on
+    /// over the song up to that bar line. Otherwise it is one whole bar ending at
+    /// `target` ([`Beats::count_in_bar`]). Either way in the meter of the bar
+    /// `target` is in.
     pub fn count_in(&mut self, target: usize, to_bar: bool) -> Option<CountIn> {
         let beats = self.beats.as_ref()?;
         let target = target as f64;
-        if to_bar {
-            let (start, line) = beats.count_in_to_bar(target, self.tolerance);
-            // The bar line clicks as the "1", unless the song starts on it.
-            self.count_in_end = if line - target > self.tolerance {
-                line + self.tolerance
-            } else {
-                target
-            };
-            Some(CountIn {
-                heard: start,
-                free: None,
-            })
+        let clicks = if to_bar {
+            beats.count_in_to_bar(target, self.tolerance)
         } else {
-            let (per_bar, beat) = beats.bar_at(target);
-            let start = target - f64::from(per_bar) * beat;
-            self.count_in_end = f64::NEG_INFINITY;
-            Some(CountIn {
-                heard: start,
-                free: Some(FreeBar {
-                    start,
-                    beat,
-                    per_bar,
-                }),
-            })
-        }
+            CountInClicks {
+                lead: Some(beats.count_in_bar(target, self.tolerance)),
+                grid: (target, target),
+            }
+        };
+        // The grid's clicks of the count-in that fall after `target`, over the song.
+        self.count_in_end = clicks.grid.1;
+        Some(CountIn {
+            heard: clicks.start(),
+            clicks,
+        })
     }
 
     /// The count-in is over; its clicks went up to song frame `heard`, and the
@@ -256,25 +238,28 @@ impl Clicker {
     ) {
         let from = count_in.heard;
         count_in.heard += (out.len() / 2) as f64 * f64::from(tempo);
-        let block = from..count_in.heard;
-        match count_in.free {
-            Some(bar) => {
-                let clicks = (0..bar.per_bar)
-                    .map(|k| (bar.start + f64::from(k) * bar.beat, k == 0))
-                    .filter(move |&(frame, _)| frame >= from && frame < count_in.heard);
-                render(&self.sounds, &mut self.voice, params, block, clicks, out);
-            }
-            None => {
-                let Some(beats) = self.beats.as_deref() else {
-                    self.ring(params, out);
-                    return;
-                };
-                let clicks = beats
-                    .within(from..block.end)
-                    .map(|(index, frame)| (frame, beats.accented(index)));
-                render(&self.sounds, &mut self.voice, params, block, clicks, out);
-            }
-        }
+        let end = count_in.heard;
+        let block = from..end;
+        let lead = count_in
+            .clicks
+            .lead
+            .into_iter()
+            .flat_map(|lead| lead.clicks())
+            .filter(move |&(frame, _)| frame >= from && frame < end);
+        let (grid_from, grid_end) = count_in.clicks.grid;
+        let grid = self.beats.as_deref().into_iter().flat_map(|beats| {
+            beats
+                .within(from.max(grid_from)..end.min(grid_end))
+                .map(|(index, frame)| (frame, beats.accented(index)))
+        });
+        render(
+            &self.sounds,
+            &mut self.voice,
+            params,
+            block,
+            lead.chain(grid),
+            out,
+        );
     }
 }
 
@@ -502,6 +487,7 @@ fn woodblock(accent: bool, rate: f32) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Meter;
 
     const RATE: u32 = 48_000;
     const BLOCK: usize = 256;
@@ -664,14 +650,14 @@ mod tests {
         let found = clicks(&play(&mut clicker, &params(), 0.0, 1.0));
         assert_eq!(found, [(48_000, true), (72_000, false), (94_000, false)]);
 
-        // A whole bar before the beat at 94 000, in the tempo of the beat it is
-        // in (22 000 frames), ignoring where the bars fall.
+        // A whole bar before the beat at 94 000, in the tempo of the beat that
+        // starts there (20 000 frames), ignoring where the bars fall.
         let params = params();
         params.on.store(false, Ordering::Relaxed);
         let found = count_in_then_play(&mut clicker, &params, 94_000, false);
         assert_eq!(
             found,
-            [(0, true), (22_000, false), (44_000, false), (66_000, false)]
+            [(0, true), (20_000, false), (40_000, false), (60_000, false)]
         );
 
         // Landing on the bar line: 94 000 is past the middle of its bar, so that
@@ -681,6 +667,23 @@ mod tests {
         let expected = [48_000, 72_000, 94_000, 114_000, 134_000]
             .map(|f| (f - 48_000, f == 48_000 || f == 134_000));
         assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn count_in_follows_the_meter_of_the_bar_about_to_play() {
+        // A bar of 4/4, then 7/8 from beat 4 (as in "46 & 2"), a beat every 12 000.
+        let meters = [(0, 4), (4, 7)].map(|(from, per_bar)| Meter { from, per_bar });
+        let times = (0..40).map(|k| f64::from(k) * 12_000.0).collect();
+        let beats = Beats::with_meters(times, meters.to_vec()).unwrap();
+        let params = params();
+        params.on.store(false, Ordering::Relaxed);
+        // From the bar line where the 7/8 starts, both ways: seven clicks, not four.
+        for to_bar in [true, false] {
+            let mut clicker = clicker(&beats);
+            let found = count_in_then_play(&mut clicker, &params, 48_000, to_bar);
+            let expected: Vec<(usize, bool)> = (0..7).map(|k| (k * 12_000, k == 0)).collect();
+            assert_eq!(found, expected, "to_bar {to_bar}");
+        }
     }
 
     /// A count-in into `target`, then the song from there, as the engine plays them:
