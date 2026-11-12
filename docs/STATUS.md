@@ -140,7 +140,8 @@ approved by the user (grouped order kept) (see "Ruler rows"). **Controls and men
 (step 1, first part): built, option A of the mockups chosen by the user; to try (see
 "Controls and menus"). Secondary windows (system windows, above the main one,
 modal): tried on macOS and approved by the user; still to try on Windows. **Selected track, soft
-delete and dragging the playhead line** (the rest of step 1): built, to try (see "Track selection
+delete and dragging the playhead line** (the rest of step 1): done, tried by the user; then
+shading instead of an outline, and centered secondary windows: to try (see "Track selection
 and soft delete"). Next in v0.2: undo / redo.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
@@ -2524,8 +2525,12 @@ entry in the window switchers (`subwindow.rs`).
   - Linux: an egui `Modal`, which dims the main window; Esc or Close closes it, a click
     outside does not.
 - egui does not hand out a viewport's native window, so it is found by its title.
-- The system windows open centered near the top of the main window and fit their
-  contents (Settings at a fixed width, its notes wrap). Not resizable; no minimize or
+- The system windows open centered on the main window (asked by the user, 2026-11-12) and fit
+  their contents (Settings at a fixed width, its notes wrap): for 0.5 s after opening, `fit`
+  centers them again at their new size; after that a window the user moved stays where it is.
+  Keyboard Shortcuts scrolls past 520 points (or 75 % of the main window's height); its scroll
+  area has that as its minimum height, or it shrinks with the window that fits it, and the
+  window with it. Not resizable; no minimize or
   zoom buttons. Esc or ⌘W closes them. Keys typed there do not reach the main window
   (Space does not play). Opening one that is open already brings it to the front.
 - The `?` list gained ⌘O, ⇧⌘O, ⌘Q and Esc / ⌘W.
@@ -2640,7 +2645,9 @@ Built 2026-11-12 (v0.2 step 1, second part), as decided in `PLAN.md`.
 
 - **Selected track:** a press anywhere on a track's row (name, controls, waveform) selects it;
   ↑ / ↓ move the selection (with none, ↑ picks the last and ↓ the first) and scroll it into view.
-  The row is outlined and its controls shaded. Not saved; a reload keeps the same file selected.
+  Its controls and its waveform get a lighter background: mixed 10 % toward the text color, so
+  grayer in the dark theme and darker gray in the light one (no outline: the user found it
+  heavy). Not saved; a reload keeps the same file selected.
 - **Keys:** `M` mutes and `S` solos the selected track; Delete / Backspace deletes it. **Adding a
   marker moved to Shift+M** (the Add button, the markers row and Edit → Add Marker are unchanged).
 - **Soft delete:** a 🗑 button in each row (beside ↔), the key, or Edit → Delete Track. The track
@@ -2667,7 +2674,7 @@ Built 2026-11-12 (v0.2 step 1, second part), as decided in `PLAN.md`.
 - Still shortcut-only: Shift+C (tempo or time signature change at the playhead; the changes row
   has its right-click).
 
-**Test checklist:**
+**Test checklist** (items 1–7 tried by the user on macOS: all work):
 1. Click a track's name, controls or waveform: it is selected. ↑ / ↓ move the selection; with
    many tracks the list scrolls to it.
 2. M and S on the selected track, also while playing; Edit → Mute Track shows the check.
@@ -2679,6 +2686,9 @@ Built 2026-11-12 (v0.2 step 1, second part), as decided in `PLAN.md`.
 6. Drag the white playhead line on a waveform, playing and paused; a drag elsewhere still
    makes a loop.
 7. Click a fader, then press ↓: the selection moves, the fader does not change.
+8. The selected track's shading, in the dark and the light theme (checked here in both).
+9. Settings and Keyboard Shortcuts open centered on the main window; the shortcuts list
+   scrolls.
 
 ## Observations to investigate
 
