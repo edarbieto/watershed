@@ -34,6 +34,8 @@ pub enum MenuCommand {
     ClearRecent,
     Reload,
     ShowInFolder,
+    Undo,
+    Redo,
     AddMarker,
     AddChange,
     PreviousTrack,
@@ -171,6 +173,9 @@ fn menus() -> Vec<(&'static str, Vec<Entry>)> {
         Item(C::ShowInFolder, SHOW_IN_FOLDER, cmd_alt(Key::R)),
     ];
     let edit = vec![
+        Item(C::Undo, "Undo", cmd(Key::Z)),
+        Item(C::Redo, "Redo", cmd_shift(Key::Z)),
+        Separator,
         Item(C::AddMarker, "Add Marker", shift(Key::M)),
         Item(
             C::AddChange,
@@ -303,15 +308,21 @@ pub fn commands(recent: usize) -> Vec<MenuCommand> {
     list
 }
 
-/// The command whose Cmd / Ctrl shortcut was just pressed, consumed. On macOS the
-/// native menu takes these keys before the app sees them.
-pub fn shortcut_pressed(ctx: &egui::Context) -> Option<MenuCommand> {
+/// The command whose Cmd / Ctrl shortcut was just pressed, consumed; commands for
+/// which `skip` is true are left alone (their keys go on to the widgets). On macOS
+/// the native menu takes these keys before the app sees them.
+pub fn shortcut_pressed(
+    ctx: &egui::Context,
+    skip: impl Fn(MenuCommand) -> bool,
+) -> Option<MenuCommand> {
     let mut shortcuts: Vec<(KeyboardShortcut, MenuCommand)> = menus()
         .into_iter()
         .flat_map(|(_, entries)| entries)
         .filter_map(|entry| match entry {
             Entry::Item(command, _, Keys::Shortcut(shortcut))
-            | Entry::Check(command, _, Keys::Shortcut(shortcut)) => Some((shortcut, command)),
+            | Entry::Check(command, _, Keys::Shortcut(shortcut)) => {
+                (!skip(command)).then_some((shortcut, command))
+            }
             _ => None,
         })
         .collect();
@@ -804,6 +815,7 @@ mod native {
             Key::L => Code::KeyL,
             Key::S => Code::KeyS,
             Key::Num0 => Code::Digit0,
+            Key::Z => Code::KeyZ,
             Key::Comma => Code::Comma,
             _ => {
                 log::warn!("menu: no accelerator for {logical_key:?}");

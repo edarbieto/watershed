@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -12,6 +13,7 @@ use crate::bpm::{self, Bpm};
 use crate::chords::{self, SongChords};
 use crate::dialog::{Dialog, Purpose};
 use crate::grid::{self, Change, Grid};
+use crate::history::History;
 use crate::key::{self, SongKey};
 use crate::loader::{self, LoadedSong, Loading, Resampled};
 use crate::loops::Loops;
@@ -204,6 +206,10 @@ pub struct WatershedApp {
     selected: Option<usize>,
     /// The selection moved with the keys: scroll its row into view.
     scroll_to_selected: bool,
+    /// Undo histories, per song folder (by session path), for this run of the app.
+    histories: HashMap<PathBuf, History<Session>>,
+    /// A text field has the keyboard: undo and redo are its own.
+    typing: bool,
     settings_open: bool,
     shortcuts_open: bool,
     transport_keys: Transport,
@@ -285,6 +291,8 @@ impl WatershedApp {
             movable: Vec::new(),
             selected: None,
             scroll_to_selected: false,
+            histories: HashMap::new(),
+            typing: false,
             settings_open: false,
             shortcuts_open: false,
             transport_keys: Transport::default(),
@@ -606,6 +614,73 @@ impl WatershedApp {
         }
     }
 
+    /// The loaded song's undo history.
+    fn history(&self) -> Option<&History<Session>> {
+        self.histories.get(&session_path(self.loaded.as_ref()?))
+    }
+
+    /// What undo and redo restore: the session without the playhead.
+    fn undo_state(&self) -> Option<Session> {
+        let (_, session) = self.session()?;
+        Some(Session {
+            position: 0.0,
+            ..session
+        })
+    }
+
+    /// Shows the loaded song's state to its undo history (see `history.rs`). A song
+    /// opened again in the same run keeps its history.
+    fn observe_history(&mut self, ctx: &egui::Context) {
+        let (Some(loaded), Some(state)) = (&self.loaded, self.undo_state()) else {
+            return;
+        };
+        // While stems are moved to another device the song is out of the engine.
+        if self.restore.is_some() {
+            return;
+        }
+        let key = session_path(loaded);
+        let now = Instant::now();
+        let settled = !ctx.input(|i| i.pointer.any_down()) && !ctx.text_edit_focused();
+        let history = self
+            .histories
+            .entry(key)
+            .or_insert_with(|| History::new(state.clone(), now));
+        if let Some(wait) = history.observe(state, settled, now) {
+            ctx.request_repaint_after(wait);
+        }
+    }
+
+    /// Puts the song back in a state from its undo history. The playhead, the zoom
+    /// and the stems in the engine stay.
+    fn restore_state(&mut self, state: &Session) {
+        let Some(loaded) = &mut self.loaded else {
+            return;
+        };
+        apply_track_states(loaded, &state.tracks);
+        self.loops = Loops::from_session(state);
+        self.markers = Markers::from_session(&state.markers);
+        self.bpm = Bpm::new(loaded.bpm, state.bpm);
+        self.grid.restore(state);
+        self.song_key = SongKey::new(loaded.key.clone(), state.key.as_deref());
+        self.metronome = Metronome::from_session(state);
+        self.renaming = None;
+        self.signature_editor = None;
+        if self
+            .selected
+            .is_some_and(|i| loaded.song.tracks.get(i).is_none_or(|t| t.params.deleted()))
+        {
+            self.selected = None;
+        }
+        if let Some(engine) = &mut self.engine {
+            engine.set_tempo(
+                state
+                    .tempo
+                    .clamp(MIN_TEMPO_PCT / 100.0, MAX_TEMPO_PCT / 100.0),
+            );
+            engine.set_semitones(state.semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES));
+        }
+    }
+
     /// The session of the loaded song as it is now, with the path to write it to.
     fn session(&self) -> Option<(PathBuf, Session)> {
         let loaded = self.loaded.as_ref()?;
@@ -888,6 +963,9 @@ impl WatershedApp {
             (Mods::COMMAND, Key::Equals, MenuCommand::ZoomIn),
             (Mods::COMMAND, Key::Minus, MenuCommand::ZoomOut),
         ];
+        if !cfg!(target_os = "macos") {
+            keys.push((Mods::COMMAND, Key::Y, MenuCommand::Redo));
+        }
         // The menus' keys, the ones with Shift first: egui matches Shift loosely.
         keys.extend(
             menu::key_commands()
@@ -1187,6 +1265,7 @@ impl WatershedApp {
     /// The menus: brought up to date, drawn where the system has none, and the
     /// commands chosen in them (or by their Cmd / Ctrl keys) run.
     fn menus(&mut self, ui: &mut egui::Ui) {
+        self.typing = ui.ctx().text_edit_focused();
         let recent: Vec<PathBuf> = self.config.recent.iter().map(|r| r.path.clone()).collect();
         let statuses: std::collections::HashMap<MenuCommand, Status> = menu::commands(recent.len())
             .into_iter()
@@ -1199,7 +1278,11 @@ impl WatershedApp {
             })
         };
         let mut chosen = self.menus.chosen();
-        chosen.extend(menu::shortcut_pressed(ui.ctx()));
+        // Cmd+Z in a text field is the field's own undo.
+        let typing = self.typing;
+        chosen.extend(menu::shortcut_pressed(ui.ctx(), |command| {
+            typing && matches!(command, MenuCommand::Undo | MenuCommand::Redo)
+        }));
         self.menus.update(&status, &recent);
         if !self.menus.is_native() {
             egui::Panel::top("menu_bar").show(ui, |ui| {
@@ -1256,6 +1339,15 @@ impl WatershedApp {
             | C::ZoomIn
             | C::ZoomOut => (loaded, false),
             C::ZoomToFit => (loaded && !self.view.is_full(), false),
+            // Off while typing: Cmd+Z is then the text field's own undo.
+            C::Undo => (
+                loaded && !self.typing && self.history().is_some_and(History::can_undo),
+                false,
+            ),
+            C::Redo => (
+                loaded && !self.typing && self.history().is_some_and(History::can_redo),
+                false,
+            ),
             C::AddChange => (grid, false),
             C::TempoUp | C::TempoDown | C::PitchUp | C::PitchDown => (loaded, false),
             C::PreviousTrack | C::NextTrack => (loaded, false),
@@ -1336,6 +1428,21 @@ impl WatershedApp {
                     .and_then(|loaded| loaded.files[0].parent())
                 {
                     menu::show_in_file_manager(folder);
+                }
+            }
+            C::Undo | C::Redo => {
+                let key = self.loaded.as_ref().map(session_path);
+                let state = key
+                    .and_then(|key| self.histories.get_mut(&key))
+                    .and_then(|history| {
+                        if command == C::Undo {
+                            history.undo()
+                        } else {
+                            history.redo()
+                        }
+                    });
+                if let Some(state) = state {
+                    self.restore_state(&state);
                 }
             }
             C::AddMarker => self.apply(Action::AddMarker),
@@ -3236,6 +3343,7 @@ impl eframe::App for WatershedApp {
             engine.set_vocal_shift(self.config.vocal_formants, self.config.vocal_tonality_limit);
         }
         self.autosave_session(ui.ctx());
+        self.observe_history(ui.ctx());
 
         if self.engine.as_ref().is_some_and(Engine::is_playing) {
             ui.ctx().request_repaint();
@@ -3327,9 +3435,11 @@ fn apply_track_states(loaded: &mut LoadedSong, states: &[TrackState]) {
             params.set_offset((state.offset * rate).round() as i64);
         }
         params.set_deleted(state.deleted);
-        if let Some(name) = &state.name {
-            loaded.names[i] = name.clone();
-        }
+        // Undo can take a name back to the file's.
+        loaded.names[i] = state
+            .name
+            .clone()
+            .unwrap_or_else(|| loaded.default_names[i].clone());
     }
     // At least one track stays (e.g. after the other files were removed from the folder).
     if loaded.song.tracks.iter().all(|t| t.params.deleted()) {

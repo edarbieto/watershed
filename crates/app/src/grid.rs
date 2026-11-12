@@ -178,6 +178,18 @@ impl Grid {
         }
     }
 
+    /// Takes the user's settings from `session` (undo, redo), keeping what was
+    /// estimated and tracked from the audio, which revalidates itself.
+    pub fn restore(&mut self, session: &Session) {
+        let estimate = self.estimate;
+        let tracked = self.tracked.take();
+        *self = Self {
+            estimate,
+            tracked,
+            ..Self::from_session(session)
+        };
+    }
+
     /// Where bar 1 starts, if known.
     pub fn start(&self) -> Option<f64> {
         self.user_start.or(self.estimate.map(|(_, start)| start))

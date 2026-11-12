@@ -8,6 +8,7 @@ mod bpm;
 mod chords;
 mod dialog;
 mod grid;
+mod history;
 mod key;
 mod loader;
 mod loops;

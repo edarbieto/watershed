@@ -118,6 +118,8 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
     (
         "App",
         &[
+            ("{cmd}+Z", "Undo"),
+            ("{cmd}+Shift+Z", "Redo (Ctrl+Y too, on Windows and Linux)"),
             ("{cmd}+O", "Open a folder of stems"),
             ("{cmd}+Shift+O", "Separate a song"),
             ("{cmd}+R, F5", "Reload the song folder"),
