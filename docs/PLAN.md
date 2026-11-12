@@ -584,11 +584,12 @@ same day; their answers are folded in below.
   - Rename **"1 here" to "Set first bar"** (bar 1 is not always where the audio starts:
     pickups, free intros).
   - Missing buttons for what only has a shortcut today, and the `?` window kept in sync.
-- [ ] **Undo / redo:** Cmd+Z and Cmd+Shift+Z on macOS, Ctrl+Z and Ctrl+Shift+Z (and
+- [x] **Undo / redo:** Cmd+Z and Cmd+Shift+Z on macOS, Ctrl+Z and Ctrl+Shift+Z (and
   Ctrl+Y) elsewhere. Scope: everything saved in the session (mixer, offsets,
   names, loops, markers, grid, tempo and signature changes, BPM, key, pitch, tempo,
   deleted tracks), not the playhead or the zoom (approved). A slider drag is one step. Done as
-  snapshots of the session state, per song, kept in memory only.
+  snapshots of the session state, per song, kept in memory only. **Built** (see "Undo and redo"
+  in `STATUS.md`).
 - [x] **Count-in on the bar, overlapping a pickup.** Today the count-in clicks the four
   beats before the first beat at or after the playhead, so it always lasts one bar but
   starts wherever the playhead is in its bar: from beat 2 it counts "2 3 4 1", and from

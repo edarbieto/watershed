@@ -142,7 +142,7 @@ approved by the user (grouped order kept) (see "Ruler rows"). **Controls and men
 modal): tried on macOS and approved by the user; still to try on Windows. **Selected track, soft
 delete and dragging the playhead line** (the rest of step 1): done, tried by the user; then
 shading instead of an outline, and centered secondary windows: to try (see "Track selection
-and soft delete"). Next in v0.2: undo / redo.
+and soft delete"). Undo / redo: built, to try (see "Undo and redo").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2742,6 +2742,38 @@ Built 2026-11-12, asked by the user.
   toggle grid / snap / count-in / chords, ⇧L clears the loop, ⌘L saves it, ⌘0 fits, ⌘=
   zooms, ⌥⌘S hides the panel, ⌘R reloads. (Pitfall: synthetic keys inherit Shift from the
   previous event unless their flags are set.)
+
+## Undo and redo
+
+Built 2026-11-12 (v0.2), as planned: ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Shift+Z, and Ctrl+Y, on Windows
+and Linux), in the Edit menu.
+
+- **What:** everything in the session (mixer, offsets, names, deleted tracks, loops, saved
+  loops, markers, grid, tempo and signature changes, BPM, key, tempo, pitch, click, count-in),
+  not the playhead or the zoom. `history.rs`: `History<Session>`, snapshots of the session with
+  the position zeroed, one history per song folder for this run of the app (opening the song
+  again keeps it), at most 200 steps.
+- **Steps:** every frame the app shows the history its state. A change becomes a step once it
+  has settled: no mouse button down, no text field focused, and no further change for 0.4 s.
+  So a slider drag, a held key (⇧→ for a while) or a run of taps is one step. Undo right after
+  a change, before it settled, undoes it. Any new change drops the redo steps.
+- **Restoring** (`restore_state`) sets the track params (names back to the file's when the
+  state has none), loops, markers, BPM, key, metronome, tempo and pitch; the grid keeps its
+  estimate and tracked beats (`Grid::restore`), which revalidate themselves. A selected track
+  that a step deletes is unselected. The stems in the engine, the playhead and the zoom stay.
+- **While typing** (a text field focused) Undo / Redo are greyed out and ⌘Z is the field's own
+  undo: macOS passes the key on to the window when the menu item is disabled (checked:
+  "Vocalsxx" back to "Vocals", the app's history untouched).
+- Checked on macOS: mute, ⇧→, delete a track; three undos go back step by step and three redos
+  forward, a fourth does nothing; two fader drags undo as two steps.
+
+**Test checklist:**
+1. Change a few things (mute, a fader drag, a marker, a loop, tempo, a track deleted, a rename)
+   and undo them one by one with ⌘Z; redo with ⇧⌘Z.
+2. Drag a fader around for a while: one ⌘Z puts it back where it was before the drag.
+3. Undo while playing: the playhead goes on, nothing jumps.
+4. Rename a track or a marker and press ⌘Z while typing: the text is undone, not the app.
+5. Open another song and come back: its history is still there.
 
 ## Observations to investigate
 
