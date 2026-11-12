@@ -131,8 +131,8 @@ remembered window, click on another output, changelog. The user answered the ope
 The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
 the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
 Cents and reference tuning: done, tried by the user: works (see "Cents and
-reference tuning"). Remember the window: done, **waiting for the user to try it**, above
-all maximized and minimized on Windows (see "Remember the window").
+reference tuning"). Remember the window: done, tried by the user on macOS (maximized included): works; still
+to try on Windows (see "Remember the window").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2157,7 +2157,8 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
 
 ## Remember the window
 
-v0.2, done 2026-11-12, **not yet tried by the user**. eframe's `persistence` feature saves
+v0.2, done 2026-11-12. **Tried by the user on macOS: works**, maximized (Zoom) included.
+**Still to try on Windows**, above all maximized and closed while minimized. eframe's `persistence` feature saves
 the window (`app.ron`: position in physical pixels, content size in points, maximized,
 full screen) every 30 s and on exit, restores it, and on Windows moves it back onto a
 monitor if its monitor is gone (macOS does that itself). `window.rs` replaces what eframe
@@ -2178,9 +2179,8 @@ checks that what `window.rs` writes reads back through egui-winit's `WindowSetti
 
 **Checked on macOS** by driving the window with System Events: position and size restored
 across runs with no drift; minimized then Cmd+Q reopens normal; full screen (the green
-button) reopens in full screen and leaving it gives back the normal size and place. **Not
-checked:** maximized (macOS's Zoom could not be scripted; the logic is covered by a unit
-test), and anything on Windows.
+button) reopens in full screen and leaving it gives back the normal size and place.
+Maximized (macOS's Zoom could not be scripted) was tried by the user.
 
 ## Cents and reference tuning
 
