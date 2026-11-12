@@ -810,6 +810,10 @@ impl WatershedApp {
     }
 
     fn handle_input(&mut self, ui: &egui::Ui) {
+        // A secondary window is modal (see `subwindow.rs`).
+        if self.modal().is_some() {
+            return;
+        }
         let dropped: Vec<PathBuf> = ui.input(|i| {
             i.raw
                 .dropped_files
@@ -1132,6 +1136,10 @@ impl WatershedApp {
             C::Chords => (grid, self.config.show_chords),
             C::SidePanel => (loaded, self.config.show_side_panel),
         };
+        // While a secondary window is open, only what does not touch the main window.
+        let enabled = enabled
+            && (self.modal().is_none()
+                || matches!(command, C::About | C::Quit | C::Website | C::ReportProblem));
         Status { enabled, checked }
     }
 
@@ -1227,6 +1235,19 @@ impl WatershedApp {
             }
             C::Website => ctx.open_url(egui::OpenUrl::new_tab(menu::PROJECT_URL)),
             C::ReportProblem => ctx.open_url(egui::OpenUrl::new_tab(menu::ISSUES_URL)),
+        }
+    }
+
+    /// The secondary window open, if any: it is modal (see `subwindow.rs`).
+    fn modal(&self) -> Option<&'static str> {
+        if self.settings_open {
+            Some(SETTINGS)
+        } else if self.shortcuts_open {
+            Some(shortcuts::WINDOW)
+        } else if self.about_open {
+            Some(ABOUT)
+        } else {
+            None
         }
     }
 
@@ -2793,6 +2814,13 @@ impl WatershedApp {
 }
 
 impl eframe::App for WatershedApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, _raw_input: &mut egui::RawInput) {
+        #[cfg(target_os = "macos")]
+        if let Some(open) = self.modal() {
+            subwindow::hold_main_input(_ctx, _raw_input, open);
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.window.update(ui.ctx());
         self.poll_loading(ui.ctx());

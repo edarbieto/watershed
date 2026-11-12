@@ -10,6 +10,11 @@
 //!   the child (transient) of another on X11 or Wayland, and only that keeps a window
 //!   above its parent and out of the switchers there.
 //!
+//! They are modal: while one is open, the main window takes no clicks or keys. A click
+//! there beeps and brings the open window to the front (macOS: `hold_main_input`;
+//! Windows: the system does it for a disabled owner; Linux: an egui modal, which dims
+//! the main window).
+//!
 //! The system windows are immediate egui viewports: drawn in the same frame as the
 //! main window, with the app's state at hand. They fit their contents. egui does not
 //! hand out a viewport's native handle, so `owner::attach` finds the window by title.
@@ -50,21 +55,33 @@ pub fn show(
     contents: impl FnOnce(&mut egui::Ui),
 ) {
     #[cfg(not(any(target_os = "macos", windows)))]
-    {
-        let mut window = egui::Window::new(title)
-            .id(egui::Id::new(("subwindow", name)))
-            .open(open)
-            .collapsible(false)
-            .resizable(false);
-        if let Width::Fixed(w) = width {
-            window = window.default_width(w);
-        }
-        window.show(ctx, |ui| {
-            if let Width::Fit = width {
+    if *open {
+        let modal = egui::Modal::new(egui::Id::new(("subwindow", name))).show(ctx, |ui| {
+            if let Width::Fixed(w) = width {
+                ui.set_width(w);
+            } else {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             }
+            let close = ui
+                .horizontal(|ui| {
+                    ui.heading(title);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.button("Close").clicked()
+                    })
+                    .inner
+                })
+                .inner;
+            ui.separator();
             contents(ui);
+            close
         });
+        // A click on the dimmed main window does not close it, as on the other systems.
+        let escape = modal.is_top_modal
+            && !modal.any_popup_open
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+        if modal.inner || escape {
+            *open = false;
+        }
     }
     #[cfg(any(target_os = "macos", windows))]
     native(ctx, name, title, width, open, contents);
@@ -141,8 +158,54 @@ fn native(
         })
     });
     if close {
+        #[cfg(windows)]
+        owner::release();
         *open = false;
         ctx.data_mut(|d| d.remove::<egui::Pos2>(place));
+    }
+}
+
+/// While the secondary window `open` is open, the main window takes no clicks or keys:
+/// they are dropped from its input, and a click or key press beeps and brings `open`
+/// to the front, as with a modal window. For `App::raw_input_hook` (macOS: on Windows
+/// the system does it for the disabled owner, on Linux the egui modal does it).
+#[cfg(target_os = "macos")]
+pub fn hold_main_input(ctx: &egui::Context, raw: &mut egui::RawInput, open: &str) {
+    use egui::Event as E;
+    if raw.viewport_id != egui::ViewportId::ROOT {
+        return;
+    }
+    let refused = raw.events.iter().any(|e| {
+        matches!(
+            e,
+            E::PointerButton { pressed: true, .. } | E::Key { pressed: true, .. }
+        )
+    });
+    let before = raw.events.len();
+    raw.events.retain(|e| {
+        !matches!(
+            e,
+            E::PointerButton { .. }
+                | E::PointerMoved(_)
+                | E::MouseMoved(_)
+                | E::MouseWheel { .. }
+                | E::Key { .. }
+                | E::Text(_)
+                | E::Zoom(_)
+                | E::Touch { .. }
+                | E::Copy
+                | E::Cut
+                | E::Paste(_)
+                | E::Ime(_)
+        )
+    });
+    if raw.events.len() != before {
+        // No hover left behind.
+        raw.events.push(E::PointerGone);
+    }
+    if refused {
+        objc2_app_kit::NSBeep();
+        focus(ctx, open);
     }
 }
 
@@ -227,15 +290,18 @@ pub mod owner {
 /// The main window owns the secondary ones (Windows).
 #[cfg(windows)]
 pub mod owner {
-    use std::sync::atomic::{AtomicIsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
     use windows_sys::Win32::Foundation::{HWND, LPARAM};
     use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumThreadWindows, GWLP_HWNDPARENT, GetWindowLongPtrW, GetWindowTextW, SetWindowLongPtrW,
     };
 
     static MAIN: AtomicIsize = AtomicIsize::new(0);
+    /// Whether the main window is disabled by a secondary one.
+    static DISABLED: AtomicBool = AtomicBool::new(false);
 
     /// Remembers the main window, from the app's creation.
     pub fn init(cc: &eframe::CreationContext) {
@@ -277,11 +343,25 @@ pub mod owner {
         if window.is_null() || window as isize == main {
             return;
         }
-        // Safety: `window` is a live window of this thread.
+        // Safety: `window` and `main` are live windows of this thread.
         unsafe {
             if GetWindowLongPtrW(window, GWLP_HWNDPARENT) == 0 {
                 SetWindowLongPtrW(window, GWLP_HWNDPARENT, main);
+                // Modal: a disabled owner takes no input; a click on it beeps and
+                // flashes the window it owns.
+                EnableWindow(main as HWND, 0);
+                DISABLED.store(true, Ordering::Relaxed);
             }
+        }
+    }
+
+    /// Enables the main window again, before the secondary one closes (else Windows
+    /// activates another app's window).
+    pub fn release() {
+        let main = MAIN.load(Ordering::Relaxed);
+        if main != 0 && DISABLED.swap(false, Ordering::Relaxed) {
+            // Safety: `main` is the live main window, on its thread.
+            unsafe { EnableWindow(main as HWND, 1) };
         }
     }
 
