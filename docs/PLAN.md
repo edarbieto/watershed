@@ -631,10 +631,11 @@ same day; their answers are folded in below.
     says whether this is what they meant.
   - Reaper and Ableton: not verified that they ever do this. Reaper plays N bars of
     metronome before starting at the cursor; Cubase snaps the start back to the bar line.
-- [ ] **Remember the window:** position, size, maximized or full screen, and the monitor;
+- [x] **Remember the window:** position, size, maximized or full screen, and the monitor;
   eframe's `persist_window` with the `persistence` feature, or our own fields in
   `config.toml`. A window closed while minimized opens normal. If the
-  monitor is gone, back to the default place.
+  monitor is gone, back to the default place. **Done** (see "Remember the window" in
+  `STATUS.md`).
 - [ ] **Click on another output.** Ableton's "Cue" sends to other channels of the **same**
   interface (e.g. outputs 3–4), which is sample-accurate and common. Watershed already
   routes the click Left / Right / Both; the step is opening the device with all its

@@ -52,6 +52,8 @@ cargo run --release -- path/to/stems-folder
 - The config file lives in `~/Library/Application Support/Watershed/config.toml`
   (Windows: `%APPDATA%\Watershed\config\config.toml`). It stores the output device
   id, which differs per machine; an unknown id falls back to the default device.
+  The window's place and size are in eframe's `app.ron` beside it on macOS (Windows:
+  `%APPDATA%\Watershed\data\app.ron`); delete it to open at the default size.
 - `tools/reference/separate.py` uses the GPU through MPS on Apple Silicon (about 2.6×
   faster than the CPU).
 

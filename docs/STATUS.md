@@ -131,7 +131,8 @@ remembered window, click on another output, changelog. The user answered the ope
 The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
 the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
 Cents and reference tuning: done, tried by the user: works (see "Cents and
-reference tuning").
+reference tuning"). Remember the window: done, **waiting for the user to try it**, above
+all maximized and minimized on Windows (see "Remember the window").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2153,6 +2154,33 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
 4. A mark with only a time signature behaves as before; with both, the tag shows
    both.
 5. Close and reopen: the marks are kept (the session now writes `[[changes]]`).
+
+## Remember the window
+
+v0.2, done 2026-11-12, **not yet tried by the user**. eframe's `persistence` feature saves
+the window (`app.ron`: position in physical pixels, content size in points, maximized,
+full screen) every 30 s and on exit, restores it, and on Windows moves it back onto a
+monitor if its monitor is gone (macOS does that itself). `window.rs` replaces what eframe
+saves with the last geometry seen while the window was normal, because eframe takes it
+from the window as it is at that moment:
+- **Minimized:** Windows reports a minimized window at −32000 with a size of 0; eframe
+  would reopen it at 64 × 64. Now it opens as it was before minimizing.
+- **Maximized:** eframe would save the maximized size as the normal one, so unmaximizing
+  after a restart would not shrink the window. Now it saves the normal size with
+  `maximized: true`.
+- **Full screen:** a window created in full screen on macOS leaves it at the size of the
+  screen. Now it opens normal and goes to full screen on its first frame
+  (`watershed_fullscreen` in `app.ron`).
+
+egui's own state is not saved (`persist_egui_memory` is off), only the window. A test
+checks that what `window.rs` writes reads back through egui-winit's `WindowSettings`
+(their fields are private, so a renamed field would come back as its default).
+
+**Checked on macOS** by driving the window with System Events: position and size restored
+across runs with no drift; minimized then Cmd+Q reopens normal; full screen (the green
+button) reopens in full screen and leaving it gives back the normal size and place. **Not
+checked:** maximized (macOS's Zoom could not be scripted; the logic is covered by a unit
+test), and anything on Windows.
 
 ## Cents and reference tuning
 
