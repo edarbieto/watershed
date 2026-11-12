@@ -651,6 +651,38 @@ same day; their answers are folded in below.
   ratio like ½ or ×2), and make the user's tempo win where they set it.
   **Done:** the mark on bar 1 was dropped (see "Waveform shift and tempo at bar 1" in
   `STATUS.md`).
+- [ ] **Undo / redo buttons** (asked by the user, 2026-11-12, after trying undo): ↶ / ↷ in the
+  window too, not only ⌘Z and the Edit menu; greyed out when there is nothing to undo or redo,
+  the tooltip naming the key. Where: to decide with the user (proposal: the left of the top
+  bar, after the song title and its info, where the editing of the song is; the bottom bar is
+  transport and playback).
+- [ ] **Double separator after the usage numbers** (seen by the user in the top bar: "Output |
+  | CPU …"). Cause, from the code: the top bar is laid out right to left, and `top_bar` adds
+  `ui.separator()` after "Output", then `usage_label` starts with its own `ui.separator()`, so
+  two lines end up side by side. Fix: keep one of them (the one in `usage_label`, so no line is
+  left over when the numbers are not shown yet, or the one in `top_bar` if the numbers always
+  show). A one-line change; check the gap looks even after it.
+- [ ] **Keep the song's tags after separating** (asked by the user): artist, album, title,
+  track number (and year, genre) from the source file's ID3 / Vorbis / MP4 tags, so the
+  recent songs can be searched by them. How, to decide:
+  - **Reading:** symphonia already reads the tags while decoding (the probe's and the
+    format's metadata, standard keys such as Artist, Album, TrackTitle, TrackNumber, Date,
+    Genre); `decode_file` would return them beside the samples. Check symphonia 0.6's
+    metadata API in the registry sources first.
+  - **Storing:** a `[song]` table in `.watershed.toml` (proposed by the user): `artist`,
+    `album`, `title`, `track`, `year`, `genre`, plus `source` (the original file name). The
+    session already travels with the stems, and the format is versioned. Optionally also
+    write them into the stems themselves (Vorbis comments in the Ogg and FLAC files), so other
+    apps and DAWs show them too.
+  - **Searching:** today the recent list matches the folder name and path (`matches_search`).
+    It would match the tags too; to avoid reading every session file on each keystroke, keep
+    the tags of each recent song in `config.toml`'s recent list (written when the song is
+    opened or separated), or cache them in memory when the list first opens.
+  - **Showing:** the top bar and the recent list could show "Artist – Title" instead of the
+    folder name; the song info panel (Phase 3.5 idea) could edit them.
+  - **Songs separated before this, or folders from MVSEP / other tools:** no source file to
+    read. Options: read the tags from the stems if they have any, let the user type them, or
+    leave them empty (the folder name still matches).
 - [ ] **Project website.** Musicians do not browse GitHub: a static site with what the app
   does, screenshots, the download buttons per system (latest release) and the feature list
   and changelog. Hosted on GitHub Pages (free, from the repo, e.g. a `site/` folder or a

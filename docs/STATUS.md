@@ -142,7 +142,23 @@ approved by the user (grouped order kept) (see "Ruler rows"). **Controls and men
 modal): tried on macOS and approved by the user; still to try on Windows. **Selected track, soft
 delete and dragging the playhead line** (the rest of step 1): done, tried by the user; then
 shading instead of an outline, and centered secondary windows: to try (see "Track selection
-and soft delete"). Undo / redo: built, to try (see "Undo and redo").
+and soft delete"). **Undo / redo: done**, tried by the user on macOS: works (see "Undo and redo"). Also done
+and tried the same day: appearance (light / dark / system), keys shown in the menus and the
+shortcut map. **Added to the plan by the user (2026-11-12):** undo / redo buttons, the double
+separator in the top bar, keeping the song's tags after separating (all in `PLAN.md`, v0.2).
+Left in v0.2 besides those: click on another output, CHANGELOG and feature list, website.
+
+**Next session: on Windows** (the user moves there). To try there, built on macOS and only
+compiled for Windows in CI:
+1. Secondary windows (Settings, Shortcuts, About): above the main window, no taskbar button or
+   Alt+Tab entry, modal (the main window beeps and flashes the open one), centered on it, the
+   shortcuts list scrolls.
+2. The menu bar: dark or light with Settings → Appearance (and System following Windows), the
+   keys shown as text after each item (`Shift+M`, `Up`, `Delete`…), Ctrl+O / Ctrl+, / Ctrl+R /
+   Ctrl+L / Ctrl+0 / Ctrl+Alt+S / Ctrl+Alt+R.
+3. Undo / redo: Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y; Ctrl+Z inside a text field undoes the text.
+4. Remember the window (still to try on Windows from before).
+5. Track selection, Delete and Backspace, Shift+arrows (tempo and pitch), the playhead drag.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2767,7 +2783,7 @@ and Linux), in the Edit menu.
 - Checked on macOS: mute, ⇧→, delete a track; three undos go back step by step and three redos
   forward, a fourth does nothing; two fader drags undo as two steps.
 
-**Test checklist:**
+**Test checklist** (tried by the user on macOS: works):
 1. Change a few things (mute, a fader drag, a marker, a loop, tempo, a track deleted, a rename)
    and undo them one by one with ⌘Z; redo with ⇧⌘Z.
 2. Drag a fader around for a while: one ⌘Z puts it back where it was before the drag.
