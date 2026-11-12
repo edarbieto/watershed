@@ -604,7 +604,7 @@ same day; their answers are folded in below.
   names, loops, markers, grid, tempo and signature changes, BPM, key, pitch, tempo,
   deleted tracks), not the playhead or the zoom (approved). A slider drag is one step. Done as
   snapshots of the session state, per song, kept in memory only.
-- [ ] **Count-in on the bar, overlapping a pickup.** Today the count-in clicks the four
+- [x] **Count-in on the bar, overlapping a pickup.** Today the count-in clicks the four
   beats before the first beat at or after the playhead, so it always lasts one bar but
   starts wherever the playhead is in its bar: from beat 2 it counts "2 3 4 1", and from
   the start of a song with a pickup (anacrusis) it is off too. Asked by the user (rule
@@ -631,6 +631,7 @@ same day; their answers are folded in below.
     says whether this is what they meant.
   - Reaper and Ableton: not verified that they ever do this. Reaper plays N bars of
     metronome before starting at the cursor; Cubase snaps the start back to the bar line.
+  - **Done** (see "Count-in on the bar line" in `STATUS.md`), to try by the user.
 - [x] **Remember the window:** position, size, maximized or full screen, and the monitor;
   eframe's `persist_window` with the `persistence` feature, or our own fields in
   `config.toml`. A window closed while minimized opens normal. If the

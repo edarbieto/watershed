@@ -135,6 +135,54 @@ impl Beats {
         self.time(index) - self.time(index - i64::from(self.per_bar(index - 1)))
     }
 
+    /// The index of the first bar line (a beat that starts a bar) at or after `time`.
+    pub fn bar_line_from(&self, time: f64) -> i64 {
+        let mut index = self.first_from(time);
+        while !self.accented(index) {
+            index += 1;
+        }
+        index
+    }
+
+    /// The index of the bar line before beat `index`: where the bar that ends at
+    /// `index` starts.
+    fn bar_line_before(&self, index: i64) -> i64 {
+        let mut before = index - 1;
+        while !self.accented(before) {
+            before -= 1;
+        }
+        before
+    }
+
+    /// A count-in that lands on a bar line, for playback starting at `time`: where its
+    /// first click falls, and the bar line it counts towards (the first at or after
+    /// `time`, which also clicks unless `time` is on it). From a bar line it counts the
+    /// bar before it. From the second half of a bar (by time) it counts that bar from
+    /// its start and the song comes in at `time`, over the last clicks; from the first
+    /// half it counts one bar more. `tolerance` treats a `time` that close to a bar
+    /// line as on it.
+    pub fn count_in_to_bar(&self, time: f64, tolerance: f64) -> (f64, f64) {
+        let line = self.bar_line_from(time - tolerance);
+        let at = self.time(line);
+        let start = self.bar_line_before(line);
+        if at - time <= tolerance {
+            return (self.time(start), at);
+        }
+        let from = self.time(start);
+        if (time - from) / (at - from) >= 0.5 {
+            (from, at)
+        } else {
+            (self.time(self.bar_line_before(start)), at)
+        }
+    }
+
+    /// The beats per bar and the beat length where `time` is, for a count-in of one
+    /// whole bar that does not follow the grid.
+    pub fn bar_at(&self, time: f64) -> (u32, f64) {
+        let index = self.first_from(time).max(1);
+        (self.per_bar(index - 1), self.beat_at(time))
+    }
+
     /// The length of the beat that `time` falls in.
     pub fn beat_at(&self, time: f64) -> f64 {
         let index = self.first_from(time).max(1);
@@ -221,6 +269,43 @@ mod tests {
             },
         ];
         assert_eq!(Beats::with_meters(vec![0.0, 1.0], unordered), None);
+    }
+
+    #[test]
+    fn count_in_lands_on_a_bar_line() {
+        // 4/4, a beat every 10 from bar 1 at 100.
+        let beats = Beats::steady(100.0, 10.0, 4, 300.0).unwrap();
+        // On a bar line (or within the tolerance): the bar before it.
+        assert_eq!(beats.count_in_to_bar(140.0, 0.1), (100.0, 140.0));
+        assert_eq!(beats.count_in_to_bar(140.05, 0.1), (100.0, 140.0));
+        // Beat 4: "1 2 3", the song on the 4, then the 1 at 180.
+        assert_eq!(beats.count_in_to_bar(170.0, 0.1), (140.0, 180.0));
+        // Halfway counts as late.
+        assert_eq!(beats.count_in_to_bar(160.0, 0.1), (140.0, 180.0));
+        // Beat 2: "1 2 3 4 | 1", the song on the 2.
+        assert_eq!(beats.count_in_to_bar(150.0, 0.1), (100.0, 180.0));
+        // Before bar 1, at the grid's pace: a pickup ending at bar 1.
+        assert_eq!(beats.count_in_to_bar(85.0, 0.1), (60.0, 100.0));
+        assert_eq!(beats.count_in_to_bar(65.0, 0.1), (20.0, 100.0));
+
+        // 7/8 after a bar of 4: by time, so a 7-beat bar is late from halfway
+        // through its 4th beat.
+        let meters = vec![
+            Meter {
+                from: 0,
+                per_bar: 4,
+            },
+            Meter {
+                from: 4,
+                per_bar: 7,
+            },
+        ];
+        let beats = Beats::with_meters((0..30).map(f64::from).collect(), meters).unwrap();
+        assert_eq!(beats.count_in_to_bar(7.5, 0.01), (4.0, 11.0));
+        assert_eq!(beats.count_in_to_bar(8.0, 0.01), (4.0, 11.0));
+        assert_eq!(beats.count_in_to_bar(7.4, 0.01), (0.0, 11.0));
+        assert_eq!(beats.bar_at(6.0), (7, 1.0));
+        assert_eq!(beats.bar_at(2.5), (4, 1.0));
     }
 
     #[test]

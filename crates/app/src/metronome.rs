@@ -31,6 +31,7 @@ impl Metronome {
         engine.set_beats(beats);
         engine.set_click(self.click);
         engine.set_count_in(self.count_in);
+        engine.set_count_in_to_bar(config.count_in_to_bar);
         engine.set_click_sound(match config.click_sound {
             ClickSound::Click => watershed_audio::ClickSound::Click,
             ClickSound::Metronome => watershed_audio::ClickSound::Metronome,
@@ -67,7 +68,12 @@ pub fn controls(
         }
         if ui
             .add(egui::Button::selectable(metronome.count_in, "Count-in"))
-            .on_hover_text("One bar of clicks before playback starts")
+            .on_hover_text(if config.count_in_to_bar {
+                "Clicks up to the next bar line when playback starts; the song comes in at \
+                 the playhead"
+            } else {
+                "One bar of clicks before playback starts"
+            })
             .on_disabled_hover_text(disabled_hint)
             .clicked()
         {
@@ -75,7 +81,7 @@ pub fn controls(
         }
         let response = ui
             .add(egui::Button::new("⏷"))
-            .on_hover_text("Click sound, channels and volume")
+            .on_hover_text("Click sound, channels, volume and count-in")
             .on_disabled_hover_text(disabled_hint);
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -112,6 +118,19 @@ pub fn controls(
                 );
                 // Saved when the drag ends, not on every step.
                 changed |= response.drag_stopped() || (response.changed() && !response.dragged());
+                ui.add_space(6.0);
+                ui.label(RichText::new("Count-in").strong());
+                changed |= ui
+                    .checkbox(&mut config.count_in_to_bar, "Count in to the bar line")
+                    .on_hover_text(
+                        "On: the count lands on the next bar line. From the second half of a \
+                         bar it counts that bar and the song comes in at the playhead, over \
+                         the last clicks (from beat 4: \"1 2 3\", song on the 4); from the \
+                         first half it counts one bar more (from beat 2: \"1 2 3 4 | 1\", song \
+                         on the 2).\nOff: one whole bar of clicks, then the song from the \
+                         playhead, wherever it falls in its bar.",
+                    )
+                    .changed();
             });
     });
     changed

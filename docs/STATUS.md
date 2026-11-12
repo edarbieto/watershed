@@ -131,7 +131,8 @@ remembered window, click on another output, changelog. The user answered the ope
 The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
 the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
 Cents and reference tuning: done, tried by the user: works (see "Cents and
-reference tuning"). Remember the window: done, tried by the user on macOS (maximized included): works; still
+reference tuning"). Count-in on the bar line: done, to try (see "Count-in on the bar
+line"). Remember the window: done, tried by the user on macOS (maximized included): works; still
 to try on Windows (see "Remember the window").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
@@ -1832,12 +1833,13 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
   tolerance, for a playhead snapped onto a beat); after a loop jump, from the loop
   start. A pause lets a click already sounding ring out.
 - **Count-in**: when playback starts from silence (play, space, ▶ on a loop or
-  marker while paused), the engine seeks, then counts the bar before the playhead on
-  the grid, extended backwards (the first click is the accent of that bar), with the
-  stretcher frozen. The song starts when the count reaches the frame the stretcher
-  will play first, so the count and the song form one continuous pulse (tested). A
-  seek during the count-in starts the song at once. `Engine::counting_in()` keeps
-  the playhead still meanwhile. Not on loop wraps, nor on seeks while playing.
+  marker while paused), the engine seeks, then counts with the stretcher frozen. The
+  song starts when the count reaches the frame the stretcher will play first, so the
+  count and the song form one continuous pulse (tested). A seek during the count-in
+  starts the song at once. `Engine::counting_in()` keeps the playhead still
+  meanwhile. Not on loop wraps, nor on seeks while playing. Two ways to count
+  (2026-11-12, a checkbox "Count in to the bar line" in the ⏷ menu, `count_in_to_bar`
+  in `config.toml`, on by default), see "Count-in on the bar line" below.
 - **Sounds**, synthesized when the engine starts (no files, any sample rate). The
   first version was designed blind and the user asked to adjust it; the second is
   modelled on **Ableton Live's own metronome samples** (Live 12 Lite installs them:
@@ -1883,6 +1885,42 @@ The song's BPM shows right of the tempo slider, at the current tempo (120 BPM at
    the wraps.
 6. Grid off or no BPM: both buttons greyed out, silence. Close and reopen the song:
    Click and Count-in are kept; restart the app: sound, channels and volume are kept.
+
+## Count-in on the bar line
+
+Asked by the user (v0.2, rule agreed 2026-11-11). Done 2026-11-12, **not tried by the
+user yet**. Before, the count-in clicked the four beats before the first beat at or after
+the playhead, so from beat 2 it counted "2 3 4 1" and a pickup threw it off.
+
+- **On (default), `Beats::count_in_to_bar`:** the count goes to the first bar line at or
+  after the playhead, on the grid. From a bar line: the bar before it ("1 2 3 4", song on
+  the 1). From the second half of a bar, **by time** (so 7/8 and 9/8 work too): that bar
+  from its start, the song comes in at the playhead over the last clicks, and the bar line
+  clicks as the "1" (from beat 4: "1 2 3", song on the 4). From the first half: one bar
+  more (from beat 2: "1 2 3 4 | 1", song on the 2). These clicks sound even with the Click
+  off; beats before bar 1 count at the pace of the grid's first beat.
+- **Off:** as in Reaper, one whole bar of clicks in the meter and tempo of the bar the
+  playhead is in, then the song from the playhead, wherever it falls in its bar.
+- **Nothing before the playhead:** the stretcher's seek fills its pre-roll with the song
+  before the target, so ~45 ms of what came before the playhead used to play first (also
+  in the old count-in; its test could not see it, its song started at the playhead). With
+  a count-in the pre-roll is now silent before the target, with a 2 ms fade-in at it.
+  Seeks without a count-in keep the old pre-roll, so a click on the waveform is heard at
+  once.
+- **Tests:** `count_in_lands_on_a_bar_line` (beats, 4/4, before bar 1, 7/8),
+  `clicks_and_count_in_follow_a_tempo_map` (both ways on a tempo map),
+  `count_in_to_the_bar_line_overlaps_the_song` (engine: clicks and where the song comes
+  in, from beat 4 and from beat 2).
+
+**Test checklist:**
+1. "My Own Summer" (Deftones: 72 BPM, bar 1 at 0.92 s, a drum pickup before it), Count-in
+   on, from 0:00: "1 2 3", the song starts just before the 4 (0:00 is 0.09 s before it),
+   the 4 clicks over the drum pickup, then the 1 on bar 1. Is this what you meant?
+2. From a bar line: "1 2 3 4", song on the 1. From beat 2: "1 2 3 4 | 1", song on the 2.
+   From beat 4: "1 2 3", song on the 4. Also with the Click on (no doubled clicks).
+3. A song in 7/8 or with time signature changes ("46 & 2"): the count follows the bar the
+   playhead is in.
+4. The checkbox off: one bar of clicks, then the song from the playhead.
 
 ## Dynamic tempo
 

@@ -42,6 +42,9 @@ pub struct Config {
     pub click_channels: ClickChannels,
     /// In dB, independent of the master volume.
     pub click_volume_db: f32,
+    /// Whether the count-in lands on a bar line, overlapping the song when playback
+    /// starts late in a bar. Off, it is one whole bar before the playhead.
+    pub count_in_to_bar: bool,
     /// How vocal stems are transposed: keeping their formants, and with a tonality
     /// limit that leaves the highs closer to the original.
     pub vocal_formants: bool,
@@ -63,6 +66,7 @@ impl Default for Config {
             click_sound: ClickSound::default(),
             click_channels: ClickChannels::default(),
             click_volume_db: -6.0,
+            count_in_to_bar: true,
             vocal_formants: true,
             vocal_tonality_limit: true,
             check_for_updates: true,
@@ -215,6 +219,7 @@ mod tests {
             click_sound: ClickSound::Wood,
             click_channels: ClickChannels::Left,
             click_volume_db: -12.5,
+            count_in_to_bar: false,
             vocal_formants: false,
             vocal_tonality_limit: false,
             check_for_updates: false,

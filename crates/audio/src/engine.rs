@@ -351,9 +351,18 @@ impl Engine {
         self.shared.click.on.store(on, Ordering::Relaxed);
     }
 
-    /// Plays one bar of clicks each time playback starts.
+    /// Plays a count-in each time playback starts.
     pub fn set_count_in(&self, on: bool) {
         self.shared.click.count_in.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether the count-in lands on a bar line, overlapping the song when playback
+    /// starts late in a bar, or is one whole bar before the playhead.
+    pub fn set_count_in_to_bar(&self, on: bool) {
+        self.shared
+            .click
+            .count_in_to_bar
+            .store(on, Ordering::Relaxed);
     }
 
     /// The song's beats, in frames at the engine's rate; `None` silences the click
@@ -487,9 +496,12 @@ impl CallbackState {
         // position heard at the pause, so the first thing heard is the current mix.
         if playing && !self.was_playing && self.fade == 0.0 && self.voice.is_some() {
             let target = self.shared.position.load(Ordering::Relaxed) as usize;
-            self.seek(target);
-            if self.shared.click.count_in.load(Ordering::Relaxed) {
-                self.count_in = self.clicker.count_in(target);
+            let count_in = self.shared.click.count_in.load(Ordering::Relaxed);
+            // During a count-in the song comes in at the playhead, not before it.
+            self.seek_from(target, count_in);
+            if count_in {
+                let to_bar = self.shared.click.count_in_to_bar.load(Ordering::Relaxed);
+                self.count_in = self.clicker.count_in(target, to_bar);
             }
         }
         if !playing {
@@ -519,7 +531,7 @@ impl CallbackState {
                     &mut clicks[..song_start * 2],
                 );
                 if count_in.heard >= begin {
-                    self.clicker.count_in_done(begin);
+                    self.clicker.count_in_done(count_in.heard);
                     self.count_in = None;
                 }
             }
@@ -622,9 +634,14 @@ impl CallbackState {
     }
 
     fn seek(&mut self, frame: usize) {
+        self.seek_from(frame, false);
+    }
+
+    /// A seek; with `silent_before`, nothing before `frame` is heard.
+    fn seek_from(&mut self, frame: usize, silent_before: bool) {
         if let Some(voice) = &mut self.voice {
             let tempo = self.shared.tempo.load();
-            self.stretcher.seek(voice, frame, tempo);
+            self.stretcher.seek(voice, frame, tempo, silent_before);
             self.clicker.seek(frame);
             self.shared.position.store(frame as u64, Ordering::Relaxed);
         }
@@ -772,6 +789,46 @@ mod tests {
         let start = onsets(&left, 0.1)[0] + 256;
         assert!(start.abs_diff(4 * beat) < 96, "song started at {start}");
         assert!(!state.shared.counting_in.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn count_in_to_the_bar_line_overlaps_the_song() {
+        // A beat every 0.25 s from 0, so bars of 48 000 frames.
+        let beat = 12_000;
+        // (playhead, song start and clicks heard, from the first click)
+        let cases = [
+            // On beat 4: "1 2 3", the song on the 4, then the "1" of the next bar.
+            (84_000, 3 * beat, vec![0, 1, 2, 3, 4]),
+            // On beat 2: "1 2 3 4 | 1", the song on the 2, up to the next "1".
+            (60_000, 5 * beat, vec![0, 1, 2, 3, 4, 5, 6, 7, 8]),
+        ];
+        for (from, song_at, expected) in cases {
+            let clicks = {
+                let mut state = click_callback(usize::MAX, beat as f64, from);
+                state.shared.click.count_in.store(true, Ordering::Relaxed);
+                state
+                    .shared
+                    .click
+                    .count_in_to_bar
+                    .store(true, Ordering::Relaxed);
+                onsets(&record(&mut state, 400), 1e-3)
+            };
+            assert_eq!(clicks.len(), expected.len(), "from {from}: {clicks:?}");
+            for (at, k) in clicks.iter().zip(&expected) {
+                assert!(at.abs_diff(k * beat) < 96, "from {from}: {clicks:?}");
+            }
+
+            let mut state = click_callback(0, beat as f64, from);
+            state.shared.click.count_in.store(true, Ordering::Relaxed);
+            state
+                .shared
+                .click
+                .count_in_to_bar
+                .store(true, Ordering::Relaxed);
+            state.shared.click.gain.store(0.0);
+            let start = onsets(&record(&mut state, 400), 0.1)[0];
+            assert!(start.abs_diff(song_at) < 96, "from {from}: song at {start}");
+        }
     }
 
     /// Runs `blocks` callbacks of 512 frames and returns the loudest sample.

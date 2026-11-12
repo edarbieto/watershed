@@ -47,6 +47,9 @@ pub(crate) struct ClickParams {
     pub on: AtomicBool,
     /// One bar of clicks before playback starts.
     pub count_in: AtomicBool,
+    /// Whether the count-in lands on a bar line ([`Beats::count_in_to_bar`]), or is one
+    /// whole bar ending where playback starts, wherever that falls in its bar.
+    pub count_in_to_bar: AtomicBool,
     pub sound: AtomicU8,
     pub channels: AtomicU8,
     pub gain: AtomicF32,
@@ -82,12 +85,22 @@ pub(crate) fn channels_index(channels: ClickChannels) -> u8 {
     }
 }
 
-/// A count-in in progress: a silent bar before `target`, timed like the song.
+/// A count-in in progress: clicks before the song starts, timed like the song.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CountIn {
-    /// Song frame "heard" so far, counting up from one bar before where playback
+    /// Song frame "heard" so far, counting up from the first click to where playback
     /// starts.
     pub heard: f64,
+    /// `None` follows the grid. Otherwise one whole bar of `per_bar` beats, `beat`
+    /// frames apart, from `start`: the count-in that ignores where bars fall.
+    free: Option<FreeBar>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FreeBar {
+    start: f64,
+    beat: f64,
+    per_bar: u32,
 }
 
 /// Plays the click on the audio thread. Nothing here allocates after
@@ -139,20 +152,45 @@ impl Clicker {
         self.last = None;
     }
 
-    /// Starts a count-in before `target`, or `None` without a grid. It counts the
-    /// bar before the first beat from `target`, at its pace.
-    pub fn count_in(&mut self, target: usize) -> Option<CountIn> {
+    /// Starts a count-in before `target`, or `None` without a grid. With `to_bar`
+    /// it follows the grid up to a bar line ([`Beats::count_in_to_bar`]), whose
+    /// clicks go on over the song up to that bar line. Otherwise it is one whole bar
+    /// in the meter and tempo at `target`, ending there.
+    pub fn count_in(&mut self, target: usize, to_bar: bool) -> Option<CountIn> {
         let beats = self.beats.as_ref()?;
         let target = target as f64;
-        let heard = target - beats.bar_before(target - self.tolerance);
-        self.count_in_end = target;
-        Some(CountIn { heard })
+        if to_bar {
+            let (start, line) = beats.count_in_to_bar(target, self.tolerance);
+            // The bar line clicks as the "1", unless the song starts on it.
+            self.count_in_end = if line - target > self.tolerance {
+                line + self.tolerance
+            } else {
+                target
+            };
+            Some(CountIn {
+                heard: start,
+                free: None,
+            })
+        } else {
+            let (per_bar, beat) = beats.bar_at(target);
+            let start = target - f64::from(per_bar) * beat;
+            self.count_in_end = f64::NEG_INFINITY;
+            Some(CountIn {
+                heard: start,
+                free: Some(FreeBar {
+                    start,
+                    beat,
+                    per_bar,
+                }),
+            })
+        }
     }
 
-    /// The count-in is over and the song is heard from `heard` on.
+    /// The count-in is over; its clicks went up to song frame `heard`, and the
+    /// grid's go on from there.
     pub fn count_in_done(&mut self, heard: f64) {
         self.last = Some(heard);
-        self.waiting = false;
+        self.waiting = true;
     }
 
     /// Clicks for a block of `out` (interleaved stereo) that played `advanced` song
@@ -184,19 +222,27 @@ impl Clicker {
         // The metronome starts at bar 1; the end of a count-in may come before it.
         let on = params.on.load(Ordering::Relaxed);
         let count_in_end = self.count_in_end;
-        self.render(
-            params,
-            true,
-            block,
-            floor,
-            |index, frame| (on && index >= 0) || frame < count_in_end,
-            out,
-        );
+        let Some(beats) = self.beats.as_deref() else {
+            self.ring(params, out);
+            return;
+        };
+        let clicks = beats
+            .within(floor..block.end)
+            .filter(|&(index, frame)| (on && index >= 0) || frame < count_in_end)
+            .map(|(index, frame)| (frame, beats.accented(index)));
+        render(&self.sounds, &mut self.voice, params, block, clicks, out);
     }
 
     /// Lets a click already sounding ring out over `out`, starting no new one.
     pub fn ring(&mut self, params: &ClickParams, out: &mut [f32]) {
-        self.render(params, false, 0.0..0.0, 0.0, |_, _| false, out);
+        render(
+            &self.sounds,
+            &mut self.voice,
+            params,
+            0.0..0.0,
+            std::iter::empty(),
+            out,
+        );
     }
 
     /// Clicks for a count-in block over `out`, advancing it by `tempo` song frames
@@ -211,68 +257,82 @@ impl Clicker {
         let from = count_in.heard;
         count_in.heard += (out.len() / 2) as f64 * f64::from(tempo);
         let block = from..count_in.heard;
-        self.render(params, true, block, from, |_, _| true, out);
-    }
-
-    /// Adds the click to `out`, which plays the song frames in `block`. With `beats`,
-    /// a new click starts at each beat from `floor` to the end of the block that
-    /// `keep` accepts.
-    fn render(
-        &mut self,
-        params: &ClickParams,
-        beats: bool,
-        block: Range<f64>,
-        floor: f64,
-        keep: impl Fn(i64, f64) -> bool,
-        out: &mut [f32],
-    ) {
-        let frames = out.len() / 2;
-        let gain = params.gain.load();
-        let channels = match params.channels() {
-            ClickChannels::Left => [1.0, 0.0],
-            ClickChannels::Both => [1.0, 1.0],
-            ClickChannels::Right => [0.0, 1.0],
-        };
-        let sound = sound_index(params.sound()) as usize;
-
-        let gains = (gain, channels);
-        let mut done = 0;
-        if beats && let Some(beats) = self.beats.take() {
-            if block.end > block.start {
-                let span = block.end - block.start;
-                for (index, frame) in beats.within(floor..block.end) {
-                    if !keep(index, frame) {
-                        continue;
-                    }
-                    let offset = (frame - block.start) / span * frames as f64;
-                    let at = (offset.max(0.0).round() as usize).clamp(done, frames);
-                    self.add_voice(&mut out[done * 2..at * 2], gains);
-                    done = at;
-                    self.voice = Some((sound, usize::from(beats.accented(index)), 0));
-                }
+        match count_in.free {
+            Some(bar) => {
+                let clicks = (0..bar.per_bar)
+                    .map(|k| (bar.start + f64::from(k) * bar.beat, k == 0))
+                    .filter(move |&(frame, _)| frame >= from && frame < count_in.heard);
+                render(&self.sounds, &mut self.voice, params, block, clicks, out);
             }
-            self.beats = Some(beats);
+            None => {
+                let Some(beats) = self.beats.as_deref() else {
+                    self.ring(params, out);
+                    return;
+                };
+                let clicks = beats
+                    .within(from..block.end)
+                    .map(|(index, frame)| (frame, beats.accented(index)));
+                render(&self.sounds, &mut self.voice, params, block, clicks, out);
+            }
         }
-        self.add_voice(&mut out[done * 2..], gains);
     }
+}
 
-    /// Adds the click sounding now to `out`, as far as it lasts, at `gain` and on
-    /// the channels set to 1.0.
-    fn add_voice(&mut self, out: &mut [f32], (gain, [left, right]): (f32, [f32; 2])) {
-        let Some((sound, accent, next)) = &mut self.voice else {
-            return;
-        };
-        let samples = &self.sounds[*sound][*accent][*next..];
-        let n = (out.len() / 2).min(samples.len());
-        for (frame, sample) in out.as_chunks_mut::<2>().0.iter_mut().zip(&samples[..n]) {
-            let sample = soft_clip(sample * gain);
-            frame[0] += sample * left;
-            frame[1] += sample * right;
+/// Adds the click to `out`, which plays the song frames in `block`: the one sounding
+/// now, and a new one at each of `clicks` (song frame and accent, rising).
+fn render(
+    sounds: &[[Vec<f32>; 2]; 3],
+    voice: &mut Option<(usize, usize, usize)>,
+    params: &ClickParams,
+    block: Range<f64>,
+    clicks: impl Iterator<Item = (f64, bool)>,
+    out: &mut [f32],
+) {
+    let frames = out.len() / 2;
+    let gain = params.gain.load();
+    let channels = match params.channels() {
+        ClickChannels::Left => [1.0, 0.0],
+        ClickChannels::Both => [1.0, 1.0],
+        ClickChannels::Right => [0.0, 1.0],
+    };
+    let sound = sound_index(params.sound()) as usize;
+
+    let gains = (gain, channels);
+    let mut done = 0;
+    if block.end > block.start {
+        let span = block.end - block.start;
+        for (frame, accent) in clicks {
+            let offset = (frame - block.start) / span * frames as f64;
+            let at = (offset.max(0.0).round() as usize).clamp(done, frames);
+            add_voice(sounds, voice, &mut out[done * 2..at * 2], gains);
+            done = at;
+            *voice = Some((sound, usize::from(accent), 0));
         }
-        *next += n;
-        if n == samples.len() {
-            self.voice = None;
-        }
+    }
+    add_voice(sounds, voice, &mut out[done * 2..], gains);
+}
+
+/// Adds the click sounding now to `out`, as far as it lasts, at `gain` and on the
+/// channels set to 1.0.
+fn add_voice(
+    sounds: &[[Vec<f32>; 2]; 3],
+    voice: &mut Option<(usize, usize, usize)>,
+    out: &mut [f32],
+    (gain, [left, right]): (f32, [f32; 2]),
+) {
+    let Some((sound, accent, next)) = voice else {
+        return;
+    };
+    let samples = &sounds[*sound][*accent][*next..];
+    let n = (out.len() / 2).min(samples.len());
+    for (frame, sample) in out.as_chunks_mut::<2>().0.iter_mut().zip(&samples[..n]) {
+        let sample = soft_clip(sample * gain);
+        frame[0] += sample * left;
+        frame[1] += sample * right;
+    }
+    *next += n;
+    if n == samples.len() {
+        *voice = None;
     }
 }
 
@@ -579,7 +639,7 @@ mod tests {
         let params = params();
         params.on.store(false, Ordering::Relaxed);
         let mut clicker = clicker(&beats);
-        let mut count_in = clicker.count_in(102_400).unwrap();
+        let mut count_in = clicker.count_in(102_400, true).unwrap();
         let mut out = vec![0.0; 300 * BLOCK * 2];
         for block in out.chunks_mut(BLOCK * 2) {
             if count_in.heard < 102_400.0 {
@@ -604,21 +664,55 @@ mod tests {
         let found = clicks(&play(&mut clicker, &params(), 0.0, 1.0));
         assert_eq!(found, [(48_000, true), (72_000, false), (94_000, false)]);
 
-        // A count-in to the beat at 94 000: the bar before it, at its own pace,
-        // counted on from bar 1 backwards at the first beat's pace.
+        // A whole bar before the beat at 94 000, in the tempo of the beat it is
+        // in (22 000 frames), ignoring where the bars fall.
         let params = params();
         params.on.store(false, Ordering::Relaxed);
-        let mut count_in = clicker.count_in(94_000).unwrap();
-        assert_eq!(count_in.heard, 0.0);
-        let mut out = vec![0.0; 400 * BLOCK * 2];
+        let found = count_in_then_play(&mut clicker, &params, 94_000, false);
+        assert_eq!(
+            found,
+            [(0, true), (22_000, false), (44_000, false), (66_000, false)]
+        );
+
+        // Landing on the bar line: 94 000 is past the middle of its bar, so that
+        // bar counts from its start, at 48 000, and its clicks go on over the song
+        // up to the next bar line, at 134 000 (the last beat's pace after the map).
+        let found = count_in_then_play(&mut clicker, &params, 94_000, true);
+        let expected = [48_000, 72_000, 94_000, 114_000, 134_000]
+            .map(|f| (f - 48_000, f == 48_000 || f == 134_000));
+        assert_eq!(found, expected);
+    }
+
+    /// A count-in into `target`, then the song from there, as the engine plays them:
+    /// where the clicks start, from the first click of the count-in.
+    fn count_in_then_play(
+        clicker: &mut Clicker,
+        params: &ClickParams,
+        target: usize,
+        to_bar: bool,
+    ) -> Vec<(usize, bool)> {
+        clicker.seek(target);
+        let mut count_in = clicker.count_in(target, to_bar).unwrap();
+        let mut out = vec![0.0; 600 * BLOCK * 2];
+        let mut heard = None;
         for block in out.chunks_mut(BLOCK * 2) {
-            // Up to where the song starts, as the engine does.
-            let left = (94_000.0 - count_in.heard).max(0.0) as usize;
-            let block = &mut block[..(left * 2).min(BLOCK * 2)];
-            clicker.play_count_in(&params, &mut count_in, 1.0, block);
+            let mut song_start = 0;
+            if heard.is_none() {
+                let left = (target as f64 - count_in.heard).max(0.0).ceil() as usize;
+                song_start = left.min(BLOCK);
+                clicker.play_count_in(params, &mut count_in, 1.0, &mut block[..song_start * 2]);
+                if count_in.heard >= target as f64 {
+                    clicker.count_in_done(count_in.heard);
+                    heard = Some(target as f64);
+                }
+            }
+            if let Some(heard) = &mut heard {
+                let advanced = (BLOCK - song_start) as f64;
+                *heard += advanced;
+                clicker.play(params, *heard, advanced, None, &mut block[song_start * 2..]);
+            }
         }
-        let found: Vec<usize> = clicks(&out).iter().map(|c| c.0).collect();
-        assert_eq!(found, vec![0, 24_000, 48_000, 72_000]);
+        clicks(&out)
     }
 
     #[test]

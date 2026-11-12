@@ -14,6 +14,10 @@ pub const MAX_SEMITONES: f32 = 24.0;
 /// Length of the crossfade when a loop jumps from its end back to its start.
 const LOOP_CROSSFADE_SECS: f32 = 0.01;
 
+/// Fade-in at the seek target when nothing before it is heard, so that a song
+/// starting in the middle of a sound does not click.
+const SEEK_FADE_SECS: f32 = 0.002;
+
 /// Above this frequency the vocal bus's tonality limit shifts the spectrum by a fixed
 /// amount instead of scaling it, which keeps more of the timbre (the value in
 /// Signalsmith's README and web demo).
@@ -107,12 +111,23 @@ impl Stretcher {
     }
 
     /// Clears the stretcher and positions it so that `frame` is heard next.
-    pub fn seek(&mut self, voice: &mut Voice, frame: usize, tempo: f32) {
+    ///
+    /// With `silent_before` nothing before `frame` is heard: the song starts there,
+    /// faded in over a few milliseconds. Otherwise the output latency plays what comes
+    /// before it, so a seek is heard at once.
+    pub fn seek(&mut self, voice: &mut Voice, frame: usize, tempo: f32, silent_before: bool) {
         // The stretcher works on input from `input_latency` frames ago, so feeding up
         // to `frame + input_latency` centers its first output on `frame`.
         let end = frame + self.input_latency;
         let start = end.saturating_sub(self.preroll);
         let pad = self.preroll - (end - start);
+        // Where `frame` is in the pre-roll.
+        let target = if silent_before {
+            pad + (frame - start)
+        } else {
+            0
+        };
+        let fade = ((self.sample_rate * SEEK_FADE_SECS) as usize).max(1);
         // Otherwise a mute or solo changed while paused would ramp in across the pre-roll.
         voice.snap_gains();
         for bus in Bus::ALL {
@@ -121,6 +136,20 @@ impl Stretcher {
             let input = &mut self.input[bus as usize][..self.preroll * 2];
             input.fill(0.0);
             voice.mix_into(start, bus, &mut input[pad * 2..]);
+            if silent_before {
+                input[..target * 2].fill(0.0);
+                for (i, frame) in input[target * 2..]
+                    .as_chunks_mut::<2>()
+                    .0
+                    .iter_mut()
+                    .take(fade)
+                    .enumerate()
+                {
+                    let gain = i as f32 / fade as f32;
+                    frame[0] *= gain;
+                    frame[1] *= gain;
+                }
+            }
             stretch.seek(&*input, f64::from(tempo));
         }
         self.fed = end as f64;
@@ -293,7 +322,7 @@ mod tests {
     fn seek_reports_the_target_and_sound_starts_soon() {
         let mut voice = voice(RATE as usize * 4, 0);
         let mut stretcher = Stretcher::new(RATE);
-        stretcher.seek(&mut voice, 48_000, 1.0);
+        stretcher.seek(&mut voice, 48_000, 1.0, false);
         assert_eq!(stretcher.heard(1.0, 0), 48_000);
 
         // Sound arrives within the output latency (about 60 ms).
@@ -313,7 +342,7 @@ mod tests {
     fn position_follows_tempo() {
         let mut voice = voice(RATE as usize * 4, 0);
         let mut stretcher = Stretcher::new(RATE);
-        stretcher.seek(&mut voice, 0, 0.5);
+        stretcher.seek(&mut voice, 0, 0.5, false);
         let mut out = vec![0.0; 500 * 2];
         // Past the initial latency, then measure one second of output.
         for _ in 0..96 {
@@ -334,7 +363,7 @@ mod tests {
 
         for tempo in [0.5, 1.0, 1.25] {
             let mut stretcher = Stretcher::new(RATE);
-            stretcher.seek(&mut voice, onset - RATE as usize / 2, tempo);
+            stretcher.seek(&mut voice, onset - RATE as usize / 2, tempo, false);
             let mut out = vec![0.0; 64 * 2];
             let heard_at_onset = loop {
                 stretcher.render(
@@ -360,7 +389,7 @@ mod tests {
         let mut voice = voice(RATE as usize * 10, 0);
         let mut stretcher = Stretcher::new(RATE);
         let looped = 48_000..96_000;
-        stretcher.seek(&mut voice, 0, 1.25);
+        stretcher.seek(&mut voice, 0, 1.25, false);
         let mut out = vec![0.0; 256 * 2];
         let mut previous = 0;
         let mut jumps = 0;
@@ -390,7 +419,7 @@ mod tests {
     fn plays_on_after_the_loop() {
         let mut voice = voice(RATE as usize * 4, 0);
         let mut stretcher = Stretcher::new(RATE);
-        stretcher.seek(&mut voice, 100_000, 1.0);
+        stretcher.seek(&mut voice, 100_000, 1.0, false);
         let mut out = vec![0.0; 512 * 2];
         for _ in 0..100 {
             stretcher.render(
@@ -447,7 +476,7 @@ mod tests {
             let mut voice = voice(RATE as usize * 4, 0);
             voice.song.tracks[0].params.set_pitch_lock(locked);
             let mut stretcher = Stretcher::new(RATE);
-            stretcher.seek(&mut voice, 0, 1.0);
+            stretcher.seek(&mut voice, 0, 1.0, false);
             let mut out = vec![0.0; 512 * 2];
             // Past the latency, then one second.
             for _ in 0..20 {
@@ -476,7 +505,7 @@ mod tests {
             let mut voice = voice(RATE as usize * 4, 0);
             voice.song.tracks[0].params.set_vocal(true);
             let mut stretcher = Stretcher::new(RATE);
-            stretcher.seek(&mut voice, 0, 1.0);
+            stretcher.seek(&mut voice, 0, 1.0, false);
             let mut out = vec![0.0; 512 * 2];
             for _ in 0..20 {
                 stretcher.render(&mut voice, 0.8, 12.0, vocal, None, &mut out);
@@ -500,7 +529,7 @@ mod tests {
     fn keeps_the_level_at_unity() {
         let mut voice = voice(RATE as usize * 4, 0);
         let mut stretcher = Stretcher::new(RATE);
-        stretcher.seek(&mut voice, 0, 1.0);
+        stretcher.seek(&mut voice, 0, 1.0, false);
         let mut out = vec![0.0; 512 * 2];
         for _ in 0..40 {
             stretcher.render(
