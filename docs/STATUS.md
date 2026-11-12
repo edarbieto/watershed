@@ -135,8 +135,8 @@ line"). Remember the window: done, tried by the user on macOS (maximized include
 to try on Windows (see "Remember the window"). The key with an online prior moved to the
 backlog (decided by the user on 2026-11-12, see `PLAN.md`). **Chords on the grid: done**, tried
 by the user: works, not precise, as expected (see "Chords on the grid"). Chords set by the
-user: backlog. Chords now **off by default** (asked by the user). **Ruler rows: built, to try
-by the user** (see "Ruler rows").
+user: backlog. Chords now **off by default** (asked by the user). **Ruler rows: done**, tried and
+approved by the user (grouped order kept) (see "Ruler rows").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2431,9 +2431,8 @@ moved in time.
 Asked by the user 2026-11-12: bar 1's time signature tag and a change at bar 1 (e.g. a fixed
 tempo there) were drawn on top of each other in the bar ruler's top row. The two rulers
 (time + markers, tags + bars) became one row per job, in two groups (`rulers.rs`), with the
-grid rows together next to the chords (the user's pick between that and their own order;
-if it does not convince, the fallback is their order: time, bars, bar 1, markers, changes,
-chords).
+grid rows together next to the chords. **Tried and approved by the user**, grouped order
+kept.
 
 | Group | Row | Gestures |
 |---|---|---|
