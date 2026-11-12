@@ -19,6 +19,7 @@ mod rulers;
 mod separate;
 mod shortcuts;
 mod stems;
+mod subwindow;
 mod transport;
 mod update;
 mod usage;

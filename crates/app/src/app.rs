@@ -23,12 +23,19 @@ use crate::rulers::{self, GridAction, LoopAction, RulerAction};
 use crate::separate::{self, Job, Target};
 use crate::shortcuts;
 use crate::stems::song_title;
+use crate::subwindow;
 use crate::transport::{Command, Transport};
 use crate::update::{self, Updater};
 use crate::usage::{self, Usage};
 use crate::view::View;
 use crate::waveform::{GridLine, Overlay, SignatureTag, WaveformAction, scrollbar, waveform};
 use crate::window::WindowMemory;
+
+/// The secondary windows' names (see `subwindow.rs`).
+const SETTINGS: &str = "settings";
+const ABOUT: &str = "about";
+/// The settings window's width; its notes wrap in it.
+const SETTINGS_WIDTH: f32 = 560.0;
 
 const ROW_HEIGHT: f32 = 64.0;
 /// Heights of the time rows (seconds, loop, markers) and the grid rows (bar 1,
@@ -211,6 +218,8 @@ pub struct WatershedApp {
 
 impl WatershedApp {
     pub fn new(cc: &eframe::CreationContext) -> Self {
+        #[cfg(windows)]
+        crate::subwindow::owner::init(cc);
         let (ctx, storage) = (&cc.egui_ctx, cc.storage);
         let config = Config::load();
         update::clean_up();
@@ -1129,12 +1138,18 @@ impl WatershedApp {
     fn run_menu(&mut self, command: MenuCommand, recent: &[PathBuf], ctx: &egui::Context) {
         use MenuCommand as C;
         match command {
-            C::About => self.about_open = true,
+            C::About => {
+                self.about_open = true;
+                subwindow::focus(ctx, ABOUT);
+            }
             C::CheckForUpdates => {
                 self.updater.check(false, ctx);
                 self.settings_open = true;
             }
-            C::Settings => self.settings_open = true,
+            C::Settings => {
+                self.settings_open = true;
+                subwindow::focus(ctx, SETTINGS);
+            }
             C::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             C::OpenFolder => self.pick_folder(ctx),
             C::SeparateSong => self.pick_song(ctx),
@@ -1206,7 +1221,10 @@ impl WatershedApp {
                 self.config.show_side_panel = !self.config.show_side_panel;
                 self.config.save();
             }
-            C::Shortcuts => self.shortcuts_open = true,
+            C::Shortcuts => {
+                self.shortcuts_open = true;
+                subwindow::focus(ctx, shortcuts::WINDOW);
+            }
             C::Website => ctx.open_url(egui::OpenUrl::new_tab(menu::PROJECT_URL)),
             C::ReportProblem => ctx.open_url(egui::OpenUrl::new_tab(menu::ISSUES_URL)),
         }
@@ -1214,15 +1232,18 @@ impl WatershedApp {
 
     /// The About window, where the system has none.
     fn about_window(&mut self, ctx: &egui::Context) {
-        egui::Window::new("About Watershed")
-            .open(&mut self.about_open)
-            .collapsible(false)
-            .resizable(false)
-            .show(ctx, |ui| {
+        subwindow::show(
+            ctx,
+            ABOUT,
+            "About Watershed",
+            subwindow::Width::Fit,
+            &mut self.about_open,
+            |ui| {
                 ui.heading(format!("Watershed {}", env!("CARGO_PKG_VERSION")));
                 ui.label(env!("CARGO_PKG_DESCRIPTION"));
                 ui.hyperlink(menu::PROJECT_URL);
-            });
+            },
+        );
     }
 
     /// The song (a menu of the recent ones, with a search) and what is known about
@@ -1683,12 +1704,13 @@ impl WatershedApp {
     /// The settings window, stored in `config.toml`.
     fn settings_window(&mut self, ctx: &egui::Context) {
         let mut open = self.settings_open;
-        egui::Window::new("Settings")
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .default_width(460.0)
-            .show(ctx, |ui| {
+        subwindow::show(
+            ctx,
+            SETTINGS,
+            "Settings",
+            subwindow::Width::Fixed(SETTINGS_WIDTH),
+            &mut open,
+            |ui| {
                 egui::Grid::new("settings")
                     .num_columns(2)
                     .spacing([16.0, 12.0])
@@ -1764,12 +1786,17 @@ impl WatershedApp {
                             let can_restart = self.separating.is_none();
                             if self.updater.ui(ui, can_restart) == Some(update::Action::Restart) {
                                 self.restart = true;
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                // To the main window: this one is the settings window.
+                                ctx.send_viewport_cmd_to(
+                                    egui::ViewportId::ROOT,
+                                    egui::ViewportCommand::Close,
+                                );
                             }
                         });
                         ui.end_row();
                     });
-            });
+            },
+        );
         self.settings_open = open;
     }
 

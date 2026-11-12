@@ -86,6 +86,8 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
     (
         "App",
         &[
+            ("{cmd}+O", "Open a folder of stems"),
+            ("{cmd}+Shift+O", "Separate a song"),
             ("F5", "Reload the song folder"),
             (
                 "Enter in a Recent search",
@@ -93,6 +95,8 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
             ),
             ("{cmd}+,", "Settings"),
             ("?", "This list"),
+            ("Esc / {cmd}+W", "Close this window or Settings"),
+            ("{cmd}+Q", "Quit"),
         ],
     ),
 ];
@@ -107,17 +111,22 @@ pub fn pressed(ctx: &egui::Context) -> bool {
     })
 }
 
+/// The window's name (see `subwindow.rs`).
+pub const WINDOW: &str = "shortcuts";
+
 pub fn window(ctx: &egui::Context, open: &mut bool) {
     let cmd = if cfg!(target_os = "macos") {
         "Cmd"
     } else {
         "Ctrl"
     };
-    egui::Window::new("Keyboard shortcuts")
-        .open(open)
-        .collapsible(false)
-        .resizable(false)
-        .show(ctx, |ui| {
+    crate::subwindow::show(
+        ctx,
+        WINDOW,
+        "Keyboard Shortcuts",
+        crate::subwindow::Width::Fit,
+        open,
+        |ui| {
             // One grid, so the columns line up across sections.
             egui::Grid::new("shortcuts")
                 .num_columns(2)
@@ -144,5 +153,6 @@ pub fn window(ctx: &egui::Context, open: &mut bool) {
                         }
                     }
                 });
-        });
+        },
+    );
 }
