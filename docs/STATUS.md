@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-11.
+Last updated: 2026-11-12.
 
 ## Where we are
 
@@ -129,8 +129,7 @@ Last updated: 2026-11-11.
 prior, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
 remembered window, click on another output, changelog. The user answered the open questions the same day.
 The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
-the user; a follow-up fix (a fixed tempo steering the tracker past its stretch) is waiting
-for the user to try it (see "Waveform shift and tempo at bar 1").
+the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2351,7 +2350,7 @@ the tempo from before it again (the song's BPM, or the last tempo change that is
 fixed). With Dynamic off nothing changed: the steady grid carries the last tempo on, as
 Reaper does. Checked with the `beats` example (92–95 BPM through the song, rising to ~98
 at the end, which librosa agrees with) and in the app (the 4/4 mark at 3:41 falls on bar
-85). Test: `the_tracker_follows_a_fixed_tempo_only_in_its_stretch`.
+85), and tried by the user: works. Test: `the_tracker_follows_a_fixed_tempo_only_in_its_stretch`.
 
 ## Observations to investigate
 
