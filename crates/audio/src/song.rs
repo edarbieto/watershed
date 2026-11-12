@@ -18,6 +18,8 @@ pub struct TrackParams {
     /// Song frame where the track starts: positive starts it later, negative cuts
     /// its beginning.
     offset: AtomicI64,
+    /// Removed by the user (the file stays): never heard, and its solo does not count.
+    deleted: AtomicBool,
 }
 
 impl Default for TrackParams {
@@ -30,6 +32,7 @@ impl Default for TrackParams {
             pitch_lock: AtomicBool::new(false),
             vocal: AtomicBool::new(false),
             offset: AtomicI64::new(0),
+            deleted: AtomicBool::new(false),
         }
     }
 }
@@ -78,10 +81,29 @@ impl TrackParams {
         self.offset.store(frames, Ordering::Relaxed);
     }
 
+    pub fn deleted(&self) -> bool {
+        self.deleted.load(Ordering::Relaxed)
+    }
+    pub fn set_deleted(&self, deleted: bool) {
+        self.deleted.store(deleted, Ordering::Relaxed);
+    }
+
+    /// Whether the track's solo is in effect: a deleted track's solo is not.
+    pub fn soloing(&self) -> bool {
+        self.solo() && !self.deleted()
+    }
+
     /// Whether the track is heard, given whether any track in the song is soloed.
-    /// Solo overrides mute: a muted track that is soloed plays.
+    /// Solo overrides mute: a muted track that is soloed plays. A deleted track is
+    /// never heard.
     pub fn audible(&self, any_solo: bool) -> bool {
-        if any_solo { self.solo() } else { !self.mute() }
+        if self.deleted() {
+            false
+        } else if any_solo {
+            self.solo()
+        } else {
+            !self.mute()
+        }
     }
 
     /// Left/right gains, given whether any track in the song is soloed.
@@ -146,11 +168,18 @@ impl Song {
         self.track_frames
     }
 
+    /// Whether any track that is not deleted is soloed.
+    pub fn any_solo(&self) -> bool {
+        self.tracks.iter().any(|t| t.params.soloing())
+    }
+
     /// Length of the song: up to the end of the track that ends last, offsets
-    /// included.
+    /// included. Deleted tracks do not count, unless every track is deleted.
     pub fn frames(&self) -> usize {
+        let all_deleted = self.tracks.iter().all(|t| t.params.deleted());
         self.tracks
             .iter()
+            .filter(|t| all_deleted || !t.params.deleted())
             .map(|t| (self.track_frames as i64 + t.params.offset()).max(0) as usize)
             .max()
             .unwrap_or(0)

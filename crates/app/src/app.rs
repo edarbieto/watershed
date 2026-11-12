@@ -117,6 +117,12 @@ enum Action {
     /// A tap of tap tempo.
     Tap,
     ToggleClick,
+    /// Selects the track above (-1) or below (+1) the selected one.
+    SelectTrack(i32),
+    ToggleMute,
+    ToggleSolo,
+    /// Deletes the selected track (a soft delete: see [`WatershedApp::delete_track`]).
+    DeleteTrack,
 }
 
 /// The open song moving to a device with a different sample rate. Its stems are
@@ -192,6 +198,10 @@ pub struct WatershedApp {
     renaming: Option<(usize, String)>,
     /// Per track: whether it can be dragged in time. Locked again on every load.
     movable: Vec<bool>,
+    /// The track the track keys (M, S, Delete) act on; never a deleted one.
+    selected: Option<usize>,
+    /// The selection moved with the keys: scroll its row into view.
+    scroll_to_selected: bool,
     settings_open: bool,
     shortcuts_open: bool,
     transport_keys: Transport,
@@ -271,6 +281,8 @@ impl WatershedApp {
             changed_at: None,
             renaming: None,
             movable: Vec::new(),
+            selected: None,
+            scroll_to_selected: false,
             settings_open: false,
             shortcuts_open: false,
             transport_keys: Transport::default(),
@@ -521,6 +533,11 @@ impl WatershedApp {
         match result {
             Ok(mut loaded) => {
                 self.movable = vec![false; loaded.song.tracks.len()];
+                // A reload keeps the selected file selected.
+                let selected_file = self
+                    .reloading
+                    .and(self.selected)
+                    .and_then(|i| self.loaded.as_ref()?.files.get(i).cloned());
                 if let Some(folder) = loaded.files[0].parent() {
                     self.config.remember(folder, unix_now());
                     self.config.save();
@@ -541,6 +558,9 @@ impl WatershedApp {
                     "Watershed — {}",
                     loaded.title
                 )));
+                self.selected = selected_file
+                    .and_then(|file| loaded.files.iter().position(|f| *f == file))
+                    .filter(|&i| !loaded.song.tracks[i].params.deleted());
                 self.loaded = Some(loaded);
                 self.saved_session = self.session().map(|(_, session)| session);
                 self.changed_at = None;
@@ -829,15 +849,35 @@ impl WatershedApp {
         if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
+        // The arrows are the app's (seek, track selection). egui would also move the
+        // keyboard focus with them, into a fader's value field that then takes the
+        // next keys as text, and a focused slider would change its value: no focus.
+        let arrows = [
+            Key::ArrowLeft,
+            Key::ArrowRight,
+            Key::ArrowUp,
+            Key::ArrowDown,
+        ];
+        if ui.input(|i| arrows.iter().any(|&key| i.key_pressed(key))) {
+            ui.memory_mut(|m| {
+                m.move_focus(egui::FocusDirection::None);
+                if let Some(id) = m.focused() {
+                    m.surrender_focus(id);
+                }
+            });
+        }
         if shortcuts::pressed(ui.ctx()) {
             self.shortcuts_open = !self.shortcuts_open;
         }
         if ui.input(|i| i.key_pressed(Key::F5)) {
             self.reload(ui.ctx());
         }
-        // Reaper's shortcut. Consumed first, so the C below does not see it.
+        // Reaper's shortcuts. Consumed first, so the C and M below do not see them.
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::C)) {
             self.apply(Action::AddChange);
+        }
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::M)) {
+            self.apply(Action::AddMarker);
         }
         let keys = [
             (Key::Space, Action::PlayStop),
@@ -848,7 +888,12 @@ impl WatershedApp {
             (Key::A, Action::SetA),
             (Key::B, Action::SetB),
             (Key::L, Action::ToggleLoop),
-            (Key::M, Action::AddMarker),
+            (Key::M, Action::ToggleMute),
+            (Key::S, Action::ToggleSolo),
+            (Key::Delete, Action::DeleteTrack),
+            (Key::Backspace, Action::DeleteTrack),
+            (Key::ArrowUp, Action::SelectTrack(-1)),
+            (Key::ArrowDown, Action::SelectTrack(1)),
             (Key::T, Action::Tap),
             (Key::C, Action::ToggleClick),
             (Key::Plus, Action::Zoom(ZOOM_STEP)),
@@ -863,6 +908,83 @@ impl WatershedApp {
         for (index, key) in MARKER_KEYS.into_iter().enumerate() {
             if ui.input(|i| i.key_pressed(key)) {
                 self.apply(Action::GoToMarker(index));
+            }
+        }
+    }
+
+    /// The mixer settings of the selected track.
+    fn selected_params(&self) -> Option<&watershed_audio::TrackParams> {
+        let track = self.loaded.as_ref()?.song.tracks.get(self.selected?)?;
+        Some(&track.params)
+    }
+
+    /// Moves the selection to the next track shown above (`step` < 0) or below. With
+    /// none selected, selects the first or the last one.
+    fn step_selection(&mut self, step: i32) {
+        let Some(loaded) = &self.loaded else {
+            return;
+        };
+        let shown: Vec<usize> = (0..loaded.song.tracks.len())
+            .filter(|&i| !loaded.song.tracks[i].params.deleted())
+            .collect();
+        let at = self
+            .selected
+            .and_then(|selected| shown.iter().position(|&i| i == selected));
+        let next = match at {
+            Some(at) => at.saturating_add_signed(step as isize).min(shown.len() - 1),
+            None if step < 0 => shown.len() - 1,
+            None => 0,
+        };
+        self.selected = shown.get(next).copied();
+        self.scroll_to_selected = true;
+    }
+
+    /// Whether a track can be deleted: one track at least stays.
+    fn can_delete_track(&self) -> bool {
+        self.loaded.as_ref().is_some_and(|loaded| {
+            loaded
+                .song
+                .tracks
+                .iter()
+                .filter(|t| !t.params.deleted())
+                .count()
+                > 1
+        })
+    }
+
+    /// A soft delete: the track is hidden and silent, its file stays on disk and the
+    /// session remembers it, so it can be restored. The selection moves to the next
+    /// track shown (the previous one at the end).
+    fn delete_track(&mut self, index: usize) {
+        if !self.can_delete_track() {
+            return;
+        }
+        let Some(loaded) = &self.loaded else {
+            return;
+        };
+        let Some(track) = loaded.song.tracks.get(index) else {
+            return;
+        };
+        track.params.set_deleted(true);
+        if self.renaming.as_ref().is_some_and(|(i, _)| *i == index) {
+            self.renaming = None;
+        }
+        if self.selected == Some(index) {
+            let shown = |i: &usize| !loaded.song.tracks[*i].params.deleted();
+            self.selected = (index + 1..loaded.song.tracks.len())
+                .find(shown)
+                .or_else(|| (0..index).rev().find(shown));
+        }
+    }
+
+    /// Brings back deleted tracks: one, or all with `None`.
+    fn restore_tracks(&mut self, index: Option<usize>) {
+        let Some(loaded) = &self.loaded else {
+            return;
+        };
+        for (i, track) in loaded.song.tracks.iter().enumerate() {
+            if index.is_none_or(|index| index == i) {
+                track.params.set_deleted(false);
             }
         }
     }
@@ -956,6 +1078,22 @@ impl WatershedApp {
             Action::ToggleClick => {
                 if self.loaded.is_some() {
                     self.metronome.click = !self.metronome.click;
+                }
+            }
+            Action::SelectTrack(step) => self.step_selection(step),
+            Action::ToggleMute => {
+                if let Some(params) = self.selected_params() {
+                    params.set_mute(!params.mute());
+                }
+            }
+            Action::ToggleSolo => {
+                if let Some(params) = self.selected_params() {
+                    params.set_solo(!params.solo());
+                }
+            }
+            Action::DeleteTrack => {
+                if let Some(index) = self.selected {
+                    self.delete_track(index);
                 }
             }
         }
@@ -1121,6 +1259,27 @@ impl WatershedApp {
             | C::ZoomIn
             | C::ZoomOut => (loaded, false),
             C::ZoomToFit => (loaded && !self.view.is_full(), false),
+            C::PreviousTrack | C::NextTrack => (loaded, false),
+            C::MuteTrack => (
+                loaded && self.selected.is_some(),
+                self.selected_params().is_some_and(|p| p.mute()),
+            ),
+            C::SoloTrack => (
+                loaded && self.selected.is_some(),
+                self.selected_params().is_some_and(|p| p.solo()),
+            ),
+            C::DeleteTrack => (
+                loaded && self.selected.is_some() && self.can_delete_track(),
+                false,
+            ),
+            C::RestoreTracks => (
+                loaded
+                    && self
+                        .loaded
+                        .as_ref()
+                        .is_some_and(|l| l.song.tracks.iter().any(|t| t.params.deleted())),
+                false,
+            ),
             C::ClearLoop => (
                 loaded && (self.loops.a.is_some() || self.loops.b.is_some()),
                 false,
@@ -1181,6 +1340,12 @@ impl WatershedApp {
                 }
             }
             C::AddMarker => self.apply(Action::AddMarker),
+            C::PreviousTrack => self.apply(Action::SelectTrack(-1)),
+            C::NextTrack => self.apply(Action::SelectTrack(1)),
+            C::MuteTrack => self.apply(Action::ToggleMute),
+            C::SoloTrack => self.apply(Action::ToggleSolo),
+            C::DeleteTrack => self.apply(Action::DeleteTrack),
+            C::RestoreTracks => self.restore_tracks(None),
             C::SetA => self.apply(Action::SetA),
             C::SetB => self.apply(Action::SetB),
             C::ClearLoop => self.apply(Action::ClearLoop),
@@ -2067,7 +2232,7 @@ impl WatershedApp {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui
                     .button("Add")
-                    .on_hover_text("Add a marker at the playhead (M)")
+                    .on_hover_text("Add a marker at the playhead (Shift+M)")
                     .clicked()
                 {
                     self.apply(Action::AddMarker);
@@ -2452,9 +2617,13 @@ impl WatershedApp {
             egui::Sense::click_and_drag(),
         );
         let mut wave_x = None;
-        let any_solo = loaded.song.tracks.iter().any(|t| t.params.solo());
+        let any_solo = loaded.song.any_solo();
+        let can_delete = self.can_delete_track();
 
         let mut renamed = None;
+        let mut select = None;
+        let mut delete = None;
+        let mut restore = None;
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, ((track, &color), peaks)) in loaded
@@ -2466,10 +2635,16 @@ impl WatershedApp {
                 .enumerate()
             {
                 let params = &track.params;
+                if params.deleted() {
+                    continue;
+                }
                 let audible = params.audible(any_solo);
                 let silent = peaks.iter().all(Peaks::is_silent);
+                let selected = self.selected == Some(i);
+                // Painted under the row once its size is known.
+                let background = ui.painter().add(egui::Shape::Noop);
 
-                ui.horizontal(|ui| {
+                let row = ui.horizontal(|ui| {
                     controls_column(ui, ROW_HEIGHT, Layout::top_down(Align::Min), |ui| {
                         ui.horizontal(|ui| {
                             if let Some(name) =
@@ -2503,14 +2678,14 @@ impl WatershedApp {
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if ui
                                     .selectable_label(params.solo(), "S")
-                                    .on_hover_text("Solo")
+                                    .on_hover_text("Solo (S on the selected track)")
                                     .clicked()
                                 {
                                     params.set_solo(!params.solo());
                                 }
                                 if ui
                                     .selectable_label(params.mute(), "M")
-                                    .on_hover_text("Mute")
+                                    .on_hover_text("Mute (M on the selected track)")
                                     .clicked()
                                 {
                                     params.set_mute(!params.mute());
@@ -2529,6 +2704,14 @@ impl WatershedApp {
                                         .clicked()
                                 {
                                     *movable = !*movable;
+                                }
+                                if ui
+                                    .add_enabled(can_delete, egui::Button::new("🗑").frame(false))
+                                    .on_hover_text(DELETE_TRACK_HINT)
+                                    .on_disabled_hover_text("The last track cannot be deleted")
+                                    .clicked()
+                                {
+                                    delete = Some(i);
                                 }
                             });
                         });
@@ -2598,9 +2781,66 @@ impl WatershedApp {
                         None => {}
                     }
                 });
+                let rect = row.response.rect;
+                // A press anywhere on the row selects its track, its controls included.
+                let pressed = ui.input(|i| {
+                    i.pointer
+                        .press_origin()
+                        .filter(|_| i.pointer.primary_pressed())
+                });
+                if let Some(pos) = pressed
+                    && rect.contains(pos)
+                    && ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
+                {
+                    select = Some(i);
+                }
+                if selected {
+                    let visuals = ui.visuals();
+                    let controls =
+                        Rect::from_min_size(rect.min, egui::vec2(CONTROLS_WIDTH, rect.height()))
+                            .expand(2.0);
+                    ui.painter().set(
+                        background,
+                        egui::Shape::Vec(vec![
+                            egui::Shape::rect_filled(
+                                controls,
+                                4.0,
+                                visuals.selection.bg_fill.gamma_multiply(0.35),
+                            ),
+                            egui::Shape::rect_stroke(
+                                rect.expand(2.0),
+                                4.0,
+                                egui::Stroke::new(1.0, visuals.selection.stroke.color),
+                                egui::StrokeKind::Inside,
+                            ),
+                        ]),
+                    );
+                    if self.scroll_to_selected {
+                        ui.scroll_to_rect(rect.expand(4.0), None);
+                    }
+                }
                 ui.add_space(4.0);
             }
+            let deleted: Vec<usize> = (0..loaded.song.tracks.len())
+                .filter(|&i| loaded.song.tracks[i].params.deleted())
+                .collect();
+            if !deleted.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("Deleted:").weak().small());
+                    for i in deleted {
+                        let name = RichText::new(format!("↺ {}", loaded.names[i])).small();
+                        if ui
+                            .button(name)
+                            .on_hover_text("Restore this track")
+                            .clicked()
+                        {
+                            restore = Some(i);
+                        }
+                    }
+                });
+            }
         });
+        self.scroll_to_selected = false;
 
         let sample_rate = loaded.song.sample_rate;
         let (time_action, loop_action, marker_action) = match wave_x {
@@ -2810,6 +3050,16 @@ impl WatershedApp {
         {
             loaded.names[i] = name;
         }
+        if let Some(i) = select {
+            self.selected = Some(i);
+        }
+        if let Some(i) = delete {
+            self.selected = Some(i);
+            self.delete_track(i);
+        }
+        if let Some(i) = restore {
+            self.restore_tracks(Some(i));
+        }
     }
 }
 
@@ -3006,6 +3256,7 @@ fn track_states(loaded: &LoadedSong) -> Vec<TrackState> {
                 solo: p.solo(),
                 pitch_lock: Some(p.pitch_lock()),
                 offset: p.offset() as f64 / rate,
+                deleted: p.deleted(),
             }
         })
         .collect()
@@ -3031,8 +3282,15 @@ fn apply_track_states(loaded: &mut LoadedSong, states: &[TrackState]) {
         if state.offset.is_finite() {
             params.set_offset((state.offset * rate).round() as i64);
         }
+        params.set_deleted(state.deleted);
         if let Some(name) = &state.name {
             loaded.names[i] = name.clone();
+        }
+    }
+    // At least one track stays (e.g. after the other files were removed from the folder).
+    if loaded.song.tracks.iter().all(|t| t.params.deleted()) {
+        for track in &loaded.song.tracks {
+            track.params.set_deleted(false);
         }
     }
 }
@@ -3069,6 +3327,8 @@ const STEM_FORMAT_NOTE: &str = "For new separations. Both sound the same as the 
     Bitwig; FLAC in any DAW, Logic and Pro Tools included.";
 const MOVE_HINT: &str = "Unlock to drag this track in time, e.g. to line up stems \
     from different tools";
+const DELETE_TRACK_HINT: &str = "Delete this track (Delete). Its file stays in the folder, \
+    and the track can be restored below the tracks or from the Edit menu.";
 const PITCH_LOCK_HINT: &str =
     "Pitch lock: the track follows the tempo but not the transposition (drums by default)";
 

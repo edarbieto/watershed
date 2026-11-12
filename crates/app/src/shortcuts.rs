@@ -20,11 +20,23 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
+        "Tracks",
+        &[
+            ("↑ / ↓", "Select the track above or below"),
+            ("M", "Mute the selected track"),
+            ("S", "Solo the selected track"),
+            (
+                "Delete / Backspace",
+                "Delete the selected track (its file stays; Edit menu to restore)",
+            ),
+        ],
+    ),
+    (
         "Loops and markers",
         &[
             ("A / B", "Loop start or end at the playhead"),
             ("L", "Loop on or off"),
-            ("M", "Add a marker at the playhead"),
+            ("Shift+M", "Add a marker at the playhead"),
             ("1 – 9", "Go to marker 1 to 9"),
         ],
     ),
@@ -51,6 +63,8 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
         "Mouse",
         &[
             ("Click or drag the time row", "Move the playhead"),
+            ("Drag the playhead line", "Move the playhead"),
+            ("Click a track", "Select it"),
             (
                 "Drag the loop row",
                 "Set a loop (drag an end to move it, click it: on / off)",

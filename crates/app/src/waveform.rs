@@ -7,7 +7,7 @@ use crate::view::View;
 
 /// What the user did on a waveform.
 pub enum WaveformAction {
-    /// Clicked: seek to this frame.
+    /// Clicked, or the playhead line dragged: seek to this frame.
     Seek(usize),
     /// Dragged: select these frames as a loop. Updates while the drag goes on.
     Select(usize, usize),
@@ -100,14 +100,18 @@ pub fn paint_loop(
     }
 }
 
+/// How far from the playhead line, in points, a drag grabs it.
+const PLAYHEAD_GRAB: f32 = 4.0;
+
 pub fn marker_color(ui: &egui::Ui) -> Color32 {
     ui.visuals().warn_fg_color
 }
 
 /// Draws a stereo waveform (left channel on top, right below) with the overlay,
 /// moved in time by `offset` frames. Returns the rect it used, so the ruler can line
-/// up with it, and what the user did on it. When `movable`, a drag moves the track
-/// instead of selecting a loop.
+/// up with it, and what the user did on it. A drag that starts on the playhead line
+/// moves the playhead; otherwise, when `movable`, a drag moves the track, and else it
+/// selects a loop.
 pub fn waveform(
     ui: &mut egui::Ui,
     peaks: &[Peaks; 2],
@@ -121,6 +125,30 @@ pub fn waveform(
         ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
+    let timeline = Timeline::new(rect.x_range(), &overlay.visible);
+    let playhead_x = timeline.x_of(overlay.position);
+    // Whether this drag started on the playhead line, kept for the whole drag.
+    let on_playhead_id = response.id.with("playhead");
+    if response.drag_started() {
+        let near = ui
+            .input(|i| i.pointer.press_origin())
+            .is_some_and(|origin| (origin.x - playhead_x).abs() <= PLAYHEAD_GRAB);
+        ui.data_mut(|d| d.insert_temp(on_playhead_id, near));
+    }
+    let dragging_playhead =
+        response.dragged() && ui.data(|d| d.get_temp(on_playhead_id)) == Some(true);
+    let over_playhead = response
+        .hover_pos()
+        .is_some_and(|pos| (pos.x - playhead_x).abs() <= PLAYHEAD_GRAB);
+    if dragging_playhead || (over_playhead && !response.dragged()) {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    } else if movable {
+        if response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
+    }
     if movable {
         painter.rect_stroke(
             rect.shrink(0.5),
@@ -128,14 +156,8 @@ pub fn waveform(
             Stroke::new(1.0, color.gamma_multiply(0.6)),
             egui::StrokeKind::Inside,
         );
-        if response.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        } else if response.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-        }
     }
 
-    let timeline = Timeline::new(rect.x_range(), &overlay.visible);
     paint_loop(ui, &painter, rect, timeline, overlay.loop_region);
     // Behind the waveform, so it stays readable.
     let grid_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
@@ -177,13 +199,15 @@ pub fn waveform(
     }
 
     painter.vline(
-        timeline.x_of(overlay.position),
+        playhead_x,
         rect.y_range(),
         Stroke::new(1.5, ui.visuals().strong_text_color()),
     );
 
     let action = response.interact_pointer_pos().and_then(|pointer| {
-        if movable && response.dragged() {
+        if dragging_playhead {
+            Some(WaveformAction::Seek(timeline.frame_at(pointer.x)))
+        } else if movable && response.dragged() {
             // Measured from where the drag started, so rounding never accumulates.
             if response.drag_started() {
                 ui.data_mut(|d| d.insert_temp(response.id, offset));

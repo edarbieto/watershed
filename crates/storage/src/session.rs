@@ -110,6 +110,9 @@ pub struct TrackState {
     /// Seconds the track is moved by: positive starts it later.
     #[serde(skip_serializing_if = "is_zero")]
     pub offset: f64,
+    /// Removed by the user: hidden and silent, its file left on disk.
+    #[serde(skip_serializing_if = "is_false")]
+    pub deleted: bool,
 }
 
 fn is_zero(value: &f64) -> bool {
@@ -127,6 +130,7 @@ impl Default for TrackState {
             solo: false,
             pitch_lock: None,
             offset: 0.0,
+            deleted: false,
         }
     }
 }
@@ -253,6 +257,7 @@ mod tests {
                     solo: false,
                     pitch_lock: Some(true),
                     offset: -0.25,
+                    deleted: true,
                 },
                 TrackState {
                     file: "drums.flac".into(),

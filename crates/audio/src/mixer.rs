@@ -42,7 +42,7 @@ pub(crate) struct Voice {
 
 impl Voice {
     pub fn new(song: Arc<Song>) -> Self {
-        let any_solo = song.tracks.iter().any(|t| t.params.solo());
+        let any_solo = song.any_solo();
         let gains = song
             .tracks
             .iter()
@@ -54,7 +54,7 @@ impl Voice {
     /// Jumps to the current gains without a ramp. For a seek, where the output starts
     /// over anyway.
     pub fn snap_gains(&mut self) {
-        let any_solo = self.song.tracks.iter().any(|t| t.params.solo());
+        let any_solo = self.song.any_solo();
         for (track, current) in self.song.tracks.iter().zip(self.gains.iter_mut()) {
             *current = Bus::ALL.map(|bus| target(&track.params, bus, any_solo));
         }
@@ -70,7 +70,7 @@ impl Voice {
             return;
         }
         let track_frames = self.song.track_frames() as i64;
-        let any_solo = self.song.tracks.iter().any(|t| t.params.solo());
+        let any_solo = self.song.any_solo();
 
         for (track, current) in self.song.tracks.iter().zip(self.gains.iter_mut()) {
             let current = &mut current[bus as usize];
@@ -161,6 +161,34 @@ mod tests {
         song.tracks[0].params.set_solo(false);
         song.tracks[1].params.set_solo(false);
         assert!((render(&mut voice, 0, 16)[0] - 0.625).abs() < 1e-6);
+    }
+
+    #[test]
+    fn deleted_tracks_are_silent_and_their_solo_does_not_count() {
+        let song = song(&[0.25, 0.5, 0.125], 64);
+        let mut voice = Voice::new(song.clone());
+
+        song.tracks[1].params.set_deleted(true);
+        assert!((render(&mut voice, 0, 16)[0] - 0.375).abs() < 1e-6);
+
+        // A deleted soloed track neither plays nor silences the others.
+        song.tracks[1].params.set_solo(true);
+        assert!((render(&mut voice, 0, 16)[0] - 0.375).abs() < 1e-6);
+        // Restored, its solo applies again.
+        song.tracks[1].params.set_deleted(false);
+        assert!((render(&mut voice, 0, 16)[0] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn deleted_tracks_do_not_lengthen_the_song() {
+        let song = song(&[0.25, 0.5], 64);
+        song.tracks[1].params.set_offset(32);
+        assert_eq!(song.frames(), 96);
+        song.tracks[1].params.set_deleted(true);
+        assert_eq!(song.frames(), 64);
+        // With every track deleted, the length stays.
+        song.tracks[0].params.set_deleted(true);
+        assert_eq!(song.frames(), 96);
     }
 
     #[test]
