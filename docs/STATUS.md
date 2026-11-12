@@ -2499,6 +2499,22 @@ Checked on macOS: the menu bar shows Watershed, File, Edit, Playback, View, Wind
 Click and Count-in show checks; Loop is greyed out with no loop; ⌘Q quits. Windows and
 Linux only compile in CI (C dependencies do not cross-compile from the Mac).
 
+**Secondary windows** (asked by the user the same day, after approving the menus):
+Settings, Keyboard Shortcuts and About (Linux) are windows of the system, not egui windows
+inside the main one (`subwindow.rs`, immediate egui viewports). Their contents are still
+drawn by egui.
+- No extra Dock icon or Cmd+Tab entry on macOS (the system groups windows by app).
+- Windows: owned by the main window (found by title, `GWLP_HWNDPARENT`): no taskbar
+  button, not in Alt+Tab, above the main window, minimized with it. Linux: X11 dialogs.
+- They open centered near the top of the main window and fit their contents (Settings at
+  a fixed width, its notes wrap). Not resizable; no minimize or zoom buttons.
+- Esc or ⌘W closes them. Keys typed there do not reach the main window (Space does not
+  play). Opening one that is open already brings it to the front.
+- The `?` list gained ⌘O, ⇧⌘O, ⌘Q and Esc / ⌘W.
+- Checked on macOS: Settings (⌘,) and Shortcuts (Help menu) open as windows; Esc and ⌘W
+  close them; Space in them does not play. A first try froze the app: egui's locks do
+  not nest (`ctx.input` inside `ctx.data_mut`).
+
 **Test checklist:**
 1. macOS: every menu; ⌘O, ⇧⌘O, ⌘, and ⌘Q; the checks follow the buttons (toggle Click in
    the bottom bar, then look at Playback).
@@ -2508,6 +2524,9 @@ Linux only compile in CI (C dependencies do not cross-compile from the Mac).
 4. The bottom bar captions: clear enough? anything in the wrong group?
 5. Windows: the menu bar under the title bar, dark; Ctrl+O, Ctrl+,; About in Help.
 6. View → Markers and Loops Panel hides the side panel, and it stays hidden on restart.
+7. Settings and Shortcuts: real windows; move the main window, they stay put; Esc / ⌘W
+   close them. Windows: no extra taskbar button or Alt+Tab entry; they stay above the
+   main window and minimize with it.
 
 ## Chords on the grid
 
