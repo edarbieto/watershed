@@ -632,7 +632,7 @@ mod native {
                 menu.init_for_nsapp();
             }
             #[cfg(windows)]
-            {
+            let hwnd = {
                 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
                 let Ok(handle) = cc.window_handle() else {
                     log::warn!("menu: no window handle");
@@ -649,7 +649,8 @@ mod native {
                     log::warn!("menu: {e}");
                     return None;
                 }
-            }
+                hwnd
+            };
             Some(Self {
                 _menu: menu,
                 items,
