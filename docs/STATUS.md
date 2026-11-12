@@ -130,7 +130,7 @@ prior, chords, the waveform shift bug, track selection and regrouped controls, u
 remembered window, click on another output, changelog. The user answered the open questions the same day.
 The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
 the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
-Cents and reference tuning: done, **waiting for the user to try them** (see "Cents and
+Cents and reference tuning: done, tried by the user: works (see "Cents and
 reference tuning").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
@@ -2156,7 +2156,7 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
 
 ## Cents and reference tuning
 
-v0.2, done 2026-11-12, **not yet tried by the user**.
+v0.2, done 2026-11-12, tried by the user: works.
 
 **Cents.** A `+0 ct` value beside the semitones in the bottom bar: drag or type, −50 to
 +50, double-click resets it. The engine and the session keep one `f32` in semitones (the
