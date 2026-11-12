@@ -570,16 +570,17 @@ same day; their answers are folded in below.
     Mockups first, in HTML (or egui prototypes if HTML costs too much), for the user to pick.
     Done 2026-11-12: option A (labeled groups in the bottom bar) and native menus (see
     "Controls and menus" in `STATUS.md`).
-  - A **selected track**: click its name or its waveform; ↑/↓ moves the selection.
+  - [x] A **selected track**: click its name or its waveform; ↑/↓ moves the selection.
     Shortcuts: **`M` mutes** the selected track, **`S` solos** it, Delete / Backspace
-    deletes it; **adding a marker moves to `Shift+M`** (decided by the user).
-  - **Delete a track** (with a button too): a soft delete, the file stays on disk and the
-    session lists it (e.g. `deleted_tracks`); undoable.
+    deletes it; **adding a marker moves to `Shift+M`** (decided by the user). **Built** (see
+    "Track selection and soft delete" in `STATUS.md`).
+  - [x] **Delete a track** (with a button too): a soft delete, the file stays on disk and the
+    session marks it (`deleted` per track); undoable once undo exists. **Built.**
   - **Drag the playhead with the mouse** without moving bar 1: dragging the time ruler or
     the playhead line seeks. ~~Bar 1 moves with Alt + drag on the bar ruler.~~ Superseded
     by the ruler rows (2026-11-12, see "Ruler rows" in `STATUS.md`): bar 1 has its own
-    row, and the time and bars rows seek. Dragging the playhead line over the waveforms is
-    still to do.
+    row, and the time and bars rows seek. Dragging the playhead line over the waveforms:
+    **built**.
   - Rename **"1 here" to "Set first bar"** (bar 1 is not always where the audio starts:
     pickups, free intros).
   - Missing buttons for what only has a shortcut today, and the `?` window kept in sync.

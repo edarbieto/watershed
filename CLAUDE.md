@@ -109,6 +109,9 @@ dropped on the UI thread. Mixer parameters are atomics.
   on, `App::on_exit` takes the GL context, so it is defined per platform.
 - **egui's locks do not nest:** calling `ctx.input(..)` (or any `ctx` read) inside
   `ctx.data_mut(..)` / `ctx.memory_mut(..)` freezes the app. Read first, then write.
+- **egui keyboard focus:** `egui_wants_keyboard_input()` is true for *any* focused widget, and
+  egui moves the focus with the arrow keys (into a fader's value field, which then takes keys
+  as text). `handle_input` drops the focus when an arrow key is pressed.
 - To screenshot the app on macOS: `screencapture -x -o -l <window id>` (the id from
   `CGWindowListCopyWindowInfo`); it captures only that window.
 - To screenshot the app on Windows, capture only its window with `PrintWindow`

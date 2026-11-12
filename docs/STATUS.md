@@ -139,8 +139,9 @@ user: backlog. Chords now **off by default** (asked by the user). **Ruler rows: 
 approved by the user (grouped order kept) (see "Ruler rows"). **Controls and menus**
 (step 1, first part): built, option A of the mockups chosen by the user; to try (see
 "Controls and menus"). Secondary windows (system windows, above the main one,
-modal): tried on macOS and approved by the user; still to try on Windows. Still in step 1: the selected track, soft delete, dragging the
-playhead line.
+modal): tried on macOS and approved by the user; still to try on Windows. **Selected track, soft
+delete and dragging the playhead line** (the rest of step 1): built, to try (see "Track selection
+and soft delete"). Next in v0.2: undo / redo.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2632,6 +2633,52 @@ fixed). With Dynamic off nothing changed: the steady grid carries the last tempo
 Reaper does. Checked with the `beats` example (92–95 BPM through the song, rising to ~98
 at the end, which librosa agrees with) and in the app (the 4/4 mark at 3:41 falls on bar
 85), and tried by the user: works. Test: `the_tracker_follows_a_fixed_tempo_only_in_its_stretch`.
+
+## Track selection and soft delete
+
+Built 2026-11-12 (v0.2 step 1, second part), as decided in `PLAN.md`.
+
+- **Selected track:** a press anywhere on a track's row (name, controls, waveform) selects it;
+  ↑ / ↓ move the selection (with none, ↑ picks the last and ↓ the first) and scroll it into view.
+  The row is outlined and its controls shaded. Not saved; a reload keeps the same file selected.
+- **Keys:** `M` mutes and `S` solos the selected track; Delete / Backspace deletes it. **Adding a
+  marker moved to Shift+M** (the Add button, the markers row and Edit → Add Marker are unchanged).
+- **Soft delete:** a 🗑 button in each row (beside ↔), the key, or Edit → Delete Track. The track
+  is hidden and silent, its file stays in the folder, and the session marks it
+  (`deleted = true` in its `[[tracks]]` entry). A line under the tracks, "Deleted: ↺ Guitar ↺
+  Bass", restores one; Edit → Restore Deleted Tracks restores all. The last track shown cannot
+  be deleted (and a session with every track deleted shows them all). The selection moves to the
+  next track shown.
+  - In the engine: `TrackParams::deleted`. A deleted track is never audible and its solo does
+    not count (`Song::any_solo`); it does not lengthen the song with its offset. It stays in
+    memory, so restoring is instant and undo will be a flag.
+- **Dragging the playhead line** over the waveforms: a drag that starts within 4 points of the
+  line moves the playhead (the cursor shows ↔ over it); elsewhere a drag still selects a loop, or
+  moves the track when it is unlocked. With snap on it follows the grid, like a click.
+- **Edit menu:** Select Previous / Next Track, Mute Track and Solo Track (checks, for the
+  selected track), Delete Track, Restore Deleted Tracks. The `?` list has a Tracks section.
+- **Found while testing:** egui moves its keyboard focus with the arrow keys, into a fader's dB
+  field that then took the next keys as text (and a focused slider changes its value). The app
+  now takes the focus away when an arrow key is pressed, before any widget is drawn.
+  `egui_wants_keyboard_input()` is true for **any** focused widget, not only text fields.
+- Checked on macOS with synthetic clicks and keys on a copy of a song folder: selection by click
+  and ↓, M and S, Backspace twice (two tracks deleted, `deleted = true` in the session),
+  restoring one, dragging the playhead (1:54.9 → 2:45.0, no loop made), Shift+M adds a marker.
+- Still shortcut-only: Shift+C (tempo or time signature change at the playhead; the changes row
+  has its right-click).
+
+**Test checklist:**
+1. Click a track's name, controls or waveform: it is selected. ↑ / ↓ move the selection; with
+   many tracks the list scrolls to it.
+2. M and S on the selected track, also while playing; Edit → Mute Track shows the check.
+3. Delete a track with 🗑 and with Delete / Backspace: it disappears and goes silent, the next
+   one is selected. Restore it from the "Deleted" line and from the Edit menu.
+4. Delete a soloed track: the others play again. Reload (F5) and reopen the song: deleted
+   tracks stay deleted.
+5. Shift+M adds a marker; plain M no longer does.
+6. Drag the white playhead line on a waveform, playing and paused; a drag elsewhere still
+   makes a loop.
+7. Click a fader, then press ↓: the selection moves, the fader does not change.
 
 ## Observations to investigate
 
