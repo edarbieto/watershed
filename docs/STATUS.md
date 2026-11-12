@@ -2712,6 +2712,36 @@ Built 2026-11-12, asked by the user.
   - Windows: shown as text after a tab (`Shift+M`, `Up`, `Delete`), as before; a native
     accelerator there would take the key from text fields. Not seen yet (CI only).
   - Linux: egui's menu shows them with `format_shortcut`.
+- **Shortcut map** (proposed by Claude, approved by the user the same day): every command in the
+  menus has a key now, except Stop (Space and Home cover it), Restore Deleted Tracks (undo
+  will), About, updates and the links.
+
+  | Command | Key |
+  |---|---|
+  | Reload Folder | ⌘R (F5 too) |
+  | Show in Finder / Explorer | ⌥⌘R |
+  | Add Tempo or Time Signature Change (new in Edit) | ⇧C |
+  | Clear Loop / Save Loop | ⇧L / ⌘L |
+  | Count-in | K |
+  | Faster / Slower, 5 % steps (new) | ⇧→ / ⇧← |
+  | Reset Tempo | ⇧T |
+  | Pitch Up / Down a Semitone (new; the cents stay) | ⇧↑ / ⇧↓ |
+  | Reset Pitch | ⇧P |
+  | Zoom to Fit | ⌘0 (⌘= / ⌘− zoom too) |
+  | Snap to Grid / Beat Grid | G / ⇧G |
+  | Dynamic Tempo / Chords | D / H |
+  | Markers and Loops Panel | ⌥⌘S |
+
+  No brackets: awkward on Spanish keyboards. **The app's keys come from the menu table now**
+  (`menu::key_commands`), run through `run_menu` when the item is enabled, so a key and its menu
+  item cannot drift apart; `handle_input` only adds other keys for the same commands (F5,
+  Delete / Backspace, =, ⌘= / ⌘−). Shortcuts with Shift or Alt are tried first, since egui
+  matches those modifiers loosely (⌘O also matched ⇧⌘O in the Linux menu bar: fixed). Held
+  down, only moving and nudging keys repeat (arrows, zoom, tempo, pitch); toggles do not.
+  Checked on macOS with synthetic keys: ⇧→ twice 110 %, ⇧↑ three times +3 st, ⇧G / G / K / H
+  toggle grid / snap / count-in / chords, ⇧L clears the loop, ⌘L saves it, ⌘0 fits, ⌘=
+  zooms, ⌥⌘S hides the panel, ⌘R reloads. (Pitfall: synthetic keys inherit Shift from the
+  previous event unless their flags are set.)
 
 ## Observations to investigate
 
