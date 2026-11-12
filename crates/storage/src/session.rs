@@ -19,6 +19,7 @@ pub struct Session {
     pub position: f64,
     /// Song frames per output frame: 1.0 is the original speed.
     pub tempo: f32,
+    /// Transposition in semitones; the fraction is the fine pitch in cents.
     pub semitones: f32,
     /// Current loop ends and whether playback loops between them.
     pub loop_a: Option<f64>,

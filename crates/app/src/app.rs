@@ -45,6 +45,8 @@ const MIN_TEMPO_PCT: f32 = 50.0;
 const MAX_TEMPO_PCT: f32 = 125.0;
 /// Transposition slider range, in semitones.
 const MAX_SEMITONES: f32 = 12.0;
+/// Fine pitch range, in cents.
+const MAX_CENTS: f32 = 50.0;
 const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 /// How far the skip buttons and arrow keys move, in seconds.
 const SKIP_SECS: f64 = 5.0;
@@ -1687,7 +1689,8 @@ impl WatershedApp {
             );
 
             ui.separator();
-            let mut semitones = engine.semitones();
+            // The transposition is one value, shown as whole semitones and cents.
+            let (mut semitones, mut cents) = split_cents(engine.semitones());
             let response = ui
                 .add(
                     egui::Slider::new(&mut semitones, -MAX_SEMITONES..=MAX_SEMITONES)
@@ -1697,17 +1700,35 @@ impl WatershedApp {
                 )
                 .on_hover_text("Transpose in semitones (double-click to reset)");
             if double_clicked(&response) {
-                engine.set_semitones(0.0);
+                engine.set_semitones(cents / 100.0);
             } else if response.changed() {
+                engine.set_semitones(semitones + cents / 100.0);
+            }
+            let response = ui
+                .add(
+                    egui::DragValue::new(&mut cents)
+                        .range(-MAX_CENTS..=MAX_CENTS)
+                        .speed(0.25)
+                        .fixed_decimals(0)
+                        .custom_formatter(|v, _| format!("{v:+.0} ct"))
+                        .custom_parser(|t| t.trim().trim_end_matches("ct").trim().parse().ok()),
+                )
+                .on_hover_text(
+                    "Fine pitch in cents, a hundredth of a semitone: drag or type \
+                     (double-click to reset)",
+                );
+            if double_clicked(&response) {
                 engine.set_semitones(semitones);
+            } else if response.changed() {
+                engine.set_semitones(semitones + cents.round() / 100.0);
             }
             ui.label("Pitch");
-            key::controls(
-                ui,
-                &mut self.song_key,
-                engine.semitones().round() as i32,
-                enabled,
-            );
+            let (semitones, cents) = split_cents(engine.semitones());
+            if let Some(cents) =
+                key::controls(ui, &mut self.song_key, semitones as i32, cents, enabled)
+            {
+                engine.set_semitones(semitones + cents / 100.0);
+            }
 
             ui.separator();
             if metronome::controls(ui, &mut self.metronome, &mut self.config, has_beats) {
@@ -3077,6 +3098,17 @@ fn volume_slider(db: &mut f32) -> egui::Slider<'_> {
         })
 }
 
+/// A transposition in semitones as whole semitones and cents (-50 to 50).
+/// Half a semitone stays on the semitone nearer to zero: +50 cents is not +1 st -50.
+fn split_cents(semitones: f32) -> (f32, f32) {
+    let total = (semitones * 100.0).round();
+    let mut whole = (total / 100.0).round();
+    if (total - whole * 100.0).abs() == 50.0 && whole.abs() * 100.0 > total.abs() {
+        whole -= whole.signum();
+    }
+    (whole, total - whole * 100.0)
+}
+
 fn gain_to_db(gain: f32) -> f32 {
     if gain <= 0.0 {
         MIN_DB
@@ -3173,6 +3205,18 @@ fn format_time(secs: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transpositions_split_into_semitones_and_cents() {
+        assert_eq!(split_cents(0.0), (0.0, 0.0));
+        assert_eq!(split_cents(2.37), (2.0, 37.0));
+        assert_eq!(split_cents(-0.37), (0.0, -37.0));
+        assert_eq!(split_cents(-1.2), (-1.0, -20.0));
+        assert_eq!(split_cents(1.6), (2.0, -40.0));
+        assert_eq!(split_cents(0.5), (0.0, 50.0));
+        assert_eq!(split_cents(-1.5), (-1.0, -50.0));
+        assert_eq!(split_cents(2.5), (2.0, 50.0));
+    }
 
     #[test]
     fn db_round_trip() {
