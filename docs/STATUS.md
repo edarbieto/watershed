@@ -125,15 +125,16 @@ Last updated: 2026-11-12.
 ## Next steps
 
 **v0.2 (next version):** the user's feedback on v0.1.1 (2026-11-11) is planned in
-`PLAN.md`, "v0.2: feedback on v0.1.1": cents and reference tuning, key with an online
-prior, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
+`PLAN.md`, "v0.2: feedback on v0.1.1": cents and reference tuning, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
 remembered window, click on another output, changelog. The user answered the open questions the same day.
 The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
 the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
 Cents and reference tuning: done, tried by the user: works (see "Cents and
 reference tuning"). Count-in on the bar line: done, tried by the user: works (see "Count-in on the bar
 line"). Remember the window: done, tried by the user on macOS (maximized included): works; still
-to try on Windows (see "Remember the window").
+to try on Windows (see "Remember the window"). The key with an online prior moved to the
+backlog (decided by the user on 2026-11-12, see `PLAN.md`). **Chords on the grid: built, to
+try by the user** (see "Chords on the grid").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2422,6 +2423,51 @@ moved in time.
 3. With ↔ off, dragging still selects a loop; with it on, a click still seeks.
 4. Double-click the offset label: the track goes back to 0.
 5. Close and reopen: the offset is kept and ↔ is off again.
+
+## Chords on the grid
+
+Built 2026-11-12, not yet tried by the user. Major and minor triads only.
+
+- **`watershed_dsp::Chromagram`** (`chords.rs`): the key's chroma (`key.rs`), frame by
+  frame, with a hop of a quarter window (~85 ms). It is computed in the same pass as the
+  key's chroma, which takes every other frame, so the key is unchanged (tested).
+  The loader sums the pitched stems except the bass (vocals included: leaving them out
+  changed nothing on the test songs).
+- **The bass stem** gets its own chromagram, 35–300 Hz, from **spectral peaks at their
+  exact frequency** (parabolic interpolation), not plain FFT bins. With plain bins a low
+  A1 (55 Hz) was read as E: down there a semitone is about one bin wide, so a note
+  smears into its neighbours, and its third harmonic (the fifth) won. It also changed
+  with the sample rate: at 48 kHz (the app) "Just Like Heaven" read E where 44.1 kHz read
+  A. With peaks both rates agree (test: `a_low_bass_note_is_its_root_at_any_rate`).
+- **Estimate:** the grid's beats are cut into spans: a bar, or two halves for bars of 4
+  beats or more (7/8 as 3 + 4). Per span, the summed pitch classes (square root, then
+  unit length) are matched against the 24 triad templates (cosine), plus 0.45 × the
+  bass stem's share at the chord's root. A Viterbi pass picks the sequence, with a cost
+  per change: 0.04 on a bar line, 0.12 mid-bar, so a bar splits only when its halves
+  clearly differ. Spans quieter than 10 % of the median have no chord. About 1 ms per
+  song, so it runs again whenever the grid's beats change (BPM, bar 1, Dynamic, changes).
+- **UI:** a **Chords** row under the bar ruler, with its switch (saved in `config.toml`
+  as `show_chords`; off when the grid is). One block per run of the same chord, the one
+  playing highlighted; names transposed with the pitch (whole semitones) and spelled with
+  flats in flat keys (`Key::uses_flats`, from the key as heard). Names stay in sight when
+  their block scrolls past the left edge; 10 pt when 13 pt does not fit. Clicking a chord
+  seeks to its start. Nothing is saved in the session.
+- **On the test songs** (`cargo run --release -p watershed-dsp --example chords --
+  <folder>`, which reads BPM and bar 1 from the session): "Just Like Heaven" A–E–Bm–D
+  (right), "Boys Don't Cry" A–Bm–C#m–D (right), "In Between Days" A–D, Bm–E,
+  "Dani California" Am G | D Am in half bars, "Afuera" Bm and E, "Black Hole Sun" roughly
+  its verse a semitone up (it is tuned up 63 cents). Not checked against charts by ear.
+- **Possible later:** 7ths and sus; editing a chord by hand (saved in the session).
+
+**Test checklist:**
+1. Open songs whose chords you know: are they right, or at least close (the relative
+   minor, a missing 7th)? Note bars that are wrong.
+2. Transpose ±2 semitones: the names follow, spelled for the new key.
+3. Move bar 1, change the BPM or turn Dynamic on and off: the chords follow the grid.
+4. Turn the grid off: the Chords switch greys out and the lane empties.
+5. Click a chord: the playhead goes to its start. While playing, the current chord is
+   highlighted.
+6. Zoomed out, names that do not fit are left out; zoomed in, they read well.
 
 ## Waveform shift and tempo at bar 1
 

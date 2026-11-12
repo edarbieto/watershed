@@ -550,34 +550,13 @@ same day; their answers are folded in below.
   reads G#m with a tuning of −37 cents, A ≈ 430.7 Hz. **Done** in the Key tooltip and
   menu (the song info panel does not exist yet); accuracy checked, see "Cents and reference
   tuning" in `STATUS.md`.
-- [ ] **Key with an online source as a prior.** Look the song up (artist and title from
-  the tags or the file name) and let the published key weigh in: e.g. if it is among the
-  top 2–3 estimates, it wins; if it is far off, both show with the reason. Candidates:
-  GetSongBPM API (free with an API key and a backlink, has key and BPM), MusicBrainz
-  (identifies the song, has no key), AcousticBrainz (closed in 2022, dumps only),
-  Spotify audio features (closed to new apps since 2024). Scraping sites like Tunebat: no.
-  Approved: opt-in in Settings (artist and title go to a third party), and the online BPM
-  also helps the BPM estimate. The lookup runs in the background after the song loads, so
-  it adds no loading time, and its answer is stored in the session (one request per song).
-  **GetSongBPM API** (read 2026-11-11 at getsongbpm.com/api; there is no separate terms
-  page): free, also for commercial use, but a **backlink to GetSongBPM.com is mandatory**
-  (website or store listing; "or we will suspend your account without notice"). Register
-  with a website or app id, the backlink URL and an email (done by the user, by hand).
-  Limit: 3000 requests per hour per key, blocked for an hour when exceeded. Base URL
-  `https://api.getsong.co/`, key as `api_key` or the `X-API-KEY` header.
-  `/search/?type=both&lookup=song:<title> artist:<artist>` returns songs with `tempo`
-  (integer), `time_sig` (beta), `key_of` (e.g. `"Em"`), `open_key`. Nothing is said about
-  caching or sharing a key.
-  Plan: the backlink in the README (and the About / Settings text); one key for the app,
-  given to CI as a secret and built into release binaries (not in the repo, though it can
-  still be pulled out of a binary), with a Settings field for the user's own key; one
-  request per song, stored in the session.
 - [ ] **Chords on the grid** (moved from "Feature ideas"). One chord per bar or half bar
   from the chroma already computed for the key (stems without drums, maybe the bass stem
   for the root), matched against chord templates and smoothed (HMM / Viterbi) so it does
   not flicker. A chord lane above the waveforms, transposed with the pitch. Start with
   major and minor triads, then 7ths and sus. Half a bar only when the two halves clearly
-  disagree. (Both approved.)
+  disagree. (Both approved.) **Triads built**, to try by the user (see "Chords on the grid"
+  in `STATUS.md`); 7ths and sus later.
 - [x] **Bug: a track's waveform shifts against the ruler when its volume changes**
   (playback is right). Likely cause, from reading the code: the controls column is
   `allocate_ui_with_layout(CONTROLS_WIDTH, ..)`, which grows when its contents are wider;
@@ -695,6 +674,30 @@ same day; their answers are folded in below.
 ### Feature ideas (not scheduled)
 Discussed with the user, not designed yet. Ordered by value for practicing.
 
+- [ ] **Key with an online source as a prior** (moved out of v0.2 by the user on 2026-11-12:
+  registering for an API is tedious for a musician, one key built into the app does not
+  justify the feature, and the user can always look the key up). Look the song up (artist and title from
+  the tags or the file name) and let the published key weigh in: e.g. if it is among the
+  top 2–3 estimates, it wins; if it is far off, both show with the reason. Candidates:
+  GetSongBPM API (free with an API key and a backlink, has key and BPM), MusicBrainz
+  (identifies the song, has no key), AcousticBrainz (closed in 2022, dumps only),
+  Spotify audio features (closed to new apps since 2024). Scraping sites like Tunebat: no.
+  Approved: opt-in in Settings (artist and title go to a third party), and the online BPM
+  also helps the BPM estimate. The lookup runs in the background after the song loads, so
+  it adds no loading time, and its answer is stored in the session (one request per song).
+  **GetSongBPM API** (read 2026-11-11 at getsongbpm.com/api; there is no separate terms
+  page): free, also for commercial use, but a **backlink to GetSongBPM.com is mandatory**
+  (website or store listing; "or we will suspend your account without notice"). Register
+  with a website or app id, the backlink URL and an email (done by the user, by hand).
+  Limit: 3000 requests per hour per key, blocked for an hour when exceeded. Base URL
+  `https://api.getsong.co/`, key as `api_key` or the `X-API-KEY` header.
+  `/search/?type=both&lookup=song:<title> artist:<artist>` returns songs with `tempo`
+  (integer), `time_sig` (beta), `key_of` (e.g. `"Em"`), `open_key`. Nothing is said about
+  caching or sharing a key.
+  Plan: the backlink in the README (and the About / Settings text); one key for the app,
+  given to CI as a secret and built into release binaries (not in the repo, though it can
+  still be pulled out of a binary), with a Settings field for the user's own key; one
+  request per song, stored in the session.
 - [ ] **Speed trainer:** a loop that raises the tempo by X % every N repetitions (e.g. from
   70 % to 100 %). Builds on the A-B loops.
 - [ ] **Set to 440 Hz in either direction** (idea, not needed for now: the user can set the
