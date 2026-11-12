@@ -293,12 +293,25 @@ impl Grid {
         index
     }
 
-    /// Whether change `index` is after bar 1, so it changes anything.
+    /// Whether change `index` changes anything: it is after bar 1, or it sets the
+    /// tempo bar 1 starts with.
     pub fn in_use(&self, index: usize) -> bool {
         let start = self.start().unwrap_or(0.0);
         self.changes
             .get(index)
             .is_some_and(|c| c.time >= start + MIN_CHANGE_GAP)
+            || self.tempo_at_bar_one(start).map(|(i, _)| i) == Some(index)
+    }
+
+    /// The last change at or before bar 1 (at `start`) that sets a tempo, with its
+    /// index: bar 1 starts at its tempo, and steady if it is fixed.
+    fn tempo_at_bar_one(&self, start: f64) -> Option<(usize, &Change)> {
+        self.changes
+            .iter()
+            .enumerate()
+            .take_while(|(_, c)| c.time < start + MIN_CHANGE_GAP)
+            .filter(|(_, c)| c.bpm.is_some())
+            .last()
     }
 
     pub fn remove_change(&mut self, index: usize) {
@@ -333,7 +346,7 @@ impl Grid {
             time: start,
             bpm,
             signature,
-            fixed: false,
+            fixed: self.tempo_at_bar_one(start).is_some_and(|(_, c)| c.fixed),
         }];
         for change in &self.changes {
             if change.time < start + MIN_CHANGE_GAP || change.time >= end {
@@ -363,10 +376,12 @@ impl Grid {
             return Vec::new();
         }
         let start = self.start().unwrap_or(0.0);
-        let bar_one = self.user_start.map(|time| Anchor {
-            time,
+        // A tempo set at bar 1 counts from there; so does the user's bar 1.
+        let tempo = self.tempo_at_bar_one(start).and_then(|(_, c)| c.bpm);
+        let bar_one = (self.user_start.is_some() || tempo.is_some()).then_some(Anchor {
+            time: start,
             pace: 1.0,
-            tempo: None,
+            tempo,
         });
         // The song's BPM does not matter here: only the tempos the changes set go
         // to the tracker.
@@ -809,6 +824,34 @@ mod tests {
         let beats = grid.beats(82.0, 240.0).unwrap();
         let count = beats.within(207.2..213.9).count();
         assert_eq!(count, 7);
+    }
+
+    #[test]
+    fn a_tempo_set_at_bar_one_holds_when_dynamic() {
+        // Like the intro of Deftones' "Be Quiet and Drive": the user's 80 BPM, fixed,
+        // on bar 1, and a 4/4 mark later; the tracker found a beat at 90 BPM.
+        let tracked: Vec<f64> = (0..40).map(|k| 0.3 + k as f64 * 60.0 / 90.0).collect();
+        let mut grid = grid(0.3, 4);
+        grid.dynamic = true;
+        grid.tracked = Some(Tracked::new(90.0, Vec::new(), tracked));
+        let first = grid.add_change(0.3);
+        let change = grid.change_mut(first).unwrap();
+        (change.bpm, change.fixed) = (Some(80.0), true);
+        grid.add_change(12.3);
+        assert!(grid.in_use(first), "it sets bar 1's tempo");
+        let beats = grid.beats(90.0, 20.0).unwrap();
+        // Steady at 80 BPM up to the mark: 16 beats of 0.75 s from 0.3 s.
+        let steady: Vec<f64> = beats.within(0.0..12.2).map(|(_, t)| t).collect();
+        assert_eq!(steady.len(), 16);
+        assert!((steady[15] - (0.3 + 15.0 * 0.75)).abs() < 1e-9);
+        // The tracker hears that tempo from bar 1 too.
+        let anchors = grid.anchors();
+        assert_eq!(anchors[0].time, 0.3);
+        assert_eq!(anchors[0].tempo, Some(80.0));
+        // Not fixed: the tracked beats again.
+        grid.change_mut(first).unwrap().fixed = false;
+        let beats = grid.beats(90.0, 20.0).unwrap();
+        assert_eq!(beats.within(0.0..12.2).count(), 18);
     }
 
     #[test]
