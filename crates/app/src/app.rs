@@ -18,6 +18,7 @@ use crate::loops::Loops;
 use crate::markers::Markers;
 use crate::metronome::{self, Metronome};
 use crate::playhead::Playhead;
+use crate::rulers::{self, GridAction, LoopAction, RulerAction};
 use crate::separate::{self, Job, Target};
 use crate::shortcuts;
 use crate::stems::song_title;
@@ -25,15 +26,16 @@ use crate::transport::{Command, Transport};
 use crate::update::{self, Updater};
 use crate::usage::{self, Usage};
 use crate::view::View;
-use crate::waveform::{
-    BarRulerAction, GridLine, Overlay, RulerAction, SignatureTag, WaveformAction, bar_ruler, ruler,
-    scrollbar, waveform,
-};
+use crate::waveform::{GridLine, Overlay, SignatureTag, WaveformAction, scrollbar, waveform};
 use crate::window::WindowMemory;
 
 const ROW_HEIGHT: f32 = 64.0;
-const RULER_HEIGHT: f32 = 32.0;
-const BAR_RULER_HEIGHT: f32 = 34.0;
+/// Heights of the time rows (seconds, loop, markers) and the grid rows (bar 1,
+/// changes, bars).
+const TIME_ROWS: [f32; 3] = [16.0, 12.0, 16.0];
+const GRID_ROWS: [f32; 3] = [16.0, 16.0, 16.0];
+/// Space between ruler rows.
+const RULER_ROW_GAP: f32 = 1.0;
 const CHORD_LANE_HEIGHT: f32 = 22.0;
 const SCROLLBAR_HEIGHT: f32 = 8.0;
 /// Zoom factor of the zoom buttons and keys.
@@ -1791,7 +1793,7 @@ impl WatershedApp {
         if sections.is_empty() {
             ui.label(
                 RichText::new(
-                    "Press M or click Add to mark the playhead, or double-click the ruler. \
+                    "Press M or click Add to mark the playhead, or double-click the markers row. \
                      Each marker starts a section.",
                 )
                 .weak()
@@ -2103,60 +2105,34 @@ impl WatershedApp {
         let has_bpm = self.bpm.value().is_some();
         let mut wave_action = None;
         let mut zoom_action = None;
-        // The ruler and the scrollbar are drawn once the rows have shown where the
-        // waveforms start; the space beside the ruler holds the zoom buttons.
-        let ruler_response = ui
-            .horizontal(|ui| {
-                controls_column(
-                    ui,
-                    RULER_HEIGHT,
-                    Layout::left_to_right(Align::Center),
-                    |ui| {
-                        ui.label(RichText::new("Zoom").weak().small());
-                        if ui.small_button("−").on_hover_text("Zoom out (-)").clicked() {
-                            zoom_action = Some(Action::Zoom(1.0 / ZOOM_STEP));
-                        }
-                        if ui.small_button("+").on_hover_text("Zoom in (+)").clicked() {
-                            zoom_action = Some(Action::Zoom(ZOOM_STEP));
-                        }
-                        if ui
-                            .add_enabled(!self.view.is_full(), egui::Button::new("Fit").small())
-                            .on_hover_text(
-                                "Show the whole song. Zoom with Cmd + scroll or a pinch, \
-                                 scroll sideways with Shift + scroll or two fingers.",
-                            )
-                            .clicked()
-                        {
-                            zoom_action = Some(Action::ZoomToFit);
-                        }
-                    },
-                );
-                ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), RULER_HEIGHT),
-                    egui::Sense::click_and_drag(),
+        // The rulers and the scrollbar are drawn once the rows have shown where the
+        // waveforms start. Beside the time rows: the zoom buttons.
+        let time_rows = ruler_group(ui, &TIME_ROWS, |ui| {
+            ui.label(RichText::new("Zoom").weak().small());
+            if ui.small_button("−").on_hover_text("Zoom out (-)").clicked() {
+                zoom_action = Some(Action::Zoom(1.0 / ZOOM_STEP));
+            }
+            if ui.small_button("+").on_hover_text("Zoom in (+)").clicked() {
+                zoom_action = Some(Action::Zoom(ZOOM_STEP));
+            }
+            if ui
+                .add_enabled(!self.view.is_full(), egui::Button::new("Fit").small())
+                .on_hover_text(
+                    "Show the whole song. Zoom with Cmd + scroll or a pinch, scroll sideways \
+                     with Shift + scroll or two fingers.",
                 )
-                .1
-            })
-            .inner;
+                .clicked()
+            {
+                zoom_action = Some(Action::ZoomToFit);
+            }
+        });
         let grid_shown_now = self.grid.enabled && has_bpm;
-        // The grid controls sit beside the bar ruler.
+        // Beside the grid rows: the grid controls.
         let grid = &mut self.grid;
         let mut snap = self.config.snap_to_grid;
-        let bar_ruler_response = ui
-            .horizontal(|ui| {
-                controls_column(
-                    ui,
-                    BAR_RULER_HEIGHT,
-                    Layout::left_to_right(Align::Center),
-                    |ui| grid_controls(ui, grid, &mut snap, has_bpm, playhead_secs),
-                );
-                ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), BAR_RULER_HEIGHT),
-                    egui::Sense::click_and_drag(),
-                )
-                .1
-            })
-            .inner;
+        let grid_rows = ruler_group(ui, &GRID_ROWS, |ui| {
+            grid_controls(ui, grid, &mut snap, has_bpm, playhead_secs);
+        });
         // The chord lane, with its switch.
         let mut show_chords = self.config.show_chords;
         let chord_lane_response = ui
@@ -2340,31 +2316,46 @@ impl WatershedApp {
             }
         });
 
-        let ruler_action = wave_x.and_then(|x_range| {
-            ruler(
-                ui,
-                &ruler_response,
-                x_range,
-                loaded.song.sample_rate,
-                &overlay,
-            )
-        });
+        let sample_rate = loaded.song.sample_rate;
+        let (time_action, loop_action, marker_action) = match wave_x {
+            Some(x_range) => (
+                rulers::time_row(ui, &time_rows[0], x_range, sample_rate, &overlay),
+                rulers::loop_row(ui, &time_rows[1], x_range, &overlay),
+                rulers::markers_row(ui, &time_rows[2], x_range, &overlay),
+            ),
+            None => (None, None, None),
+        };
         if snap != self.config.snap_to_grid {
             self.config.snap_to_grid = snap;
             self.config.save();
         }
         let grid_shown = self.grid.enabled && has_bpm;
         let signatures = signature_tags(&self.grid, rate);
-        let bar_action = wave_x.and_then(|x_range| {
-            bar_ruler(
-                ui,
-                &bar_ruler_response,
-                x_range,
-                loaded.song.sample_rate,
-                &overlay,
-                &signatures,
-                grid_shown,
-            )
+        let (bar_one, changes) = signatures.split_first().unzip();
+        let grid_action = wave_x.and_then(|x_range| {
+            // Each row drawn, whatever another one returns.
+            let actions = [
+                rulers::bar_one_row(
+                    ui,
+                    &grid_rows[0],
+                    x_range,
+                    sample_rate,
+                    &overlay,
+                    bar_one,
+                    grid_shown,
+                ),
+                rulers::changes_row(
+                    ui,
+                    &grid_rows[1],
+                    x_range,
+                    sample_rate,
+                    &overlay,
+                    changes.unwrap_or_default(),
+                    grid_shown,
+                ),
+                rulers::bars_row(ui, &grid_rows[2], x_range, &overlay, grid_shown),
+            ];
+            actions.into_iter().flatten().next()
         });
         if show_chords != self.config.show_chords {
             self.config.show_chords = show_chords;
@@ -2403,9 +2394,11 @@ impl WatershedApp {
                 frame
             }
         };
+        // Exactly, not snapped: the time row, a marker, a chord.
+        let mut seek_exact = chord_seek;
         let mut open_editor = false;
-        match bar_action {
-            Some(BarRulerAction::Drag {
+        match grid_action {
+            Some(GridAction::Drag {
                 started,
                 delta_secs,
             }) => {
@@ -2416,17 +2409,17 @@ impl WatershedApp {
                     self.grid.set_start(origin + delta_secs);
                 }
             }
-            Some(BarRulerAction::Reset) => self.grid.reset_start(),
-            Some(BarRulerAction::AddChange { frame, at }) => {
+            Some(GridAction::Reset) => self.grid.reset_start(),
+            Some(GridAction::AddChange { frame, at }) => {
                 let index = self.grid.add_change(snap_frame(frame) as f64 / rate);
                 self.signature_editor = Some((Some(index), at));
                 open_editor = true;
             }
-            Some(BarRulerAction::EditSignature { change, at }) => {
+            Some(GridAction::EditSignature { change, at }) => {
                 self.signature_editor = Some((change, at));
                 open_editor = true;
             }
-            Some(BarRulerAction::MoveSignature {
+            Some(GridAction::MoveSignature {
                 change,
                 started,
                 delta_secs,
@@ -2438,6 +2431,15 @@ impl WatershedApp {
                     self.grid.move_change(change, origin + delta_secs);
                 }
             }
+            // To the nearest line drawn, snap or not: that is what the row shows.
+            Some(GridAction::Seek(frame)) => {
+                let nearest = grid_lines
+                    .iter()
+                    .map(|line| line.frame)
+                    .min_by_key(|line| line.abs_diff(frame))
+                    .unwrap_or(frame);
+                seek_exact = Some(nearest as f64 / rate);
+            }
             None => {}
         }
         if let (Some(index), Some(x_range)) = (self.new_signature.take(), wave_x)
@@ -2447,8 +2449,7 @@ impl WatershedApp {
                 + ((change.time - self.view.start) / self.view.span.max(1e-9)) as f32
                     * x_range.span();
             let x = x.clamp(x_range.min, x_range.max);
-            self.signature_editor =
-                Some((Some(index), egui::pos2(x, bar_ruler_response.rect.bottom())));
+            self.signature_editor = Some((Some(index), egui::pos2(x, grid_rows[1].rect.bottom())));
             open_editor = true;
         }
         self.signature_popup(ui, open_editor);
@@ -2457,7 +2458,7 @@ impl WatershedApp {
             // Cmd + scroll or a pinch zooms around the pointer; sideways scrolling
             // (Shift + wheel, two fingers) scrolls, over the ruler or the waveforms.
             let area =
-                Rect::from_x_y_ranges(x_range, ruler_response.rect.top()..=ui.min_rect().bottom());
+                Rect::from_x_y_ranges(x_range, time_rows[0].rect.top()..=ui.min_rect().bottom());
             let (pointer, zoom, scroll_x) = ui.input(|i| {
                 (
                     i.pointer.hover_pos(),
@@ -2480,16 +2481,27 @@ impl WatershedApp {
         if let Some(action) = zoom_action {
             self.apply(action);
         }
-        match ruler_action {
-            Some(RulerAction::Seek(frame)) => wave_action = Some(WaveformAction::Seek(frame)),
-            Some(RulerAction::AddMarker(frame)) => {
-                self.markers.add(frame as f64 / rate);
+        for action in [time_action, marker_action].into_iter().flatten() {
+            match action {
+                RulerAction::Seek(frame) | RulerAction::GoTo(frame) => {
+                    seek_exact = Some(frame as f64 / rate);
+                }
+                RulerAction::AddMarker(frame) => {
+                    self.markers.add(frame as f64 / rate);
+                }
             }
+        }
+        match loop_action {
+            Some(LoopAction::Select(start, end)) => {
+                let (start, end) = (snap_frame(start), snap_frame(end));
+                if end > start {
+                    self.loops.select(start as f64 / rate, end as f64 / rate);
+                }
+            }
+            Some(LoopAction::Toggle) => self.loops.toggle(),
             None => {}
         }
-
-        if let Some(secs) = chord_seek {
-            // Exactly to the chord, which starts on the grid: not snapped.
+        if let Some(secs) = seek_exact {
             self.seek_secs(secs);
             self.transport_keys.seeked(secs);
         }
@@ -2579,8 +2591,8 @@ impl eframe::App for WatershedApp {
         let bars_height = top_bar.response.rect.height() + transport.response.rect.height();
         let mut tracks_size = egui::Vec2::ZERO;
         egui::CentralPanel::default_margins().show(ui, |ui| {
-            // Room for the track controls and a narrow waveform, the ruler, one row
-            // and the scrollbar, plus the panel's margins.
+            // Room for the track controls and a narrow waveform, the rulers, the
+            // chord lane, one row and the scrollbar, plus the panel's margins.
             let margins = ui.ctx().content_rect().size()
                 - egui::vec2(side_width, bars_height)
                 - ui.max_rect().size();
@@ -2589,11 +2601,12 @@ impl eframe::App for WatershedApp {
                 + egui::vec2(
                     side_width + CONTROLS_WIDTH + MIN_WAVEFORM_WIDTH,
                     bars_height
-                        + RULER_HEIGHT
-                        + BAR_RULER_HEIGHT
+                        + group_height(&TIME_ROWS)
+                        + group_height(&GRID_ROWS)
+                        + CHORD_LANE_HEIGHT
                         + ROW_HEIGHT
                         + SCROLLBAR_HEIGHT
-                        + 4.0 * spacing,
+                        + 5.0 * spacing,
                 );
             self.separation_status(ui);
             if let Some(loading) = &self.loading {
@@ -2841,7 +2854,7 @@ fn grid_controls(
     playhead_secs: f64,
 ) {
     ui.checkbox(&mut grid.enabled, "Grid").on_hover_text(
-        "Beat grid, bar ruler and BPM. Turn it off for songs without a steady beat.",
+        "Beat grid, its rulers and BPM. Turn it off for songs without a steady beat.",
     );
     ui.add_enabled_ui(grid.enabled, |ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
@@ -2852,7 +2865,7 @@ fn grid_controls(
         )
         .on_hover_text(
             "Beats per bar from bar 1. To change the tempo or time signature later on, \
-             right-click the bar ruler or press Shift+C at the playhead.",
+             right-click the changes row or press Shift+C at the playhead.",
         );
         ui.label("/");
         egui::ComboBox::from_id_salt("beat_unit")
@@ -2869,7 +2882,7 @@ fn grid_controls(
         if ui
             .add_enabled(has_bpm, egui::Button::new("1 here").small())
             .on_hover_text(
-                "Start bar 1 at the playhead. Or drag the bar ruler; double-click it to \
+                "Start bar 1 at the playhead. Or drag the bar 1 row; double-click it to \
                  go back to the estimate.",
             )
             .clicked()
@@ -2879,7 +2892,8 @@ fn grid_controls(
         if magnet_button(ui, *snap)
             .on_hover_text(
                 "Snap: a click on a waveform moves the playhead to the nearest grid line \
-                 (beats or bars, as zoomed). The time ruler never snaps.",
+                 (beats or bars, as zoomed), and loops drawn on the loop row start and end \
+                 on one. The time row never snaps.",
             )
             .clicked()
         {
@@ -2935,7 +2949,7 @@ fn signature_tags(grid: &Grid, rate: f64) -> Vec<SignatureTag> {
     let label = |beats_per_bar: u32, beat_unit: u32| format!("{beats_per_bar}/{beat_unit}");
     let bar_one = SignatureTag {
         frame: (start * rate) as usize,
-        label: label(grid.beats_per_bar, grid.beat_unit),
+        label: format!("Bar 1 · {}", label(grid.beats_per_bar, grid.beat_unit)),
         change: None,
         in_use: true,
     };
@@ -3140,6 +3154,43 @@ fn bpm_controls(
 
 fn double_clicked(response: &egui::Response) -> bool {
     response.interact(egui::Sense::click()).double_clicked()
+}
+
+/// Height of ruler rows of `heights` with their gaps.
+fn group_height(heights: &[f32]) -> f32 {
+    heights.iter().sum::<f32>() + RULER_ROW_GAP * heights.len().saturating_sub(1) as f32
+}
+
+/// Ruler rows of `heights` beside one controls column, filled by `add_controls`.
+/// Returns the rows' responses, top to bottom.
+fn ruler_group(
+    ui: &mut egui::Ui,
+    heights: &[f32],
+    add_controls: impl FnOnce(&mut egui::Ui),
+) -> Vec<egui::Response> {
+    ui.horizontal(|ui| {
+        controls_column(
+            ui,
+            group_height(heights),
+            Layout::left_to_right(Align::Center),
+            add_controls,
+        );
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = RULER_ROW_GAP;
+            heights
+                .iter()
+                .map(|&height| {
+                    ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), height),
+                        egui::Sense::click_and_drag(),
+                    )
+                    .1
+                })
+                .collect()
+        })
+        .inner
+    })
+    .inner
 }
 
 /// Lays out `add_contents` in the controls column beside the waveforms, exactly

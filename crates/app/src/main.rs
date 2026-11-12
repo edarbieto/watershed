@@ -14,6 +14,7 @@ mod loops;
 mod markers;
 mod metronome;
 mod playhead;
+mod rulers;
 mod separate;
 mod shortcuts;
 mod stems;

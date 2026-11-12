@@ -50,18 +50,34 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
     (
         "Mouse",
         &[
-            ("Double-click the time ruler", "Add a marker"),
+            ("Click or drag the time row", "Move the playhead"),
             (
-                "Drag the bar ruler",
+                "Drag the loop row",
+                "Set a loop (drag an end to move it, click it: on / off)",
+            ),
+            (
+                "Double-click the markers row",
+                "Add a marker (click one to go there)",
+            ),
+            (
+                "Drag the bar 1 row",
                 "Move bar 1 (double-click: back to the estimate)",
             ),
             (
-                "Right-click the bar ruler",
+                "Click the bar 1 flag",
+                "Change the time signature from bar 1",
+            ),
+            (
+                "Right-click the changes row",
                 "Change the tempo or time signature there",
             ),
             (
                 "Click a tempo or time signature",
                 "Change or delete it (drag to move it)",
+            ),
+            (
+                "Click or drag the bars row",
+                "Go to the nearest bar or beat",
             ),
             ("Click a chord", "Go to where it starts"),
             ("Double-click a fader or pan", "Back to its default"),
