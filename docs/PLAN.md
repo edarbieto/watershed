@@ -566,8 +566,10 @@ same day; their answers are folded in below.
   width for the value, and an exact-size controls column that never grows.
   **Done** (see "Waveform shift and tempo at bar 1" in `STATUS.md`).
 - [ ] **Controls grouped better, track selection, playhead drag.**
-  - Regroup the top bar (transport / tempo and pitch / key and grid / click / view).
+  - [x] Regroup the top bar (transport / tempo and pitch / key and grid / click / view).
     Mockups first, in HTML (or egui prototypes if HTML costs too much), for the user to pick.
+    Done 2026-11-12: option A (labeled groups in the bottom bar) and native menus (see
+    "Controls and menus" in `STATUS.md`).
   - A **selected track**: click its name or its waveform; ↑/↓ moves the selection.
     Shortcuts: **`M` mutes** the selected track, **`S` solos** it, Delete / Backspace
     deletes it; **adding a marker moves to `Shift+M`** (decided by the user).

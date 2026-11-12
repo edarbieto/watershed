@@ -136,7 +136,10 @@ to try on Windows (see "Remember the window"). The key with an online prior move
 backlog (decided by the user on 2026-11-12, see `PLAN.md`). **Chords on the grid: done**, tried
 by the user: works, not precise, as expected (see "Chords on the grid"). Chords set by the
 user: backlog. Chords now **off by default** (asked by the user). **Ruler rows: done**, tried and
-approved by the user (grouped order kept) (see "Ruler rows").
+approved by the user (grouped order kept) (see "Ruler rows"). **Controls and menus**
+(step 1, first part): built, option A of the mockups chosen by the user; to try (see
+"Controls and menus"). Still in step 1: the selected track, soft delete, dragging the
+playhead line.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2460,6 +2463,51 @@ the rows. The minimum window size counts the chord lane too (it was left out).
 5. Right-click the changes row; click and drag a tag.
 6. Click and drag the time row (exact) and the bars row (to lines).
 7. Is the grouped order better than your order? Is any row too thin or too tall?
+
+## Controls and menus
+
+Built 2026-11-12 (v0.2 step 1, first part). HTML mockups on a Design canvas; the user chose
+**option A** (labeled groups in the bottom bar) and approved the menus. Menus repeating
+what the window already has is normal in apps of this kind (Apple HIG; Reaper, Logic and
+Ableton do the same).
+
+- **Menus** (`menu.rs`): one table of menus and items, `MenuCommand` for each action.
+  - **macOS:** the system menu bar, with the `muda` crate (Tauri's). A Watershed menu (About,
+    Check for Updates…, Settings… ⌘,, Hide, Quit ⌘Q) and a Window menu (Minimize, Zoom,
+    Full Screen).
+  - **Windows:** `muda`'s menu bar under the title bar (dark theme). Settings and Quit go in
+    File; Check for Updates and About go in Help.
+  - **Linux:** the same menus drawn by egui at the top, and an egui About window.
+  - File, Edit, Playback, View, Help: open, separate, recent, reload, show in Finder /
+    Explorer; markers and loops; transport, loop / click / count-in (checks), tap and
+    reset tempo, reset pitch; zoom, grid, snap, dynamic tempo, chords, side panel (checks);
+    shortcuts, GitHub, report a problem.
+  - Only ⌘ shortcuts (⌘O, ⇧⌘O, ⌘,, ⌘Q) are native accelerators. Plain keys (Space, M, A,
+    L…) stay with egui so they still type into text fields; the menus show them as text.
+  - Items are enabled / checked from the app's state each frame; only changes reach the
+    native menu.
+- **Top bar:** the song title (opens the recent songs), its info ("Key A · 151 BPM · 4/4 ·
+  3:31"), then CPU / GPU / RAM, output and master. The ⚙, ?, Open, Separate and Reload
+  buttons left for the menus.
+- **Bottom bar:** groups with a small caption: Transport (with "bar N.M"), Loop, Tempo,
+  Pitch & key, Metronome.
+- Start screen: "Open Folder…" and "Separate Song…" buttons. "1 here" is now "Set first
+  bar". The side panel (markers and loops) can be hidden (`show_side_panel` in the config).
+- Undo / Redo and Close Song are not in the menus yet (undo comes later in v0.2).
+
+Checked on macOS: the menu bar shows Watershed, File, Edit, Playback, View, Window, Help;
+Click and Count-in show checks; Loop is greyed out with no loop; ⌘Q quits. Windows and
+Linux only compile in CI (C dependencies do not cross-compile from the Mac).
+
+**Test checklist:**
+1. macOS: every menu; ⌘O, ⇧⌘O, ⌘, and ⌘Q; the checks follow the buttons (toggle Click in
+   the bottom bar, then look at Playback).
+2. Open Recent: the list, a song from it, Clear.
+3. Type in a text field (BPM, a marker name) with Space or M: the text gets the key, the
+   menu action does not run.
+4. The bottom bar captions: clear enough? anything in the wrong group?
+5. Windows: the menu bar under the title bar, dark; Ctrl+O, Ctrl+,; About in Help.
+6. View → Markers and Loops Panel hides the side panel, and it stays hidden on restart.
 
 ## Chords on the grid
 
