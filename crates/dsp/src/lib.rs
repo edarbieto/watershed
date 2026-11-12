@@ -1,6 +1,7 @@
-//! Audio decoding, FLAC and Ogg Vorbis writing, resampling, waveform peaks, tempo
-//! and key estimation, STFT/iSTFT and chunking.
+//! Audio decoding, FLAC and Ogg Vorbis writing, resampling, waveform peaks,
+//! tempo, key and chord estimation, STFT/iSTFT and chunking.
 
+mod chords;
 mod chunks;
 mod decode;
 mod flac;
@@ -11,6 +12,7 @@ mod stft;
 mod tempo;
 mod vorbis;
 
+pub use chords::{Chord, Chromagram, Quality, Span, estimate_chords, half_bars};
 pub use chunks::{Chunking, overlap_add};
 pub use decode::{DecodeError, decode_file};
 pub use flac::{FlacError, gain_to_fit, write_flac};

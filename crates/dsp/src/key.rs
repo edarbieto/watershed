@@ -19,11 +19,10 @@ use realfft::RealFftPlanner;
 const WINDOW_SECS: f64 = 0.34;
 /// Lowest and highest frequencies counted: from the bass to where the overtones of
 /// most notes are weak.
-const MIN_FREQUENCY: f32 = 55.0;
-const MAX_FREQUENCY: f32 = 2000.0;
+pub(crate) const FULL_RANGE: (f32, f32) = (55.0, 2000.0);
 /// Steps per semitone in the fine chroma: 10 cents each.
 const STEPS: usize = 10;
-const BINS: usize = 12 * STEPS;
+pub(crate) const BINS: usize = 12 * STEPS;
 /// Frames quieter than this (RMS) are skipped.
 const MIN_RMS: f32 = 0.003;
 
@@ -64,6 +63,13 @@ impl Key {
     /// The key `semitones` higher (lower when negative).
     pub fn transposed(self, semitones: i32) -> Self {
         Self::new(i32::from(self.tonic) + semitones, self.minor)
+    }
+
+    /// Whether notes in this key are usually spelled with flats: F, Bb, Eb, Ab and
+    /// Db major and their relative minors. Gb / F# major is written with sharps.
+    pub fn uses_flats(self) -> bool {
+        let major = if self.minor { self.relative() } else { self };
+        [1, 3, 5, 8, 10].contains(&major.tonic)
     }
 
     /// All 24 keys: the major ones from C, then the minor ones.
@@ -156,65 +162,31 @@ impl Chroma {
     /// The chroma of interleaved stereo `samples`, mixed down to mono.
     pub fn compute(samples: &[f32], sample_rate: u32) -> Self {
         let mut chroma = Self::default();
-        let size = ((f64::from(sample_rate) * WINDOW_SECS) as usize).next_power_of_two();
-        let hop = size / 2;
-        let total = samples.len() / 2;
-        if total < size {
-            return chroma;
-        }
-
-        // Where each FFT bin goes in the fine chroma, for bins in range.
-        let bin_hz = sample_rate as f32 / size as f32;
-        let targets: Vec<(usize, usize)> = (1..=size / 2)
-            .filter_map(|bin| {
-                let hz = bin as f32 * bin_hz;
-                if !(MIN_FREQUENCY..=MAX_FREQUENCY).contains(&hz) {
-                    return None;
-                }
-                // Semitones above C, at A = 440 Hz (A is 9 semitones above C).
-                let semitones = 12.0 * (hz / 440.0).log2() + 9.0;
-                let step = (semitones * STEPS as f32).round() as i64;
-                Some((bin, step.rem_euclid(BINS as i64) as usize))
-            })
-            .collect();
-
-        let fft = RealFftPlanner::<f32>::new().plan_fft_forward(size);
-        let window: Vec<f32> = (0..size)
-            .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / size as f32).cos())
-            .collect();
-        let mut input = fft.make_input_vec();
-        let mut spectrum = fft.make_output_vec();
-        let mut scratch = fft.make_scratch_vec();
-        let mut frame_chroma = [0.0f32; BINS];
-
-        for frame in 0..=(total - size) / hop {
-            let stereo = samples[frame * hop * 2..].as_chunks::<2>().0;
-            let mut energy = 0.0;
-            for ((x, s), w) in input.iter_mut().zip(stereo).zip(&window) {
-                let mono = 0.5 * (s[0] + s[1]);
-                energy += mono * mono;
-                *x = mono * w;
-            }
-            if (energy / size as f32).sqrt() < MIN_RMS {
-                continue;
-            }
-            // Sizes always match, so this cannot fail.
-            let _ = fft.process_with_scratch(&mut input, &mut spectrum, &mut scratch);
-            frame_chroma.fill(0.0);
-            for &(bin, step) in &targets {
-                // Plain magnitudes: on the test songs, compressing them (square root)
-                // let noise and bleed pull the estimate off the clear cases.
-                frame_chroma[step] += spectrum[bin].norm();
-            }
-            // Every frame counts the same, loud or soft.
-            let sum: f32 = frame_chroma.iter().sum();
-            if sum > 0.0 {
-                for (total, value) in chroma.fine.iter_mut().zip(&frame_chroma) {
-                    *total += value / sum;
-                }
-            }
-        }
+        scan(
+            samples,
+            sample_rate,
+            2,
+            FULL_RANGE,
+            Mapping::Bins,
+            |_, rms, frame| {
+                chroma.add_frame(rms, frame);
+            },
+        );
         chroma
+    }
+
+    /// Adds one analysis frame: skipped when quiet, else normalized so every frame
+    /// counts the same, loud or soft.
+    pub(crate) fn add_frame(&mut self, rms: f32, frame: &[f32; BINS]) {
+        if rms < MIN_RMS {
+            return;
+        }
+        let sum: f32 = frame.iter().sum();
+        if sum > 0.0 {
+            for (total, value) in self.fine.iter_mut().zip(frame) {
+                *total += value / sum;
+            }
+        }
     }
 
     /// Adds another chroma, e.g. of another stem of the song.
@@ -239,15 +211,12 @@ impl Chroma {
 
     /// Energy per pitch class (0 is C), with the measured tuning taken out.
     pub fn pitch_classes(&self) -> [f32; 12] {
-        let offset = self.tuning_steps().round() as i64;
-        let mut classes = [0.0f32; 12];
-        for (i, value) in self.fine.iter().enumerate() {
-            // Steps within half a semitone of a note count for it.
-            let centered = i as i64 - offset + STEPS as i64 / 2;
-            let class = centered.div_euclid(STEPS as i64).rem_euclid(12) as usize;
-            classes[class] += value;
-        }
-        classes
+        fold(&self.fine, self.tuning_offset())
+    }
+
+    /// The measured tuning, in whole fine steps.
+    pub(crate) fn tuning_offset(&self) -> i64 {
+        self.tuning_steps().round() as i64
     }
 
     /// The most likely key, or `None` for silence.
@@ -277,6 +246,124 @@ impl Chroma {
             tuning_cents: self.tuning_steps() * (100 / STEPS) as f32,
         })
     }
+}
+
+/// Analysis window in samples at `sample_rate`: a power of two.
+pub(crate) fn window_size(sample_rate: u32) -> usize {
+    ((f64::from(sample_rate) * WINDOW_SECS) as usize).next_power_of_two()
+}
+
+/// How the spectrum goes into the fine chroma.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Mapping {
+    /// Every FFT bin's magnitude to the step of its center frequency.
+    Bins,
+    /// Only the peaks, each at its exact frequency (parabolic interpolation). For
+    /// low notes, where a semitone is about one FFT bin wide: plain bins smear a
+    /// note over its neighbours, unevenly depending on where the bins fall.
+    Peaks,
+}
+
+/// Runs the analysis over interleaved stereo `samples`, mixed down to mono, with a
+/// hop of `1 / overlap` windows, and calls `frame` with each frame's index, RMS and
+/// fine chroma over the `range` of frequencies in Hz (plain magnitudes, 10-cent
+/// steps from C at A = 440 Hz).
+pub(crate) fn scan(
+    samples: &[f32],
+    sample_rate: u32,
+    overlap: usize,
+    range: (f32, f32),
+    mapping: Mapping,
+    mut frame: impl FnMut(usize, f32, &[f32; BINS]),
+) {
+    let size = window_size(sample_rate);
+    let hop = size / overlap;
+    let total = samples.len() / 2;
+    if total < size {
+        return;
+    }
+
+    // Where each FFT bin goes in the fine chroma, for bins in range.
+    let bin_hz = sample_rate as f32 / size as f32;
+    let targets: Vec<(usize, usize)> = (1..size / 2)
+        .filter_map(|bin| {
+            let hz = bin as f32 * bin_hz;
+            (range.0..=range.1)
+                .contains(&hz)
+                .then(|| (bin, step_of(hz)))
+        })
+        .collect();
+
+    let fft = RealFftPlanner::<f32>::new().plan_fft_forward(size);
+    let window: Vec<f32> = (0..size)
+        .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / size as f32).cos())
+        .collect();
+    let mut input = fft.make_input_vec();
+    let mut spectrum = fft.make_output_vec();
+    let mut scratch = fft.make_scratch_vec();
+    let mut frame_chroma = [0.0f32; BINS];
+
+    for index in 0..=(total - size) / hop {
+        let stereo = samples[index * hop * 2..].as_chunks::<2>().0;
+        let mut energy = 0.0;
+        for ((x, s), w) in input.iter_mut().zip(stereo).zip(&window) {
+            let mono = 0.5 * (s[0] + s[1]);
+            energy += mono * mono;
+            *x = mono * w;
+        }
+        // Sizes always match, so this cannot fail.
+        let _ = fft.process_with_scratch(&mut input, &mut spectrum, &mut scratch);
+        frame_chroma.fill(0.0);
+        match mapping {
+            Mapping::Bins => {
+                for &(bin, step) in &targets {
+                    // Plain magnitudes: on the test songs, compressing them (square
+                    // root) let noise and bleed pull the key estimate off the clear
+                    // cases.
+                    frame_chroma[step] += spectrum[bin].norm();
+                }
+            }
+            Mapping::Peaks => {
+                let magnitude = |bin: usize| spectrum[bin].norm();
+                for &(bin, _) in &targets {
+                    let (a, b, c) = (magnitude(bin - 1), magnitude(bin), magnitude(bin + 1));
+                    if !(b > a && b >= c) {
+                        continue;
+                    }
+                    // The vertex of a parabola through the log magnitudes.
+                    let (la, lb, lc) = ((a + 1e-9).ln(), (b + 1e-9).ln(), (c + 1e-9).ln());
+                    let curve = la - 2.0 * lb + lc;
+                    let shift = if curve < 0.0 {
+                        (0.5 * (la - lc) / curve).clamp(-0.5, 0.5)
+                    } else {
+                        0.0
+                    };
+                    frame_chroma[step_of((bin as f32 + shift) * bin_hz)] += b;
+                }
+            }
+        }
+        frame(index, (energy / size as f32).sqrt(), &frame_chroma);
+    }
+}
+
+/// The fine chroma step of a frequency: 10-cent steps from C at A = 440 Hz.
+fn step_of(hz: f32) -> usize {
+    // Semitones above C, at A = 440 Hz (A is 9 semitones above C).
+    let semitones = 12.0 * (hz / 440.0).log2() + 9.0;
+    let step = (semitones * STEPS as f32).round() as i64;
+    step.rem_euclid(BINS as i64) as usize
+}
+
+/// Folds a fine chroma to 12 pitch classes (0 is C), `offset` steps of tuning taken
+/// out: steps within half a semitone of a note count for it.
+pub(crate) fn fold(fine: &[f32; BINS], offset: i64) -> [f32; 12] {
+    let mut classes = [0.0f32; 12];
+    for (i, value) in fine.iter().enumerate() {
+        let centered = i as i64 - offset + STEPS as i64 / 2;
+        let class = centered.div_euclid(STEPS as i64).rem_euclid(12) as usize;
+        classes[class] += value;
+    }
+    classes
 }
 
 /// Pearson correlation of two profiles.
@@ -340,6 +427,10 @@ mod tests {
         assert_eq!(Key::new(0, false).relative().to_string(), "Am");
         assert_eq!(Key::new(9, true).relative().to_string(), "C");
         assert_eq!(Key::new(11, false).transposed(2).to_string(), "Db");
+        assert!("Bb".parse::<Key>().unwrap().uses_flats());
+        assert!("Dm".parse::<Key>().unwrap().uses_flats());
+        assert!(!"Em".parse::<Key>().unwrap().uses_flats());
+        assert!(!"F#".parse::<Key>().unwrap().uses_flats());
     }
 
     #[test]
