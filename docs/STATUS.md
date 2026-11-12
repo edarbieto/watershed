@@ -133,8 +133,9 @@ Cents and reference tuning: done, tried by the user: works (see "Cents and
 reference tuning"). Count-in on the bar line: done, tried by the user: works (see "Count-in on the bar
 line"). Remember the window: done, tried by the user on macOS (maximized included): works; still
 to try on Windows (see "Remember the window"). The key with an online prior moved to the
-backlog (decided by the user on 2026-11-12, see `PLAN.md`). **Chords on the grid: built, to
-try by the user** (see "Chords on the grid").
+backlog (decided by the user on 2026-11-12, see `PLAN.md`). **Chords on the grid: done**, tried
+by the user: works, not precise, as expected (see "Chords on the grid"). Chords set by the
+user: backlog.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2426,7 +2427,8 @@ moved in time.
 
 ## Chords on the grid
 
-Built 2026-11-12, not yet tried by the user. Major and minor triads only.
+Built 2026-11-12, major and minor triads only. **Tried by the user: works**; not precise,
+as expected from an estimate.
 
 - **`watershed_dsp::Chromagram`** (`chords.rs`): the key's chroma (`key.rs`), frame by
   frame, with a hop of a quarter window (~85 ms). It is computed in the same pass as the
@@ -2457,7 +2459,7 @@ Built 2026-11-12, not yet tried by the user. Major and minor triads only.
   (right), "Boys Don't Cry" A–Bm–C#m–D (right), "In Between Days" A–D, Bm–E,
   "Dani California" Am G | D Am in half bars, "Afuera" Bm and E, "Black Hole Sun" roughly
   its verse a semitone up (it is tuned up 63 cents). Not checked against charts by ear.
-- **Possible later:** 7ths and sus; editing a chord by hand (saved in the session).
+- **Backlog** (`PLAN.md`, "Feature ideas"): chords set by the user, 7ths and sus.
 
 **Test checklist:**
 1. Open songs whose chords you know: are they right, or at least close (the relative

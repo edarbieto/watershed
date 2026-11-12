@@ -550,13 +550,14 @@ same day; their answers are folded in below.
   reads G#m with a tuning of −37 cents, A ≈ 430.7 Hz. **Done** in the Key tooltip and
   menu (the song info panel does not exist yet); accuracy checked, see "Cents and reference
   tuning" in `STATUS.md`.
-- [ ] **Chords on the grid** (moved from "Feature ideas"). One chord per bar or half bar
+- [x] **Chords on the grid** (moved from "Feature ideas"). One chord per bar or half bar
   from the chroma already computed for the key (stems without drums, maybe the bass stem
   for the root), matched against chord templates and smoothed (HMM / Viterbi) so it does
   not flicker. A chord lane above the waveforms, transposed with the pitch. Start with
   major and minor triads, then 7ths and sus. Half a bar only when the two halves clearly
-  disagree. (Both approved.) **Triads built**, to try by the user (see "Chords on the grid"
-  in `STATUS.md`); 7ths and sus later.
+  disagree. (Both approved.) **Triads done**, tried by the user: works, not precise
+  (expected) (see "Chords on the grid" in `STATUS.md`). 7ths and sus, and chords set by the
+  user, are in "Feature ideas".
 - [x] **Bug: a track's waveform shifts against the ruler when its volume changes**
   (playback is right). Likely cause, from reading the code: the controls column is
   `allocate_ui_with_layout(CONTROLS_WIDTH, ..)`, which grows when its contents are wider;
@@ -698,6 +699,9 @@ Discussed with the user, not designed yet. Ordered by value for practicing.
   given to CI as a secret and built into release binaries (not in the repo, though it can
   still be pulled out of a binary), with a Settings field for the user's own key; one
   request per song, stored in the session.
+- [ ] **Chords set by the user** (asked 2026-11-12, backlog): correct or add chords on the
+  chord lane by hand, saved in the session and winning over the estimate, as the key does.
+  Also 7ths and sus in the estimate.
 - [ ] **Speed trainer:** a loop that raises the tempo by X % every N repetitions (e.g. from
   70 % to 100 %). Builds on the A-B loops.
 - [ ] **Set to 440 Hz in either direction** (idea, not needed for now: the user can set the
