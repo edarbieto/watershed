@@ -2690,6 +2690,29 @@ Built 2026-11-12 (v0.2 step 1, second part), as decided in `PLAN.md`.
 9. Settings and Keyboard Shortcuts open centered on the main window; the shortcuts list
    scrolls.
 
+## Appearance and keys in the menus
+
+Built 2026-11-12, asked by the user.
+
+- **Appearance** (Settings, first row): System (the default), Light or Dark; `appearance` in
+  `config.toml`. `apply_appearance` sets egui's theme preference, the title bar of the main
+  window (`ViewportCommand::SetTheme`, an `NSAppearance` per window on macOS) and the Windows menu
+  bar (`muda` `MenuTheme`, `Auto` for System). The secondary windows set theirs when they open or
+  the preference changes (`subwindow.rs`). Checked on macOS: Light turns the app and both title
+  bars light at once; System goes back to the system's dark mode.
+- **Keys in the menus:** every key the app handles is now shown in the menus, on macOS too
+  (before, only ⌘ ones): ⇧M, ▲ / ▼, M, S, ⌫, A, B, ↩, Space, ↖, ← / →, L, C, T, +, −, F5, ?.
+  `Keys::Key` in `menu.rs` replaces the text labels.
+  - macOS: set as key equivalents (`set_key_accelerator`, logical keys). **Checked:** AppKit
+    gives a key without ⌘ to the window first, so the app still handles it and text fields
+    still get it (renaming a track: "m" typed, arrows move the cursor, nothing muted); the menu
+    never runs the item for it. Pitfall found testing: a synthetic key event *without its
+    character* (an arrow posted with `CGEventCreateKeyboardEvent` alone) does go to the menu;
+    real keyboards always send the character.
+  - Windows: shown as text after a tab (`Shift+M`, `Up`, `Delete`), as before; a native
+    accelerator there would take the key from text fields. Not seen yet (CI only).
+  - Linux: egui's menu shows them with `format_shortcut`.
+
 ## Observations to investigate
 
 ### Resume after changing the mix while paused (fixed)
