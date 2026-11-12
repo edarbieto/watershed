@@ -370,12 +370,31 @@ impl Grid {
     }
 
     /// The bars the tracker counts from when dynamic: the user's bar 1, and each
-    /// change at its pace and with its tempo, if it sets one.
-    fn anchors(&self) -> Vec<Anchor> {
+    /// change at its pace and with the tempo it sets. A fixed tempo is for its own
+    /// stretch only: the change that ends it takes the tracker back to the tempo
+    /// from before it (the song's `bpm`, or the last tempo change that is not
+    /// fixed), else that tempo would steer the tracking of the rest of the song.
+    fn anchors(&self, bpm: f64) -> Vec<Anchor> {
         if !self.dynamic {
             return Vec::new();
         }
         let start = self.start().unwrap_or(0.0);
+        // The tempo in force not counting fixed ones, and whether a fixed one is
+        // in force, from the changes up to bar 1.
+        let mut free = bpm;
+        let mut in_fixed = false;
+        for change in self
+            .changes
+            .iter()
+            .take_while(|c| c.time < start + MIN_CHANGE_GAP)
+        {
+            if let Some(tempo) = change.bpm {
+                in_fixed = change.fixed;
+                if !change.fixed {
+                    free = tempo;
+                }
+            }
+        }
         // A tempo set at bar 1 counts from there; so does the user's bar 1.
         let tempo = self.tempo_at_bar_one(start).and_then(|(_, c)| c.bpm);
         let bar_one = (self.user_start.is_some() || tempo.is_some()).then_some(Anchor {
@@ -383,22 +402,35 @@ impl Grid {
             pace: 1.0,
             tempo,
         });
-        // The song's BPM does not matter here: only the tempos the changes set go
-        // to the tracker.
-        let segments = self.segments(start, f64::INFINITY, 0.0);
+        let segments = self.segments(start, f64::INFINITY, bpm);
         let changes = self
             .changes
             .iter()
             .filter(|c| c.time >= start + MIN_CHANGE_GAP)
             .zip(segments.iter().skip(1));
-        bar_one
-            .into_iter()
-            .chain(changes.map(|(change, segment)| Anchor {
+        let mut anchors: Vec<Anchor> = bar_one.into_iter().collect();
+        for (change, segment) in changes {
+            let tempo = match change.bpm {
+                Some(tempo) => {
+                    in_fixed = change.fixed;
+                    if !change.fixed {
+                        free = tempo;
+                    }
+                    Some(tempo)
+                }
+                None if in_fixed => {
+                    in_fixed = false;
+                    Some(free)
+                }
+                None => None,
+            };
+            anchors.push(Anchor {
                 time: change.time,
                 pace: self.pace(segment.signature.beat_unit),
-                tempo: change.bpm,
-            }))
-            .collect()
+                tempo,
+            });
+        }
+        anchors
     }
 
     /// Estimates bar 1 again if the BPM changed since, and tracks the beats again if
@@ -414,7 +446,7 @@ impl Grid {
         if self.estimate.is_none_or(|(for_bpm, _)| for_bpm != bpm) {
             self.estimate = onsets.first_beat(bpm).map(|start| (bpm, start));
         }
-        let anchors = self.anchors();
+        let anchors = self.anchors(bpm);
         let retrack = self.tracked.as_ref().is_none_or(|tracked| {
             (bpm / tracked.bpm - 1.0).abs() > RETRACK || (!dragging && tracked.anchors != anchors)
         });
@@ -844,14 +876,50 @@ mod tests {
         let steady: Vec<f64> = beats.within(0.0..12.2).map(|(_, t)| t).collect();
         assert_eq!(steady.len(), 16);
         assert!((steady[15] - (0.3 + 15.0 * 0.75)).abs() < 1e-9);
-        // The tracker hears that tempo from bar 1 too.
-        let anchors = grid.anchors();
+        // The tracker hears that tempo from bar 1 too, and the song's again from
+        // the mark that ends it.
+        let anchors = grid.anchors(90.0);
         assert_eq!(anchors[0].time, 0.3);
         assert_eq!(anchors[0].tempo, Some(80.0));
+        assert_eq!(anchors[1].tempo, Some(90.0));
         // Not fixed: the tracked beats again.
         grid.change_mut(first).unwrap().fixed = false;
         let beats = grid.beats(90.0, 20.0).unwrap();
         assert_eq!(beats.within(0.0..12.2).count(), 18);
+    }
+
+    #[test]
+    fn the_tracker_follows_a_fixed_tempo_only_in_its_stretch() {
+        let mut grid = grid(0.0, 4);
+        grid.dynamic = true;
+        let tempo = |grid: &mut Grid, secs: f64, bpm: f64, fixed: bool| {
+            let index = grid.add_change(secs);
+            let change = grid.change_mut(index).unwrap();
+            (change.bpm, change.fixed) = (Some(bpm), fixed);
+        };
+        tempo(&mut grid, 10.0, 100.0, false);
+        tempo(&mut grid, 20.0, 70.0, true);
+        grid.add_change(30.0);
+        grid.add_change(40.0);
+        let tempos: Vec<Option<f64>> = grid.anchors(90.0).iter().map(|a| a.tempo).collect();
+        // Bar 1, then back to the last tempo that is not fixed, once.
+        assert_eq!(tempos, [None, Some(100.0), Some(70.0), Some(100.0), None]);
+        // With none before, back to the song's.
+        let mut grid = grid_with_fixed_only();
+        let tempos: Vec<Option<f64>> = grid.anchors(90.0).iter().map(|a| a.tempo).collect();
+        assert_eq!(tempos, [None, Some(70.0), Some(90.0)]);
+        grid.dynamic = false;
+        assert!(grid.anchors(90.0).is_empty());
+    }
+
+    fn grid_with_fixed_only() -> Grid {
+        let mut grid = grid(0.0, 4);
+        grid.dynamic = true;
+        let index = grid.add_change(20.0);
+        let change = grid.change_mut(index).unwrap();
+        (change.bpm, change.fixed) = (Some(70.0), true);
+        grid.add_change(30.0);
+        grid
     }
 
     #[test]
