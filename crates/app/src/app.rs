@@ -28,6 +28,7 @@ use crate::waveform::{
     BarRulerAction, GridLine, Overlay, RulerAction, SignatureTag, WaveformAction, bar_ruler, ruler,
     scrollbar, waveform,
 };
+use crate::window::WindowMemory;
 
 const ROW_HEIGHT: f32 = 64.0;
 const RULER_HEIGHT: f32 = 32.0;
@@ -117,6 +118,8 @@ struct Restore {
 
 pub struct WatershedApp {
     config: Config,
+    /// The window's place and size, saved for the next run.
+    window: WindowMemory,
     engine: Option<Engine>,
     devices: Vec<OutputDevice>,
     loaded: Option<LoadedSong>,
@@ -195,7 +198,7 @@ pub struct WatershedApp {
 }
 
 impl WatershedApp {
-    pub fn new(ctx: &egui::Context) -> Self {
+    pub fn new(ctx: &egui::Context, storage: Option<&dyn eframe::Storage>) -> Self {
         let config = Config::load();
         update::clean_up();
         let mut updater = Updater::new();
@@ -210,6 +213,7 @@ impl WatershedApp {
         };
         Self {
             config,
+            window: WindowMemory::load(storage),
             engine,
             devices: output_devices(),
             loaded: None,
@@ -2445,6 +2449,7 @@ impl WatershedApp {
 
 impl eframe::App for WatershedApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.window.update(ui.ctx());
         self.poll_loading(ui.ctx());
         self.poll_restore(ui.ctx());
         self.poll_separation(ui.ctx());
@@ -2568,6 +2573,15 @@ impl eframe::App for WatershedApp {
             // Keeps the CPU and RAM numbers current while nothing else redraws.
             ui.ctx().request_repaint_after(usage::INTERVAL);
         }
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.window.save(storage);
+    }
+
+    /// Only the window is kept between runs, not egui's own state.
+    fn persist_egui_memory(&self) -> bool {
+        false
     }
 
     // eframe's `glow` feature, on for macOS, adds the OpenGL context.

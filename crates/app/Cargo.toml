@@ -13,7 +13,8 @@ watershed-dsp.workspace = true
 watershed-separation.workspace = true
 watershed-storage.workspace = true
 
-eframe.workspace = true
+# `persistence` remembers the window (see `window.rs`).
+eframe = { workspace = true, features = ["persistence"] }
 env_logger.workspace = true
 log.workspace = true
 rfd.workspace = true
@@ -33,6 +34,11 @@ windows-sys.workspace = true
 # The icon and version info inside the .exe: see `build.rs`.
 [target.'cfg(windows)'.build-dependencies]
 winresource.workspace = true
+
+[dev-dependencies]
+# eframe's window settings, to check that `window.rs` saves them in their shape.
+egui-winit = { version = "0.36", default-features = false, features = ["serde"] }
+ron = "0.12"
 
 [lints]
 workspace = true

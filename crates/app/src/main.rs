@@ -21,6 +21,7 @@ mod update;
 mod usage;
 mod view;
 mod waveform;
+mod window;
 
 use eframe::egui;
 
@@ -51,7 +52,7 @@ fn main() -> eframe::Result {
         "Watershed",
         options,
         Box::new(|cc| {
-            let mut app = app::WatershedApp::new(&cc.egui_ctx);
+            let mut app = app::WatershedApp::new(&cc.egui_ctx, cc.storage);
             // A folder or files passed on the command line are opened right away.
             let paths: Vec<_> = std::env::args_os().skip(1).map(Into::into).collect();
             if !paths.is_empty() {
