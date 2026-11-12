@@ -5,6 +5,7 @@
 mod alloc;
 mod app;
 mod bpm;
+mod chords;
 mod dialog;
 mod grid;
 mod key;

@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 use eframe::egui::{self, Color32};
 use watershed_audio::{Samples, Song};
-use watershed_dsp::{Chroma, KeyEstimate, OnsetEnvelope, Peaks};
+use watershed_dsp::{Chroma, Chromagram, KeyEstimate, OnsetEnvelope, Peaks};
 use watershed_storage::Session;
 
 use crate::stems::{StemKind, default_names, song_title, track_colors};
@@ -36,6 +36,19 @@ pub struct LoadedSong {
     pub onsets: OnsetEnvelope,
     /// Estimated key, from the pitched stems.
     pub key: Option<KeyEstimate>,
+    /// What the chords are estimated from, on any beat grid.
+    pub harmony: Harmony,
+}
+
+/// The pitched stems' chroma frame by frame, for the chords.
+#[derive(Debug, Default)]
+pub struct Harmony {
+    /// The pitched stems but the bass (all of them when there is no bass stem).
+    pub treble: Chromagram,
+    /// The bass stem's low notes, if there is one.
+    pub bass: Option<Chromagram>,
+    /// The whole song's chroma, for its tuning.
+    pub chroma: Chroma,
 }
 
 /// A load in progress, or with [`Resampled`], stems moving to another sample rate.
@@ -199,7 +212,8 @@ fn load(
         Samples,
         [Peaks; 2],
         Option<(OnsetEnvelope, f32)>,
-        Option<Chroma>,
+        Option<(Chromagram, Chroma)>,
+        Option<Chromagram>,
     );
     let decoded: Vec<Result<Decoded, String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
@@ -218,6 +232,8 @@ fn load(
                 };
                 // The key comes from the pitched stems: drums only blur it.
                 let for_key = for_tempo && (*kind != StemKind::Drums || kinds.len() == 1);
+                // The bass stem also gives the chords their roots.
+                let for_bass = for_key && *kind == StemKind::Bass && kinds.len() > 1;
                 scope.spawn(move || {
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
                     let audio =
@@ -233,10 +249,12 @@ fn load(
                         (onsets, tempo_weight)
                     });
                     let chroma =
-                        for_key.then(|| Chroma::compute(&audio.samples, audio.sample_rate));
+                        for_key.then(|| Chromagram::compute(&audio.samples, audio.sample_rate));
+                    let bass = for_bass
+                        .then(|| Chromagram::compute_bass(&audio.samples, audio.sample_rate));
                     let samples = Samples::from_f32(&audio.samples);
                     done.fetch_add(1, Ordering::Relaxed);
-                    Ok((samples, peaks, onsets, chroma))
+                    Ok((samples, peaks, onsets, chroma, bass))
                 })
             })
             .collect();
@@ -250,15 +268,21 @@ fn load(
     let mut samples = Vec::with_capacity(decoded.len());
     let mut peaks = Vec::with_capacity(decoded.len());
     let mut onsets = OnsetEnvelope::default();
-    let mut chroma = Chroma::default();
-    for (track_samples, track_peaks, track_onsets, track_chroma) in decoded {
+    let mut harmony = Harmony::default();
+    for (track_samples, track_peaks, track_onsets, track_chroma, track_bass) in decoded {
         samples.push(track_samples);
         peaks.push(track_peaks);
         if let Some((track_onsets, weight)) = track_onsets {
             onsets.add_weighted(&track_onsets, weight);
         }
-        if let Some(track_chroma) = track_chroma {
-            chroma.add(&track_chroma);
+        if let Some((gram, chroma)) = track_chroma {
+            harmony.chroma.add(&chroma);
+            if track_bass.is_none() {
+                harmony.treble.add(&gram);
+            }
+        }
+        if track_bass.is_some() {
+            harmony.bass = track_bass;
         }
     }
     let default_names = default_names(&files, &kinds);
@@ -292,6 +316,7 @@ fn load(
         stem_gain: session.stem_gain,
         bpm: onsets.bpm(),
         onsets,
-        key: chroma.key(),
+        key: harmony.chroma.key(),
+        harmony,
     })
 }

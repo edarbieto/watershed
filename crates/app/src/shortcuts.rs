@@ -63,6 +63,7 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
                 "Click a tempo or time signature",
                 "Change or delete it (drag to move it)",
             ),
+            ("Click a chord", "Go to where it starts"),
             ("Double-click a fader or pan", "Back to its default"),
         ],
     ),

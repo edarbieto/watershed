@@ -9,6 +9,7 @@ use watershed_separation::catalog;
 use watershed_storage::{Config, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
+use crate::chords::{self, SongChords};
 use crate::dialog::{Dialog, Purpose};
 use crate::grid::{self, Change, Grid};
 use crate::key::{self, SongKey};
@@ -33,6 +34,7 @@ use crate::window::WindowMemory;
 const ROW_HEIGHT: f32 = 64.0;
 const RULER_HEIGHT: f32 = 32.0;
 const BAR_RULER_HEIGHT: f32 = 34.0;
+const CHORD_LANE_HEIGHT: f32 = 22.0;
 const SCROLLBAR_HEIGHT: f32 = 8.0;
 /// Zoom factor of the zoom buttons and keys.
 const ZOOM_STEP: f64 = 1.5;
@@ -147,6 +149,8 @@ pub struct WatershedApp {
     bpm: Bpm,
     grid: Grid,
     song_key: SongKey,
+    /// The chords on the grid, estimated again when its beats change.
+    chords: SongChords,
     metronome: Metronome,
     /// Bar 1 when a drag of the bar ruler began.
     grid_drag_origin: Option<f64>,
@@ -233,6 +237,7 @@ impl WatershedApp {
             bpm: Bpm::default(),
             grid: Grid::default(),
             song_key: SongKey::default(),
+            chords: SongChords::default(),
             metronome: Metronome::default(),
             grid_drag_origin: None,
             change_drag_origin: None,
@@ -537,6 +542,7 @@ impl WatershedApp {
         self.bpm = Bpm::new(loaded.bpm, session.bpm);
         self.grid = Grid::from_session(&session);
         self.song_key = SongKey::new(loaded.key.clone(), session.key.as_deref());
+        self.chords = SongChords::default();
         self.metronome = Metronome::from_session(&session);
         self.view = View::new(loaded.song.duration_secs());
         self.last_loop = None;
@@ -2065,7 +2071,11 @@ impl WatershedApp {
         let dragging = ui.ctx().dragged_id().is_some();
         self.grid
             .update_estimate(self.bpm.value(), &loaded.onsets, dragging);
-        let grid_lines: Vec<GridLine> = match self.grid_beats() {
+        let beats = self.grid_beats();
+        if self.config.show_chords {
+            self.chords.update(&loaded.harmony, beats.as_ref());
+        }
+        let grid_lines: Vec<GridLine> = match beats {
             Some(beats) => {
                 // The waveforms take the width beside the track controls.
                 let width = ui.available_width() - CONTROLS_WIDTH - ui.spacing().item_spacing.x;
@@ -2128,6 +2138,7 @@ impl WatershedApp {
                 .1
             })
             .inner;
+        let grid_shown_now = self.grid.enabled && has_bpm;
         // The grid controls sit beside the bar ruler.
         let grid = &mut self.grid;
         let mut snap = self.config.snap_to_grid;
@@ -2142,6 +2153,34 @@ impl WatershedApp {
                 ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), BAR_RULER_HEIGHT),
                     egui::Sense::click_and_drag(),
+                )
+                .1
+            })
+            .inner;
+        // The chord lane, with its switch.
+        let mut show_chords = self.config.show_chords;
+        let chord_lane_response = ui
+            .horizontal(|ui| {
+                controls_column(
+                    ui,
+                    CHORD_LANE_HEIGHT,
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        ui.add_enabled(
+                            grid_shown_now,
+                            egui::Checkbox::new(&mut show_chords, "Chords"),
+                        )
+                        .on_hover_text(
+                            "Chords estimated from the stems, one per bar or half bar of the \
+                             beat grid. A rough guide, like the key: major and minor chords \
+                             only, and the bass decides the root. Click a chord to go there.",
+                        )
+                        .on_disabled_hover_text("The chords need the beat grid.");
+                    },
+                );
+                ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), CHORD_LANE_HEIGHT),
+                    egui::Sense::click(),
                 )
                 .1
             })
@@ -2327,6 +2366,30 @@ impl WatershedApp {
                 grid_shown,
             )
         });
+        if show_chords != self.config.show_chords {
+            self.config.show_chords = show_chords;
+            self.config.save();
+        }
+        let (semitones, _) = split_cents(self.engine.as_ref().map_or(0.0, |e| e.semitones()));
+        let semitones = semitones as i32;
+        let chord_seek = wave_x.and_then(|x_range| {
+            chords::lane(
+                ui,
+                &chord_lane_response,
+                x_range,
+                &self.view,
+                &chords::Lane {
+                    blocks: self.chords.blocks(),
+                    semitones,
+                    flats: self
+                        .song_key
+                        .value()
+                        .is_some_and(|k| k.transposed(semitones).uses_flats()),
+                    playhead: self.playhead.secs(),
+                    shown: show_chords && grid_shown,
+                },
+            )
+        });
         // To the nearest line drawn, so the zoom sets the precision.
         let snap = self.config.snap_to_grid;
         let snap_frame = |frame: usize| {
@@ -2425,6 +2488,11 @@ impl WatershedApp {
             None => {}
         }
 
+        if let Some(secs) = chord_seek {
+            // Exactly to the chord, which starts on the grid: not snapped.
+            self.seek_secs(secs);
+            self.transport_keys.seeked(secs);
+        }
         match wave_action {
             Some(WaveformAction::Seek(frame)) => {
                 let frame = snap_frame(frame);

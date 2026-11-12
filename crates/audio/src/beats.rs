@@ -86,6 +86,11 @@ impl Beats {
         )
     }
 
+    /// The listed beat times, from bar 1.
+    pub fn times(&self) -> &[f64] {
+        &self.times
+    }
+
     /// The meter beat `index` is in (the first one before bar 1).
     fn meter(&self, index: i64) -> Meter {
         let after = self
