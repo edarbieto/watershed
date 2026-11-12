@@ -131,34 +131,29 @@ The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and 
 the user, and so is a follow-up fix (a fixed tempo steering the tracker past its stretch) (see "Waveform shift and tempo at bar 1").
 Cents and reference tuning: done, tried by the user: works (see "Cents and
 reference tuning"). Count-in on the bar line: done, tried by the user: works (see "Count-in on the bar
-line"). Remember the window: done, tried by the user on macOS (maximized included): works; still
-to try on Windows (see "Remember the window"). The key with an online prior moved to the
+line"). Remember the window: done, tried by the user on macOS (maximized included): works; also tried on Windows: works (see "Remember the window"). The key with an online prior moved to the
 backlog (decided by the user on 2026-11-12, see `PLAN.md`). **Chords on the grid: done**, tried
 by the user: works, not precise, as expected (see "Chords on the grid"). Chords set by the
 user: backlog. Chords now **off by default** (asked by the user). **Ruler rows: done**, tried and
 approved by the user (grouped order kept) (see "Ruler rows"). **Controls and menus**
 (step 1, first part): built, option A of the mockups chosen by the user; to try (see
 "Controls and menus"). Secondary windows (system windows, above the main one,
-modal): tried on macOS and approved by the user; still to try on Windows. **Selected track, soft
+modal): tried on macOS and Windows and approved by the user. **Selected track, soft
 delete and dragging the playhead line** (the rest of step 1): done, tried by the user; then
-shading instead of an outline, and centered secondary windows: to try (see "Track selection
+shading instead of an outline, and centered secondary windows: tried, work (see "Track selection
 and soft delete"). **Undo / redo: done**, tried by the user on macOS: works (see "Undo and redo"). Also done
 and tried the same day: appearance (light / dark / system), keys shown in the menus and the
 shortcut map. **Added to the plan by the user (2026-11-12):** undo / redo buttons, the double
 separator in the top bar, keeping the song's tags after separating (all in `PLAN.md`, v0.2).
 Left in v0.2 besides those: click on another output, CHANGELOG and feature list, website.
 
-**Next session: on Windows** (the user moves there). To try there, built on macOS and only
-compiled for Windows in CI:
-1. Secondary windows (Settings, Shortcuts, About): above the main window, no taskbar button or
-   Alt+Tab entry, modal (the main window beeps and flashes the open one), centered on it, the
-   shortcuts list scrolls.
-2. The menu bar: dark or light with Settings → Appearance (and System following Windows), the
-   keys shown as text after each item (`Shift+M`, `Up`, `Delete`…), Ctrl+O / Ctrl+, / Ctrl+R /
-   Ctrl+L / Ctrl+0 / Ctrl+Alt+S / Ctrl+Alt+R.
-3. Undo / redo: Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y; Ctrl+Z inside a text field undoes the text.
-4. Remember the window (still to try on Windows from before).
-5. Track selection, Delete and Backspace, Shift+arrows (tempo and pitch), the playhead drag.
+**Windows check (2026-11-12): done.** Everything built on macOS and only compiled for Windows
+in CI was tried there by the user, all works: secondary windows (above the main one, no taskbar
+button or Alt+Tab entry, modal, centered, the shortcuts list scrolls), the menu bar (Appearance,
+keys shown after each item, Ctrl shortcuts), undo / redo (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y, text
+fields), remembering the window, track selection, Delete / Backspace, Shift+arrows and the
+playhead drag. The release build did not compile on Windows at first (`hwnd` out of scope in
+`menu.rs`); fixed.
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2229,7 +2224,7 @@ both (Shift+C, right-click on the bar ruler); what it does not set goes on as be
 ## Remember the window
 
 v0.2, done 2026-11-12. **Tried by the user on macOS: works**, maximized (Zoom) included.
-**Still to try on Windows**, above all maximized and closed while minimized. eframe's `persistence` feature saves
+**Tried by the user on Windows: works.** eframe's `persistence` feature saves
 the window (`app.ron`: position in physical pixels, content size in points, maximized,
 full screen) every 30 s and on exit, restores it, and on Windows moves it back onto a
 monitor if its monitor is gone (macOS does that itself). `window.rs` replaces what eframe
@@ -2527,7 +2522,7 @@ entry in the window switchers (`subwindow.rs`).
   left out of the Window menu. Cmd+Tab lists apps, so Watershed shows once, also when run
   with `cargo run` (no `.app`): checked with `lsappinfo` (one app).
 - **Windows:** windows of the system owned by the main one (`GWLP_HWNDPARENT`): above it,
-  minimized with it, no taskbar button, not in Alt+Tab. Not tried yet (CI only).
+  minimized with it, no taskbar button, not in Alt+Tab. Tried by the user on Windows: works.
 - **Linux:** egui windows inside the main one, as before. winit cannot make a window the
   child (transient) of another on X11 or Wayland, which is what keeps it above its parent
   and out of the switchers there.
@@ -2690,7 +2685,7 @@ Built 2026-11-12 (v0.2 step 1, second part), as decided in `PLAN.md`.
 - Still shortcut-only: Shift+C (tempo or time signature change at the playhead; the changes row
   has its right-click).
 
-**Test checklist** (items 1–7 tried by the user on macOS: all work):
+**Test checklist** (items 1–7 tried by the user on macOS, all of them on Windows: all work):
 1. Click a track's name, controls or waveform: it is selected. ↑ / ↓ move the selection; with
    many tracks the list scrolls to it.
 2. M and S on the selected track, also while playing; Edit → Mute Track shows the check.
