@@ -128,8 +128,9 @@ Last updated: 2026-11-11.
 `PLAN.md`, "v0.2: feedback on v0.1.1": cents and reference tuning, key with an online
 prior, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
 remembered window, click on another output, changelog. The user answered the open questions the same day.
-The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed, waiting for the
-user to try them (see "Waveform shift and tempo at bar 1").
+The two bugs (waveform shift, tempo set at bar 1 with Dynamic on) are fixed and tried by
+the user; a follow-up fix (a fixed tempo steering the tracker past its stretch) is waiting
+for the user to try it (see "Waveform shift and tempo at bar 1").
 
 Phases 0 to 3.5 and Phase 4.5 are done; the song info panel of 3.5 stays in the plan for
 later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8 done; 4.6
@@ -2320,7 +2321,7 @@ moved in time.
 
 ## Waveform shift and tempo at bar 1
 
-Two v0.2 bugs, fixed 2026-11-11, **not yet tried by the user**.
+Two v0.2 bugs, fixed 2026-11-11.
 
 **Waveform shifting with the volume.** Cause as guessed in the plan: the controls column
 grew with its contents, and the fader's value changes width with the value. Now
@@ -2338,6 +2339,19 @@ before bar 1 that sets a tempo (`tempo_at_bar_one`) makes the first segment fixe
 is, goes to the tracker as bar 1's anchor tempo, and its tag is no longer greyed out.
 Checked in the app: the intro now holds 80 BPM, 8 bars that end right on the 4/4 mark at
 24.26 s. Test: `a_tempo_set_at_bar_one_holds_when_dynamic`.
+
+Tried by the user: both fixes work. **Follow-up, a regression of that fix:** from bar 22
+(~60 s) the dynamic grid slowed to ~74 BPM and stayed there until ~3:00, while the drums
+keep a clear ~92 BPM pulse (autocorrelation per 16 s window: 0.5–0.65 at 92 BPM, ~0.25 at
+74). Cause: a tempo anchor steers the tracker from there on, until another anchor sets a
+tempo; the 4/4 marks set none, so the fixed 80 BPM of the intro now steered the whole
+song, and the tempo curve only looks within ±15 % of it (68–92 BPM). Fixed: a fixed tempo
+is for its own stretch, also for the tracker: the change that ends it gives the tracker
+the tempo from before it again (the song's BPM, or the last tempo change that is not
+fixed). With Dynamic off nothing changed: the steady grid carries the last tempo on, as
+Reaper does. Checked with the `beats` example (92–95 BPM through the song, rising to ~98
+at the end, which librosa agrees with) and in the app (the 4/4 mark at 3:41 falls on bar
+85). Test: `the_tracker_follows_a_fixed_tempo_only_in_its_stretch`.
 
 ## Observations to investigate
 
