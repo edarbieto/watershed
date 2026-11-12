@@ -36,6 +36,8 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("A / B", "Loop start or end at the playhead"),
             ("L", "Loop on or off"),
+            ("Shift+L", "Clear the loop"),
+            ("{cmd}+L", "Save the loop"),
             ("Shift+M", "Add a marker at the playhead"),
             ("1 – 9", "Go to marker 1 to 9"),
         ],
@@ -45,16 +47,32 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("T", "Tap tempo"),
             ("C", "Click on or off"),
+            ("K", "Count-in on or off"),
             (
                 "Shift+C",
                 "Change the tempo or time signature at the playhead",
             ),
+            ("G", "Snap to the grid on or off"),
+            ("Shift+G", "Beat grid on or off"),
+            ("D", "Dynamic tempo on or off"),
+            ("H", "Chords on or off"),
+        ],
+    ),
+    (
+        "Tempo and pitch",
+        &[
+            ("Shift+← / →", "Slower or faster, in 5 % steps"),
+            ("Shift+T", "Back to the original tempo"),
+            ("Shift+↑ / ↓", "Pitch up or down a semitone"),
+            ("Shift+P", "Back to the original pitch"),
         ],
     ),
     (
         "View",
         &[
-            ("+ / −", "Zoom in or out"),
+            ("+ / −, {cmd}+ / {cmd}−", "Zoom in or out"),
+            ("{cmd}+0", "Show the whole song"),
+            ("{cmd}+Alt+S", "Markers and loops panel on or off"),
             ("{cmd} + scroll, pinch", "Zoom around the pointer"),
             ("Shift + scroll, two fingers", "Scroll sideways"),
         ],
@@ -102,7 +120,11 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("{cmd}+O", "Open a folder of stems"),
             ("{cmd}+Shift+O", "Separate a song"),
-            ("F5", "Reload the song folder"),
+            ("{cmd}+R, F5", "Reload the song folder"),
+            (
+                "{cmd}+Alt+R",
+                "Show the song folder in the Finder or Explorer",
+            ),
             (
                 "Enter in a Recent search",
                 "Open the first song that matches",

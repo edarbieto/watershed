@@ -873,40 +873,33 @@ impl WatershedApp {
         if shortcuts::pressed(ui.ctx()) {
             self.shortcuts_open = !self.shortcuts_open;
         }
-        if ui.input(|i| i.key_pressed(Key::F5)) {
-            self.reload(ui.ctx());
-        }
-        // Reaper's shortcuts. Consumed first, so the C and M below do not see them.
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::C)) {
-            self.apply(Action::AddChange);
-        }
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::M)) {
-            self.apply(Action::AddMarker);
-        }
-        let keys = [
-            (Key::Space, Action::PlayStop),
-            (Key::Enter, Action::PlayPause),
-            (Key::Home, Action::ToStart),
-            (Key::ArrowLeft, Action::Skip(-SKIP_SECS)),
-            (Key::ArrowRight, Action::Skip(SKIP_SECS)),
-            (Key::A, Action::SetA),
-            (Key::B, Action::SetB),
-            (Key::L, Action::ToggleLoop),
-            (Key::M, Action::ToggleMute),
-            (Key::S, Action::ToggleSolo),
-            (Key::Delete, Action::DeleteTrack),
-            (Key::Backspace, Action::DeleteTrack),
-            (Key::ArrowUp, Action::SelectTrack(-1)),
-            (Key::ArrowDown, Action::SelectTrack(1)),
-            (Key::T, Action::Tap),
-            (Key::C, Action::ToggleClick),
-            (Key::Plus, Action::Zoom(ZOOM_STEP)),
-            (Key::Equals, Action::Zoom(ZOOM_STEP)),
-            (Key::Minus, Action::Zoom(1.0 / ZOOM_STEP)),
+        // Keys that are not in the menus: other keys for the same command.
+        use egui::Modifiers as Mods;
+        let other = if cfg!(target_os = "macos") {
+            Key::Delete
+        } else {
+            Key::Backspace
+        };
+        let mut keys = vec![
+            (Mods::NONE, Key::F5, MenuCommand::Reload),
+            (Mods::NONE, other, MenuCommand::DeleteTrack),
+            (Mods::NONE, Key::Equals, MenuCommand::ZoomIn),
+            (Mods::COMMAND, Key::Plus, MenuCommand::ZoomIn),
+            (Mods::COMMAND, Key::Equals, MenuCommand::ZoomIn),
+            (Mods::COMMAND, Key::Minus, MenuCommand::ZoomOut),
         ];
-        for (key, action) in keys {
-            if ui.input(|i| i.key_pressed(key)) {
-                self.apply(action);
+        // The menus' keys, the ones with Shift first: egui matches Shift loosely.
+        keys.extend(
+            menu::key_commands()
+                .into_iter()
+                .map(|(shortcut, command)| (shortcut.modifiers, shortcut.logical_key, command)),
+        );
+        let recent: Vec<PathBuf> = self.config.recent.iter().map(|r| r.path.clone()).collect();
+        for (modifiers, key, command) in keys {
+            if ui.input_mut(|i| consume_key(i, modifiers, key, repeats(command)))
+                && self.menu_status(command, &recent).enabled
+            {
+                self.run_menu(command, &recent, ui.ctx());
             }
         }
         for (index, key) in MARKER_KEYS.into_iter().enumerate() {
@@ -1263,6 +1256,8 @@ impl WatershedApp {
             | C::ZoomIn
             | C::ZoomOut => (loaded, false),
             C::ZoomToFit => (loaded && !self.view.is_full(), false),
+            C::AddChange => (grid, false),
+            C::TempoUp | C::TempoDown | C::PitchUp | C::PitchDown => (loaded, false),
             C::PreviousTrack | C::NextTrack => (loaded, false),
             C::MuteTrack => (
                 loaded && self.selected.is_some(),
@@ -1344,6 +1339,23 @@ impl WatershedApp {
                 }
             }
             C::AddMarker => self.apply(Action::AddMarker),
+            C::AddChange => self.apply(Action::AddChange),
+            C::TempoUp | C::TempoDown => {
+                if let Some(engine) = &mut self.engine {
+                    let step = if command == C::TempoUp { 0.05 } else { -0.05 };
+                    // Back on the 5 % steps, from wherever the slider left it.
+                    let tempo = ((engine.tempo() + step) * 20.0).round() / 20.0;
+                    engine.set_tempo(tempo.clamp(MIN_TEMPO_PCT / 100.0, MAX_TEMPO_PCT / 100.0));
+                }
+            }
+            C::PitchUp | C::PitchDown => {
+                if let Some(engine) = &mut self.engine {
+                    let step = if command == C::PitchUp { 1.0 } else { -1.0 };
+                    // The cents stay.
+                    let semitones = engine.semitones() + step;
+                    engine.set_semitones(semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES));
+                }
+            }
             C::PreviousTrack => self.apply(Action::SelectTrack(-1)),
             C::NextTrack => self.apply(Action::SelectTrack(1)),
             C::MuteTrack => self.apply(Action::ToggleMute),
@@ -3325,6 +3337,55 @@ fn apply_track_states(loaded: &mut LoadedSong, states: &[TrackState]) {
             track.params.set_deleted(false);
         }
     }
+}
+
+/// Consumes a press of `key` with `modifiers` (Shift and Alt matched loosely, as egui
+/// does): true if there was one. Held down, a key repeats only if `repeat`; its
+/// repeats are consumed either way.
+fn consume_key(
+    input: &mut egui::InputState,
+    modifiers: egui::Modifiers,
+    key: Key,
+    repeat: bool,
+) -> bool {
+    let mut pressed = false;
+    input.events.retain(|event| {
+        let egui::Event::Key {
+            key: k,
+            pressed: true,
+            repeat: repeated,
+            modifiers: m,
+            ..
+        } = event
+        else {
+            return true;
+        };
+        if *k != key || !m.matches_logically(modifiers) {
+            return true;
+        }
+        pressed |= repeat || !repeated;
+        false
+    });
+    pressed
+}
+
+/// Whether holding the key of a command repeats it: moving and nudging do, toggles
+/// do not.
+fn repeats(command: MenuCommand) -> bool {
+    use MenuCommand as C;
+    matches!(
+        command,
+        C::Back
+            | C::Forward
+            | C::PreviousTrack
+            | C::NextTrack
+            | C::ZoomIn
+            | C::ZoomOut
+            | C::TempoUp
+            | C::TempoDown
+            | C::PitchUp
+            | C::PitchDown
+    )
 }
 
 fn session_path(loaded: &LoadedSong) -> PathBuf {

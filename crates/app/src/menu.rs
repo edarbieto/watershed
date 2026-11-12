@@ -35,6 +35,7 @@ pub enum MenuCommand {
     Reload,
     ShowInFolder,
     AddMarker,
+    AddChange,
     PreviousTrack,
     NextTrack,
     MuteTrack,
@@ -57,6 +58,10 @@ pub enum MenuCommand {
     TapTempo,
     ResetTempo,
     ResetPitch,
+    TempoUp,
+    TempoDown,
+    PitchUp,
+    PitchDown,
     ZoomIn,
     ZoomOut,
     ZoomToFit,
@@ -133,6 +138,16 @@ const fn cmd(key: Key) -> Keys {
     Keys::Shortcut(KeyboardShortcut::new(Modifiers::COMMAND, key))
 }
 
+const fn cmd_alt(key: Key) -> Keys {
+    Keys::Shortcut(KeyboardShortcut::new(
+        Modifiers {
+            alt: true,
+            ..Modifiers::COMMAND
+        },
+        key,
+    ))
+}
+
 const fn cmd_shift(key: Key) -> Keys {
     Keys::Shortcut(KeyboardShortcut::new(
         Modifiers {
@@ -152,11 +167,16 @@ fn menus() -> Vec<(&'static str, Vec<Entry>)> {
         Item(C::SeparateSong, "Separate Song…", cmd_shift(Key::O)),
         Entry::Recent,
         Separator,
-        Item(C::Reload, "Reload Folder", key(Key::F5)),
-        Item(C::ShowInFolder, SHOW_IN_FOLDER, Keys::None),
+        Item(C::Reload, "Reload Folder", cmd(Key::R)),
+        Item(C::ShowInFolder, SHOW_IN_FOLDER, cmd_alt(Key::R)),
     ];
     let edit = vec![
         Item(C::AddMarker, "Add Marker", shift(Key::M)),
+        Item(
+            C::AddChange,
+            "Add Tempo or Time Signature Change",
+            shift(Key::C),
+        ),
         Separator,
         Item(C::PreviousTrack, "Select Previous Track", key(Key::ArrowUp)),
         Item(C::NextTrack, "Select Next Track", key(Key::ArrowDown)),
@@ -167,8 +187,8 @@ fn menus() -> Vec<(&'static str, Vec<Entry>)> {
         Separator,
         Item(C::SetA, "Set Loop Start", key(Key::A)),
         Item(C::SetB, "Set Loop End", key(Key::B)),
-        Item(C::ClearLoop, "Clear Loop", Keys::None),
-        Item(C::SaveLoop, "Save Loop", Keys::None),
+        Item(C::ClearLoop, "Clear Loop", shift(Key::L)),
+        Item(C::SaveLoop, "Save Loop", cmd(Key::L)),
     ];
     let playback = vec![
         Item(C::PlayPause, "Play / Pause", key(Key::Enter)),
@@ -181,23 +201,28 @@ fn menus() -> Vec<(&'static str, Vec<Entry>)> {
         Separator,
         Check(C::Loop, "Loop", key(Key::L)),
         Check(C::Click, "Click", key(Key::C)),
-        Check(C::CountIn, "Count-in", Keys::None),
+        Check(C::CountIn, "Count-in", key(Key::K)),
         Separator,
         Item(C::TapTempo, "Tap Tempo", key(Key::T)),
-        Item(C::ResetTempo, "Reset Tempo", Keys::None),
-        Item(C::ResetPitch, "Reset Pitch", Keys::None),
+        Item(C::TempoUp, "Faster (+5 %)", shift(Key::ArrowRight)),
+        Item(C::TempoDown, "Slower (−5 %)", shift(Key::ArrowLeft)),
+        Item(C::ResetTempo, "Reset Tempo", shift(Key::T)),
+        Separator,
+        Item(C::PitchUp, "Pitch Up a Semitone", shift(Key::ArrowUp)),
+        Item(C::PitchDown, "Pitch Down a Semitone", shift(Key::ArrowDown)),
+        Item(C::ResetPitch, "Reset Pitch", shift(Key::P)),
     ];
     let view = vec![
         Item(C::ZoomIn, "Zoom In", key(Key::Plus)),
         Item(C::ZoomOut, "Zoom Out", key(Key::Minus)),
-        Item(C::ZoomToFit, "Zoom to Fit", Keys::None),
+        Item(C::ZoomToFit, "Zoom to Fit", cmd(Key::Num0)),
         Separator,
-        Check(C::Grid, "Beat Grid", Keys::None),
-        Check(C::Snap, "Snap to Grid", Keys::None),
-        Check(C::Dynamic, "Dynamic Tempo", Keys::None),
-        Check(C::Chords, "Chords", Keys::None),
+        Check(C::Grid, "Beat Grid", shift(Key::G)),
+        Check(C::Snap, "Snap to Grid", key(Key::G)),
+        Check(C::Dynamic, "Dynamic Tempo", key(Key::D)),
+        Check(C::Chords, "Chords", key(Key::H)),
         Separator,
-        Check(C::SidePanel, "Markers and Loops Panel", Keys::None),
+        Check(C::SidePanel, "Markers and Loops Panel", cmd_alt(Key::S)),
     ];
     let mut help = vec![
         Item(C::Shortcuts, "Keyboard Shortcuts", key(Key::Questionmark)),
@@ -281,16 +306,43 @@ pub fn commands(recent: usize) -> Vec<MenuCommand> {
 /// The command whose Cmd / Ctrl shortcut was just pressed, consumed. On macOS the
 /// native menu takes these keys before the app sees them.
 pub fn shortcut_pressed(ctx: &egui::Context) -> Option<MenuCommand> {
-    menus()
+    let mut shortcuts: Vec<(KeyboardShortcut, MenuCommand)> = menus()
         .into_iter()
         .flat_map(|(_, entries)| entries)
-        .find_map(|entry| match entry {
+        .filter_map(|entry| match entry {
             Entry::Item(command, _, Keys::Shortcut(shortcut))
-            | Entry::Check(command, _, Keys::Shortcut(shortcut)) => ctx
-                .input_mut(|i| i.consume_shortcut(&shortcut))
-                .then_some(command),
+            | Entry::Check(command, _, Keys::Shortcut(shortcut)) => Some((shortcut, command)),
             _ => None,
         })
+        .collect();
+    most_modifiers_first(&mut shortcuts);
+    shortcuts.into_iter().find_map(|(shortcut, command)| {
+        ctx.input_mut(|i| i.consume_shortcut(&shortcut))
+            .then_some(command)
+    })
+}
+
+/// The keys without Cmd / Ctrl that the app handles itself (see [`Keys::Key`]), with
+/// their commands, the ones with Shift first.
+pub fn key_commands() -> Vec<(KeyboardShortcut, MenuCommand)> {
+    let mut keys: Vec<(KeyboardShortcut, MenuCommand)> = menus()
+        .into_iter()
+        .flat_map(|(_, entries)| entries)
+        .filter_map(|entry| match entry {
+            Entry::Item(command, _, Keys::Key(shortcut))
+            | Entry::Check(command, _, Keys::Key(shortcut)) => Some((shortcut, command)),
+            _ => None,
+        })
+        .collect();
+    most_modifiers_first(&mut keys);
+    keys
+}
+
+/// egui matches Shift and Alt loosely (Cmd+O also matches Shift+Cmd+O), so the
+/// shortcuts with more modifiers must be tried first.
+fn most_modifiers_first(shortcuts: &mut [(KeyboardShortcut, MenuCommand)]) {
+    let count = |m: Modifiers| u8::from(m.shift) + u8::from(m.alt);
+    shortcuts.sort_by_key(|(shortcut, _)| std::cmp::Reverse(count(shortcut.modifiers)));
 }
 
 /// The menus, native or drawn by the app.
@@ -748,12 +800,22 @@ mod native {
         let code = match logical_key {
             Key::O => Code::KeyO,
             Key::Q => Code::KeyQ,
+            Key::R => Code::KeyR,
+            Key::L => Code::KeyL,
+            Key::S => Code::KeyS,
+            Key::Num0 => Code::Digit0,
             Key::Comma => Code::Comma,
-            _ => return None,
+            _ => {
+                log::warn!("menu: no accelerator for {logical_key:?}");
+                return None;
+            }
         };
         let mut mods = CMD_OR_CTRL;
         if modifiers.shift {
             mods |= Modifiers::SHIFT;
+        }
+        if modifiers.alt {
+            mods |= Modifiers::ALT;
         }
         Some(Accelerator::new(mods, code))
     }
