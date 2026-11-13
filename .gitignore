@@ -10,6 +10,10 @@
 # Release packages built by tools/package
 /dist
 
+# Website build state and screenshots from the design checks (taste-skill)
+.taste-skill/
+/site/shots/
+
 # The tiny model that tests crates/roformer in CI
 !crates/roformer/tests/fixtures/*
 

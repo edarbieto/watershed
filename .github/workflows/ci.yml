@@ -6,9 +6,9 @@ name: CI
 on:
   push:
     branches: [master]
-    paths-ignore: ["docs/**", "**.md", "assets/**", "LICENSE-*"]
+    paths-ignore: ["docs/**", "**.md", "assets/**", "LICENSE-*", "site/**", ".github/workflows/pages.yml"]
   pull_request:
-    paths-ignore: ["docs/**", "**.md", "assets/**", "LICENSE-*"]
+    paths-ignore: ["docs/**", "**.md", "assets/**", "LICENSE-*", "site/**", ".github/workflows/pages.yml"]
 
 env:
   CARGO_TERM_COLOR: always
