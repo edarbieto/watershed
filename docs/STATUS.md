@@ -147,7 +147,8 @@ shortcut map. **Added to the plan by the user (2026-11-12):** undo / redo button
 separator in the top bar, keeping the song's tags after separating (all in `PLAN.md`, v0.2).
 Undo / redo buttons and the single separator: done, tried by the user on Windows. Fonts, icons
 and the light theme: done, tried by the user on Windows and macOS (see "Fonts, icons and light theme"). Left in v0.2 besides
-those: song tags, click on another output, CHANGELOG and feature list, website.
+those: song tags, click on another output, CHANGELOG and feature list. **Website: built** (see
+"Project website"); not live until Pages is enabled and the next release has the new file names.
 
 **Windows check (2026-11-12): done.** Everything built on macOS and only compiled for Windows
 in CI was tried there by the user, all works: secondary windows (above the main one, no taskbar
@@ -203,6 +204,27 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
    (`PLAN.md` section 9). The logo and the release workflow are done (see "Release
    workflow"). Released `v0.1.0` on 2026-11-05. `v0.1.1` (2026-11-05): non-blocking file dialogs (resizing one crashed the macOS app), separate start folders for the song and stems dialogs, and auto update; released by Claude with `gh release edit --draft=false` after the workflow built it. The README has download instructions and two screenshots
    (`docs/screenshots`, taken by the user on macOS, halved to 1x).
+
+## Project website
+
+`site/` is a static landing page (plain HTML, CSS and the kit's JS, no build step) for
+musicians: what Watershed does, screenshots of the player with "No Dejes Que" (sections,
+loops, transpose, click), the separation screen, questions and the downloads. Built with the
+taste-skill plugin (Claude Code); its finish gate passed. `pages.yml` deploys `site/` to
+GitHub Pages on a push to `master` that touches it; `ci.yml` skips such pushes.
+
+- **Download links** point at `releases/latest/download/Watershed-<os>.<ext>`. The release
+  files no longer carry the version in their names (`release.yml`, `tools/package/*.sh`),
+  so these links keep working for every release. The updater matches files by suffix, so it
+  is unaffected. Until a release with the new names exists (v0.1.1 has the old ones) the links
+  give 404.
+- **To do once, by hand:** Settings → Pages → Source: GitHub Actions.
+- **Screenshots:** `site/assets/img/*.avif`, written from PNG captures with
+  `sips -s format avif` (Homebrew's ffmpeg has no WebP encoder); each has a smaller variant
+  for `srcset`. `site/share.jpg` is the 1200x630 link preview.
+- **Not in git:** `site/.taste-skill/` (the skill's state) and `site/shots/` (its checker
+  screenshots).
+- **Open:** a feature list and changelog page, a Spanish version, a custom domain.
 
 ## Auto update
 

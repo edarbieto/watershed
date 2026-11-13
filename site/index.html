@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-ground="sand" data-buttons="pill" data-motion>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Watershed: stem splitter and practice player for musicians</title>
+<meta name="description" content="Free desktop app that splits a song into six stems on your own computer and plays them back for practice, with loops, tempo and key controls.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Watershed: stem splitter and practice player for musicians">
+<meta property="og:description" content="Split a song into six stems on your own computer, then mute your part and play over the band.">
+<meta property="og:image" content="https://edarbieto.github.io/watershed/share.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#f6f4f0">
+<link rel="canonical" href="https://edarbieto.github.io/watershed/">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/system.css">
+<link rel="stylesheet" href="assets/ui/cards.css">
+<link rel="stylesheet" href="assets/motion/motion.css">
+<link rel="stylesheet" href="assets/backgrounds/backgrounds.css">
+<link rel="stylesheet" href="assets/layout/layout.css">
+<link rel="stylesheet" href="assets/icons/icon.css">
+<link rel="stylesheet" href="assets/layout/demo.css">
+<style>
+:root {
+  --p-bg: #f6f4f0; --p-surface: #e7e4df; --p-ink: #14120f; --p-muted: #635e56;
+  --p-accent: #1f5fa8; --p-accent-ink: #f6f4f0; --p-action: #1f5fa8; --p-action-ink: #f6f4f0;
+  --p-inv-bg: #14120f; --p-inv-surface: #211f1b; --p-inv-ink: #f6f4f0; --p-inv-muted: #979591;
+  --p-inv-accent: #f6f4f0; --p-inv-accent-ink: #14120f; --p-inv-action: #f6f4f0; --p-inv-action-ink: #14120f;
+  --font-display: "Geist", system-ui, sans-serif;
+  --font-text: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --display-weight: 500;
+  --display-tracking: -0.035em;
+  --display-tracking-xl: -0.045em;
+}
+</style>
+<script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
+<script src="assets/backgrounds/backgrounds.js"></script>
+<script>document.documentElement.classList.add('mo-js');setTimeout(()=>document.documentElement.classList.add('mo-safe'),2500)</script>
+<link rel="modulepreload" href="assets/moments/moments.js">
+<link rel="modulepreload" href="assets/moments/lib.js">
+<link rel="modulepreload" href="assets/moments/letters-assemble/moment.js">
+<!-- page CSS: only what sits inside a visual -->
+<style>
+  /* the hero's lit ground: the app's warm stone with one soft light */
+  .hero__art { background:
+      radial-gradient(70% 60% at 18% 12%, color-mix(in oklab, var(--ground-surface) 80%, white), transparent 70%),
+      radial-gradient(60% 50% at 90% 100%, color-mix(in oklab, var(--ground-bg) 85%, var(--ground-accent)), transparent 70%),
+      var(--ground-bg); }
+  .hero__art > .ly-piece--note { left: var(--s-6); bottom: var(--s-6); width: 300px; z-index: 2; }
+  .hero__proof { font-size: var(--t-small); color: var(--muted); }
+  /* the window holds the real player: the screenshot at its true width, cut by the frame */
+  .ly-piece--main.d-win { background: #e7e4df; border-radius: 10px; }
+  .ly-piece--main .d-win__shot { display: block; width: 1100px; max-width: none; height: auto; }
+  .d-note__line { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 13px; color: #3d3934; border-top: 1px solid rgb(0 0 0 / .06); }
+  .d-note__line:first-of-type { border-top: 0; }
+  .d-note__line i { width: 18px; height: 18px; border-radius: 50%; flex: none; display: grid; place-items: center; background: #e2ecf6; color: #1f5fa8; font-style: normal; font-size: 13px; font-weight: 700; }
+  .d-note__line b { font-weight: 500; color: #14120f; }
+  .d-bar { height: 6px; border-radius: 3px; background: #e7e4df; overflow: hidden; margin: 6px 0 4px; }
+  .d-bar i { display: block; height: 100%; width: var(--v); background: #1f5fa8; border-radius: 3px; }
+  @media (max-width: 1023px) { .hero__art > .ly-piece--note { left: var(--s-4); bottom: var(--s-4); width: 270px; } }
+  @media (max-width: 639px) { .ly-piece--main .d-win__shot { width: 760px; } }
+
+  /* the player section: the dark player across the wrap */
+  #player .shot { margin-top: var(--s-7); border-radius: var(--r-lg); overflow: hidden; border: 1px solid rgb(0 0 0 / .12); background: #e7e4df; }
+  #player .shot img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+
+  /* the practice cards: each panel holds one real part of the app's window */
+  #practice .panel { --p-h: 300px; background: #e7e4df; }
+  #practice .panel img { position: absolute; display: block; max-width: none; }
+  #practice .pn-mixer img { left: 32px; top: 40px; width: 900px; }
+  #practice .pn-markers img { left: 40px; top: 40px; width: 460px; }
+  #practice .pn-bars img { left: 32px; top: 40px; width: 980px; }
+  #practice .pn-tempo .d-card { position: absolute; left: 40px; top: 48px; width: min(420px, calc(100% - 80px)); }
+  .t-ctl { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid rgb(0 0 0 / .06); font-size: 13px; color: #3d3934; }
+  .t-ctl:first-of-type { border-top: 0; }
+  .t-ctl b { font-weight: 500; color: #14120f; font-variant-numeric: tabular-nums; }
+  .t-ctl .t-ctl__vals { display: flex; gap: 6px; }
+  .t-ctl .t-ctl__vals span { padding: 3px 8px; border-radius: 6px; background: #e7e4df; color: #14120f; font-variant-numeric: tabular-nums; }
+  .t-ctl__slider { position: relative; height: 4px; border-radius: 2px; background: #d3cec6; }
+  .t-ctl__slider::after { content: ""; position: absolute; left: var(--v); top: 50%; width: 12px; height: 18px; border-radius: 4px; background: #f6f4f0; border: 1px solid #5f584f; transform: translate(-50%, -50%); }
+  @media (max-width: 639px) { #practice .panel { --p-h: 180px; } #practice .pn-markers img { width: 340px; left: 16px; top: 20px; } #practice .pn-mixer img, #practice .pn-bars img { left: 16px; top: 20px; width: 640px; } #practice .pn-tempo .d-card { left: 16px; top: 20px; width: calc(100% - 32px); } }
+
+  /* the separation frame: the start screen while a song splits, cut by the frame */
+  #separation .frame { background: #e7e4df; }
+  #separation .frame img { position: absolute; left: 40px; top: 48px; width: 1240px; max-width: none; height: auto; border-radius: 8px; box-shadow: 0 0 0 1px rgb(0 0 0 / .08), 0 24px 48px -24px rgb(0 0 0 / .3); }
+  @media (max-width: 639px) { #separation .frame img { left: 16px; top: 24px; width: 640px; } }
+
+  /* the downloads: one column a system */
+  #contact .close__word { font-size: clamp(56px, 18vw, 262px); }
+  .dl-list { display: grid; }
+  .dl-list { gap: var(--s-5); }
+  .dl h3 { margin: 0; font-size: var(--t-card); display: flex; align-items: center; gap: var(--s-3); }
+  .dl__icon { width: 28px; height: 28px; }
+  .dl p { margin: var(--s-1) 0 var(--s-2); }
+  #download .frame { background: #1b1b1b; }
+  #download .frame img { position: absolute; left: 40px; top: 48px; width: 1240px; max-width: none; height: auto; border-radius: 8px; }
+  @media (max-width: 639px) { #local .mo-la__type { font-size: 74px; line-height: 1; } #local .mo-la__sub { margin-top: var(--s-9); font-size: 20px; } #questions .faq__note { display: none; } #download .frame { aspect-ratio: auto; height: 720px; } #download .frame img { left: 16px; top: 24px; width: 1100px; } #separation .facts { display: none; } }
+  .link__icon { width: 20px; height: 20px; vertical-align: -4px; margin-right: 6px; }
+  #local .mo-la__sub { color: var(--ink); }
+  #contact .close__word { line-height: 1; }
+  #separation .frame { min-height: 600px; }
+  @media (min-width: 640px) and (max-width: 1023px) { #practice .panel { --p-h: 440px; } #separation .frame { min-height: 0; } #download .frame { aspect-ratio: auto; height: 300px; } }
+  @media (min-width: 800px) and (max-width: 1023px) { #practice .panel { --p-h: 520px; } }
+  @media (max-width: 639px) { #practice .panel { --p-h: 140px; } #practice .pn-markers img { top: -36px; } #separation .frame { min-height: 0; } }
+</style>
+</head>
+<body>
+<!-- type: software
+     deal: hero collage, nav nav-mega, close close-word, footer footer-columns, rhythm surface-pairs, buttons pill,
+     mark: the client's own icon (assets/icon.svg); grounds: none (calm page, brief)
+     palette: the app's own "warm stone" light theme through start.mjs brand; type: Geist (the app's own face)
+     moments: letters-assemble in #local (its own statement section) -->
+<header class="nav">
+  <div class="wrap nav__bar">
+    <a class="skip-link" href="#top">Skip to content</a>
+    <a class="nav__logo" href="#top"><img src="assets/img/icon.svg" alt="" width="24" height="24">Watershed</a>
+    <nav class="nav__links" aria-label="Main">
+      <div class="nav__item">
+        <a class="nav__link" href="#practice">Practice <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        <div class="nav__menu">
+          <div class="wrap grid">
+            <div class="menu-col span-3">
+              <p class="t-label">Play along</p>
+              <a href="#practice">Mute and solo<span>Take your part out</span></a>
+              <a href="#practice">Tempo and key<span>Slower, same pitch</span></a>
+              <a href="#practice">Click and count-in<span>Follows the band's tempo</span></a>
+            </div>
+            <div class="menu-col span-3">
+              <p class="t-label">Find your place</p>
+              <a href="#practice">Loops<span>Repeat the hard bars</span></a>
+              <a href="#practice">Sections<span>Verse, chorus, solo</span></a>
+              <a href="#player">The player<span>Six tracks, one window</span></a>
+            </div>
+            <a class="menu-card span-3 start-10" href="#practice">
+              <div class="panel"><img class="frame__img" src="assets/img/crop-markers.avif" alt="The markers and loops list of a song" width="560" height="640" loading="lazy" style="object-position: left top"></div>
+              <span class="t-card">Sections and loops</span>
+              <span class="t-small muted">Saved with each song</span>
+            </a>
+          </div>
+        </div>
+      </div>
+      <div class="nav__item"><a class="nav__link" href="#separation">Separation</a></div>
+      <div class="nav__item"><a class="nav__link" href="#questions">Questions</a></div>
+      <div class="nav__item"><a class="nav__link" href="#download">Download</a></div>
+    </nav>
+    <div class="nav__actions">
+      <a class="btn btn--primary" href="#download" data-os-download>Download Watershed</a>
+    </div>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-label="Menu">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 5h14M2 13h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero hero--collage" data-enter aria-labelledby="hero-h">
+    <div class="wrap"><div class="hero-text grid hero__grid">
+      <div class="hero__text span-5">
+        <h1 id="hero-h">Stem splitter and practice player for musicians</h1>
+        <p class="hero__lead">Drop in a song and Watershed splits it into six stems on your own computer in one to two minutes. Then mute your part and play over the band.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="#download" data-os-download>Download Watershed<svg class="m-arrow" viewBox="0 0 12 12" aria-hidden="true"><path class="m-arrow__stem" d="M1 6h8"/><path class="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5"/></svg></a><a class="btn btn--secondary" href="https://github.com/edarbieto/watershed">View on GitHub</a></div>
+        <p class="hero__proof" data-os-line>Free and open source, for macOS, Windows and Linux.</p>
+      </div>
+      <div class="hero__art span-6 start-7" role="img" aria-label="Watershed's player with six stems of a song, the guitar muted and a loop over the solo, and a card showing the song's separation finished">
+        <div class="ly-piece ly-piece--main d-win" aria-hidden="true">
+          <img class="d-win__shot" src="assets/img/player-light.avif" srcset="assets/img/player-light-900.avif 900w, assets/img/player-light.avif 1800w" sizes="(max-width: 1023px) 100vw, 80vw" alt="" width="1800" height="846" fetchpriority="high" data-source="client" data-subject="the Watershed player">
+        </div>
+        <div class="ly-piece ly-piece--note d-card" aria-hidden="true" data-ly-steps="700">
+          <div class="d-card__row"><h5>No Dejes Que</h5><span class="d-chip" data-step data-step-at="4">Ready</span></div>
+          <div class="d-bar" style="--v: 100%"><i></i></div>
+          <div class="d-note__line" data-step><i>✓</i><span><b>Vocals and drums</b> apart</span></div>
+          <div class="d-note__line" data-step><i>✓</i><span><b>Bass, guitar, piano</b> and other</span></div>
+          <div class="d-note__line" data-step><i>✓</i><span>Six stems saved, <b>about 25 MB</b></span></div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="section" id="player" aria-labelledby="player-h">
+    <div class="wrap">
+      <div class="grid">
+        <h2 id="player-h" class="span-5">Each stem on its own track</h2>
+        <div class="span-6 start-7 stack-4">
+          <p>Each stem gets a row with its waveform, volume, pan, mute and solo. Sections, loops and the bars sit above the tracks.</p>
+          <a class="link" href="#practice">See the practice tools</a>
+        </div>
+      </div>
+      <div class="shot fill"><img src="assets/img/player-zoom.avif" srcset="assets/img/player-zoom-800.avif 800w, assets/img/player-zoom-1400.avif 1400w, assets/img/player-zoom.avif 2800w" sizes="(max-width: 767px) 200vw, 100vw" alt="Six stems of a song with section markers, numbered bars, chords and a loop over the solo" width="2800" height="1300" loading="lazy" data-source="client" data-subject="the Watershed player, close up"></div>
+    </div>
+  </section>
+
+  <section class="section g2" id="practice" aria-labelledby="practice-h">
+    <div class="wrap">
+      <div class="group">
+        <div class="section-head">
+          <h2 id="practice-h">Practice tools for learning a part by ear. <span class="muted">Then play it with the band.</span></h2>
+        </div>
+        <div class="grid">
+          <article class="card card--row card--open span-6">
+            <h3>Mutes the stem you play</h3>
+            <p>Mute the guitar and play it yourself over the band, or solo the bass to hear what it really plays.</p>
+            <div class="panel pn-mixer"><img src="assets/img/crop-mixer.avif" alt="Vocals, guitar and bass tracks with the guitar muted" width="1180" height="440" loading="lazy"></div>
+          </article>
+          <article class="card card--row card--open span-6">
+            <h3>Slows practice without changing key</h3>
+            <p>Practise the song at 80 % and keep its pitch, or move it a semitone down to match your tuning.</p>
+            <div class="panel pn-tempo" role="img" aria-label="Tempo at 80 percent, 107 BPM, and pitch one semitone down, in the song's key of F sharp">
+              <div class="d-card" aria-hidden="true">
+                <div class="d-card__row"><h5>Caifanes - No Dejes Que</h5><span class="d-chip">Key F#</span></div>
+                <div class="t-ctl"><span>Tempo</span><span class="t-ctl__slider" style="--v: 30%"></span><span class="t-ctl__vals"><span>80 %</span><span>107 BPM</span></span></div>
+                <div class="t-ctl"><span>Pitch</span><span class="t-ctl__slider" style="--v: 46%"></span><span class="t-ctl__vals"><span>−1 st</span><span>+0 ct</span></span></div>
+                <div class="t-ctl"><span>Click</span><span class="t-ctl__slider" style="--v: 70%"></span><span class="t-ctl__vals"><span>Count-in</span></span></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+      <div class="grid">
+        <article class="card card--row card--open span-6">
+          <h3>Loops the solo, bars 105 to 120</h3>
+          <p>Name the song's sections, jump between them and save a loop over the solo for tomorrow.</p>
+          <div class="panel pn-markers"><img src="assets/img/crop-markers.avif" alt="Markers for intro, verse, chorus, solo, last chorus and outro, and two saved loops" width="560" height="640" loading="lazy"></div>
+        </article>
+        <article class="card card--row card--open span-6">
+          <h3>Counts in 4 beats at the song's tempo</h3>
+          <p>The click follows the band, even when it did not play to a click. Bars and chords run above the tracks.</p>
+          <div class="panel pn-bars"><img src="assets/img/crop-bars.avif" srcset="assets/img/crop-bars-845.avif 845w, assets/img/crop-bars.avif 1690w" sizes="(max-width: 1023px) 100vw, 70vw" alt="Section markers, numbered bars and chord names above the tracks" width="1690" height="600" loading="lazy"></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="local" data-moment="letters-assemble" aria-labelledby="local-h">
+    <div class="wrap">
+      <h2 id="local-h" class="mo-la__type">Nothing leaves your computer</h2>
+      <p class="mo-la__sub">Watershed splits songs on your own graphics card. There is no upload and no account, and your mix, loops and markers stay beside each song.</p>
+    </div>
+  </section>
+
+  <section class="section" id="separation" aria-labelledby="separation-h">
+    <div class="wrap">
+      <div class="grid">
+        <div class="span-5 stack-5">
+          <h2 id="separation-h">Stem separation in one to two minutes</h2>
+          <p class="t-lead">Drop an mp3, flac, wav, ogg or m4a file on the window. A RoFormer model runs on your graphics card and saves six stems to your music library.</p>
+          <ul class="facts">
+            <li>Vocals, drums, bass, guitar, piano and the rest</li>
+            <li>The 700 MB model downloads once</li>
+            <li>About 25 MB of stems per song</li>
+          </ul>
+          <a class="link" href="#download">Check what your computer needs</a>
+        </div>
+        <div class="frame frame--split span-6 start-7"><img src="assets/img/separation.avif" srcset="assets/img/separation-800.avif 800w, assets/img/separation.avif 1600w" sizes="(max-width: 1023px) 100vw, 90vw" alt="Watershed's start screen while a song is split: 21 percent done, about a minute left" width="1600" height="550" loading="lazy" data-source="client" data-subject="Watershed separating a song"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="questions" aria-labelledby="questions-h">
+    <div class="wrap">
+      <div class="grid">
+        <div class="span-5 stack-4">
+          <h2 id="questions-h">Questions</h2>
+          <p class="muted faq__note">Something not working? Tell us on GitHub.</p>
+          <a class="link" href="https://github.com/edarbieto/watershed/issues"><img class="link__icon" data-icon="github" src="assets/icons/github.svg" alt="" width="20" height="20" loading="lazy">Open an issue on GitHub</a>
+        </div>
+        <div class="faq span-6 start-7">
+          <div class="faq__item"><h3>Is Watershed free?</h3><p>Yes. It is open source under the MIT or Apache-2.0 licence, with no account and no subscription.</p></div>
+          <div class="faq__item"><h3>Does Watershed upload my songs?</h3><p>No. Songs are split on your own computer. The only download is the model, once.</p></div>
+          <div class="faq__item"><h3>Can I open stems from other tools?</h3><p>Yes. Drop a folder of stems, for example from MVSEP, and it opens in the player, no graphics card needed.</p></div>
+          <div class="faq__item"><h3>Does Watershed replace my DAW?</h3><p>No, it plays beside it. Your instrument stays in Reaper or any other DAW; Watershed plays the band.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="section ground-surface" id="download" style="--hm: 2" aria-labelledby="download-h">
+    <div class="wrap">
+      <div class="grid">
+        <div class="span-5 stack-5">
+          <h2 id="download-h">Watershed for macOS, Windows and Linux</h2>
+          <div class="dl-list">
+            <div class="dl"><h3><img class="dl__icon" data-icon="apple" src="assets/icons/apple.svg" alt="" width="28" height="28" loading="lazy">macOS 11 or newer</h3><p>Apple Silicon (M1 or newer). Allow it once in Privacy &amp; Security.</p><a class="link" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-macos-arm64.dmg">Download for macOS</a></div>
+            <div class="dl"><h3><img class="dl__icon" data-icon="windows" src="assets/icons/windows.svg" alt="" width="28" height="28" loading="lazy">Windows 10 and 11</h3><p>Best tested with an NVIDIA card. Unzip and run watershed.exe.</p><a class="link" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-windows-x86_64.zip">Download for Windows</a></div>
+            <div class="dl"><h3><img class="dl__icon" data-icon="linux-tux" src="assets/icons/linux-tux.svg" alt="" width="28" height="28" loading="lazy">Linux on x86_64</h3><p>glibc 2.35 or newer, Vulkan and FUSE 2.</p><a class="link" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-linux-x86_64.AppImage">Download for Linux</a></div>
+          </div>
+          <p>Splitting needs a graphics card; playing stems does not. Light and dark themes follow your system.</p>
+        </div>
+        <div class="frame frame--split span-6 start-7"><img src="assets/img/player-dark.avif" srcset="assets/img/player-dark-900.avif 900w, assets/img/player-dark.avif 1800w" sizes="(max-width: 1023px) 100vw, 50vw" alt="The player in its dark theme: six stems with section markers, a beat grid and a loop over the solo" width="1800" height="846" loading="lazy" data-source="client" data-subject="the Watershed player, dark theme"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer closing g2m" id="contact" aria-labelledby="close-h">
+  <div class="wrap">
+    <div class="closing__cta close--word">
+      <div class="section-head--split">
+        <div><h2 id="close-h">Start practising with Watershed</h2><p class="t-lead">Free for macOS, Windows and Linux.</p></div>
+        <a class="btn btn--primary" href="#download" data-os-download>Download Watershed<svg class="m-arrow" viewBox="0 0 12 12" aria-hidden="true"><path class="m-arrow__stem" d="M1 6h8"/><path class="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5"/></svg></a>
+      </div>
+      <p class="close__word" aria-hidden="true">Watershed</p>
+    </div>
+    <div class="closing__links">
+      <div class="grid">
+        <div class="span-4 stack-4">
+          <a class="nav__logo" href="#top"><img src="assets/img/icon.svg" alt="" width="24" height="24" loading="lazy">Watershed</a>
+          <p class="footer__lede">Stems and practice for musicians.</p>
+        </div>
+        <div class="span-2 footer__col"><h3>Practice</h3><ul><li><a href="#player">The player</a></li><li><a href="#practice">Practice tools</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Separation</h3><ul><li><a href="#separation">How it splits</a></li><li><a href="#local">On your computer</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Questions</h3><ul><li><a href="#questions">Answers</a></li><li><a href="https://github.com/edarbieto/watershed/issues">Issues</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Download</h3><ul><li><a href="#download">All systems</a></li><li><a href="https://github.com/edarbieto/watershed/releases">Releases</a></li></ul></div>
+      </div>
+      <div class="footer__legal">
+        <span>&copy; 2026 Watershed &nbsp; <a href="https://github.com/edarbieto/watershed#license">MIT or Apache-2.0</a></span>
+        <div class="socials"></div>
+        <span>The name is a tribute to Watershed by Opeth.</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<nav class="actionbar" aria-label="Quick actions">
+  <a class="btn btn--primary" href="#download" data-os-download>Download Watershed</a>
+</nav>
+
+<!-- the visitor's system picks the file the main button downloads; without script it goes to #download -->
+<script>
+(() => {
+  const ua = navigator.userAgent, base = 'https://github.com/edarbieto/watershed/releases/latest/download/';
+  const os = /Mac/.test(ua) && !/iPhone|iPad/.test(ua) ? ['macOS', 'Watershed-macos-arm64.dmg']
+    : /Windows/.test(ua) ? ['Windows', 'Watershed-windows-x86_64.zip']
+    : /Linux/.test(ua) && !/Android/.test(ua) ? ['Linux', 'Watershed-linux-x86_64.AppImage'] : null;
+  if (!os) return;
+  document.querySelectorAll('[data-os-download]').forEach(a => { a.href = base + os[1]; });
+  const line = document.querySelector('[data-os-line]');
+  if (line) line.textContent = `Free and open source. The button downloads the ${os[0]} version.`;
+})();
+</script>
+<script type="module" src="assets/system.js"></script>
+<script type="module" src="assets/motion/motion.js"></script>
+<script type="module" src="assets/layout/layout.js"></script>
+</body>
+</html>

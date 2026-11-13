@@ -695,12 +695,11 @@ same day; their answers are folded in below.
   - **Songs separated before this, or folders from MVSEP / other tools:** no source file to
     read. Options: read the tags from the stems if they have any, let the user type them, or
     leave them empty (the folder name still matches).
-- [ ] **Project website.** Musicians do not browse GitHub: a static site with what the app
-  does, screenshots, the download buttons per system (latest release) and the feature list
-  and changelog. Hosted on GitHub Pages (free, from the repo, e.g. a `site/` folder or a
-  `gh-pages` branch, deployed by a workflow). To decide: plain HTML or a generator, the
-  address (`<user>.github.io/watershed` or a custom domain), languages (English first,
-  Spanish?).
+- [x] **Project website.** Musicians do not browse GitHub: a static site with what the app
+  does, screenshots and the download buttons per system (latest release). Plain HTML in
+  `site/`, deployed to GitHub Pages by `.github/workflows/pages.yml`, English only for now.
+  Built with the taste-skill plugin (see "Project website" in `STATUS.md`). Still open: the
+  feature list and changelog pages, a Spanish version, a custom domain.
 - [ ] **To investigate: distorted guitar "pumps" with the kick** (rock, metal,
   alternative): the guitar stem dips on each kick and recovers on the next beat, like a
   side-chain compressor. Two causes, to tell apart by measuring: (1) the model works with
