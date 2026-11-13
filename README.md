@@ -46,9 +46,9 @@ Get the latest version from [Releases](../../releases/latest):
 
 | System | File |
 |---|---|
-| Windows 10/11 (x86_64) | `Watershed-*-windows-x86_64.zip` |
-| macOS 11+ (Apple Silicon) | `Watershed-*-macos-arm64.dmg` |
-| Linux (x86_64, glibc 2.35+) | `Watershed-*-linux-x86_64.AppImage` |
+| Windows 10/11 (x86_64) | [`Watershed-windows-x86_64.zip`](../../releases/latest/download/Watershed-windows-x86_64.zip) |
+| macOS 11+ (Apple Silicon) | [`Watershed-macos-arm64.dmg`](../../releases/latest/download/Watershed-macos-arm64.dmg) |
+| Linux (x86_64, glibc 2.35+) | [`Watershed-linux-x86_64.AppImage`](../../releases/latest/download/Watershed-linux-x86_64.AppImage) |
 
 **A GPU is required** to separate songs: Metal on macOS, Vulkan on Windows and
 Linux (any recent NVIDIA, AMD or Intel driver). Playing stems works without one.
@@ -61,7 +61,7 @@ The builds are not signed yet, so the system warns before the first start:
 - **macOS:** open the `.dmg` and drag Watershed to Applications. The first time, macOS
   says it cannot check the app: open **System Settings → Privacy & Security** and
   choose **Open Anyway** next to Watershed.
-- **Linux:** make the file executable (`chmod +x Watershed-*.AppImage`) and run it.
+- **Linux:** make the file executable (`chmod +x Watershed-linux-x86_64.AppImage`) and run it.
   AppImages need FUSE 2 (`libfuse2`, called `libfuse2t64` on Ubuntu 24.04).
 
 Watershed is young: tested daily on macOS and Windows by its author, less so on

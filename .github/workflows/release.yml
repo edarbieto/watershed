@@ -25,10 +25,9 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
           New-Item -ItemType Directory -Force dist/Watershed | Out-Null
           Copy-Item target/release/watershed.exe, README.md, LICENSE-MIT, LICENSE-APACHE dist/Watershed/
-          Compress-Archive -Path dist/Watershed -DestinationPath "dist/Watershed-$version-windows-x86_64.zip"
+          Compress-Archive -Path dist/Watershed -DestinationPath "dist/Watershed-windows-x86_64.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: windows

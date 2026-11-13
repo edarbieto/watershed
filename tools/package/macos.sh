@@ -43,7 +43,7 @@ echo "built $app ($version)"
 
 [ "${1:-}" = "--no-dmg" ] && exit 0
 
-dmg=dist/Watershed-$version-macos-$(uname -m).dmg
+dmg=dist/Watershed-macos-$(uname -m).dmg
 stage=$(mktemp -d)
 cp -R "$app" "$stage/"
 ln -s /Applications "$stage/Applications"
