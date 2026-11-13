@@ -1262,6 +1262,56 @@ impl WatershedApp {
         }
     }
 
+    /// Undoes (or redoes) one step of the song's history.
+    fn step_history(&mut self, undo: bool) {
+        let key = self.loaded.as_ref().map(session_path);
+        let state = key
+            .and_then(|key| self.histories.get_mut(&key))
+            .and_then(|history| if undo { history.undo() } else { history.redo() });
+        if let Some(state) = state {
+            self.restore_state(&state);
+        }
+    }
+
+    /// ↶ / ↷ after the song's info: the Edit menu's Undo and Redo, greyed out when
+    /// there is nothing to undo or redo.
+    fn undo_buttons(&mut self, ui: &mut egui::Ui) {
+        use egui::{Key, KeyboardShortcut, Modifiers};
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::COMMAND
+        };
+        let buttons = [
+            (
+                MenuCommand::Undo,
+                "↶",
+                "Undo",
+                KeyboardShortcut::new(Modifiers::COMMAND, Key::Z),
+            ),
+            (
+                MenuCommand::Redo,
+                "↷",
+                "Redo",
+                KeyboardShortcut::new(shift, Key::Z),
+            ),
+        ];
+        for (command, icon, name, keys) in buttons {
+            let enabled = self.menu_status(command, &[]).enabled;
+            let hint = format!("{name} ({})", ui.ctx().format_shortcut(&keys));
+            let response = ui
+                .add_enabled(
+                    enabled,
+                    // Only the monospace font (Hack) has ↶ and ↷.
+                    egui::Button::new(RichText::new(icon).monospace().size(16.0)).frame(false),
+                )
+                .on_hover_text(&hint)
+                .on_disabled_hover_text(hint);
+            if response.clicked() {
+                self.step_history(command == MenuCommand::Undo);
+            }
+        }
+    }
+
     /// The menus: brought up to date, drawn where the system has none, and the
     /// commands chosen in them (or by their Cmd / Ctrl keys) run.
     fn menus(&mut self, ui: &mut egui::Ui) {
@@ -1430,21 +1480,7 @@ impl WatershedApp {
                     menu::show_in_file_manager(folder);
                 }
             }
-            C::Undo | C::Redo => {
-                let key = self.loaded.as_ref().map(session_path);
-                let state = key
-                    .and_then(|key| self.histories.get_mut(&key))
-                    .and_then(|history| {
-                        if command == C::Undo {
-                            history.undo()
-                        } else {
-                            history.redo()
-                        }
-                    });
-                if let Some(state) = state {
-                    self.restore_state(&state);
-                }
-            }
+            C::Undo | C::Redo => self.step_history(command == C::Undo),
             C::AddMarker => self.apply(Action::AddMarker),
             C::AddChange => self.apply(Action::AddChange),
             C::TempoUp | C::TempoDown => {
@@ -1562,6 +1598,8 @@ impl WatershedApp {
             self.recent_menu(ui);
             if let Some(info) = self.song_info() {
                 ui.label(RichText::new(info).weak());
+                ui.separator();
+                self.undo_buttons(ui);
             }
 
             let left = ui.min_rect().width();
@@ -1579,7 +1617,7 @@ impl WatershedApp {
                 }
                 self.device_picker(ui);
                 ui.label("Output");
-                ui.separator();
+                // `usage_label` starts with its own separator.
                 self.usage_label(ui);
                 if let Some(version) = self.updater.available()
                     && ui
