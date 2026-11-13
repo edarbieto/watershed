@@ -651,17 +651,26 @@ same day; their answers are folded in below.
   ratio like ½ or ×2), and make the user's tempo win where they set it.
   **Done:** the mark on bar 1 was dropped (see "Waveform shift and tempo at bar 1" in
   `STATUS.md`).
-- [ ] **Undo / redo buttons** (asked by the user, 2026-11-12, after trying undo): ↶ / ↷ in the
+- [x] **Undo / redo buttons** (asked by the user, 2026-11-12, after trying undo): ↶ / ↷ in the
   window too, not only ⌘Z and the Edit menu; greyed out when there is nothing to undo or redo,
   the tooltip naming the key. Where: to decide with the user (proposal: the left of the top
-  bar, after the song title and its info, where the editing of the song is; the bottom bar is
-  transport and playback).
-- [ ] **Double separator after the usage numbers** (seen by the user in the top bar: "Output |
+  bar, after the song title and its info, where the editing of the song is; the bottom bar is transport and playback). **Done** at that place, tried by the user on Windows: works.
+  ↶ / ↷ are drawn in the monospace font: egui's proportional fonts do not have them.
+- [x] **Double separator after the usage numbers** (seen by the user in the top bar: "Output |
   | CPU …"). Cause, from the code: the top bar is laid out right to left, and `top_bar` adds
   `ui.separator()` after "Output", then `usage_label` starts with its own `ui.separator()`, so
   two lines end up side by side. Fix: keep one of them (the one in `usage_label`, so no line is
   left over when the numbers are not shown yet, or the one in `top_bar` if the numbers always
-  show). A one-line change; check the gap looks even after it.
+  show). A one-line change; check the gap looks even after it. **Done:** `usage_label`'s
+  separator kept, tried by the user on Windows.
+- [ ] **Icons and fonts** (asked by the user, 2026-11-12): one icon set for the buttons instead of
+  the mix of glyphs from egui's built-in fonts, and two typefaces: a sans serif for the text and
+  a monospace for the digits that change (transport clock, dB, tempo, pitch, CPU). egui applies
+  no OpenType features, so proportional digits jitter as they tick: changing numbers need the
+  mono. Options for icons in egui: an icon font added to `FontDefinitions` (icons are then text,
+  colored and sized like it; Lucide ships a TTF, Material Symbols as a static instance of its
+  variable font), or SVGs through `egui_extras` image loaders (`svg` feature, rasterized with
+  resvg, tinted with `Image::tint`). Prototyped in HTML for the user to choose.
 - [ ] **Keep the song's tags after separating** (asked by the user): artist, album, title,
   track number (and year, genre) from the source file's ID3 / Vorbis / MP4 tags, so the
   recent songs can be searched by them. How, to decide:

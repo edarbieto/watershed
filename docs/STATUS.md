@@ -145,7 +145,9 @@ and soft delete"). **Undo / redo: done**, tried by the user on macOS: works (see
 and tried the same day: appearance (light / dark / system), keys shown in the menus and the
 shortcut map. **Added to the plan by the user (2026-11-12):** undo / redo buttons, the double
 separator in the top bar, keeping the song's tags after separating (all in `PLAN.md`, v0.2).
-Left in v0.2 besides those: click on another output, CHANGELOG and feature list, website.
+Undo / redo buttons and the single separator: done, tried by the user on Windows. Next: icons
+and fonts (an HTML prototype for the user to choose from, see `PLAN.md`). Left in v0.2 besides
+those: song tags, click on another output, CHANGELOG and feature list, website.
 
 **Windows check (2026-11-12): done.** Everything built on macOS and only compiled for Windows
 in CI was tried there by the user, all works: secondary windows (above the main one, no taskbar
