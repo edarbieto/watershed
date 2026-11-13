@@ -663,14 +663,17 @@ same day; their answers are folded in below.
   left over when the numbers are not shown yet, or the one in `top_bar` if the numbers always
   show). A one-line change; check the gap looks even after it. **Done:** `usage_label`'s
   separator kept, tried by the user on Windows.
-- [ ] **Icons and fonts** (asked by the user, 2026-11-12): one icon set for the buttons instead of
+- [x] **Icons and fonts** (asked by the user, 2026-11-12): one icon set for the buttons instead of
   the mix of glyphs from egui's built-in fonts, and two typefaces: a sans serif for the text and
   a monospace for the digits that change (transport clock, dB, tempo, pitch, CPU). egui applies
   no OpenType features, so proportional digits jitter as they tick: changing numbers need the
   mono. Options for icons in egui: an icon font added to `FontDefinitions` (icons are then text,
   colored and sized like it; Lucide ships a TTF, Material Symbols as a static instance of its
   variable font), or SVGs through `egui_extras` image loaders (`svg` feature, rasterized with
-  resvg, tinted with `Image::tint`). Prototyped in HTML for the user to choose.
+  resvg, tinted with `Image::tint`). Prototyped in HTML for the user to choose. **Done**
+  with the user's choice: Geist and Geist Mono, Material Symbols Rounded (outlined, weight
+  400), mute and solo as icons, and a new light theme, "warm stone" (egui's light theme had
+  too little contrast). See "Fonts, icons and light theme" in `STATUS.md`.
 - [ ] **Keep the song's tags after separating** (asked by the user): artist, album, title,
   track number (and year, genre) from the source file's ID3 / Vorbis / MP4 tags, so the
   recent songs can be searched by them. How, to decide:

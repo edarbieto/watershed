@@ -145,8 +145,8 @@ and soft delete"). **Undo / redo: done**, tried by the user on macOS: works (see
 and tried the same day: appearance (light / dark / system), keys shown in the menus and the
 shortcut map. **Added to the plan by the user (2026-11-12):** undo / redo buttons, the double
 separator in the top bar, keeping the song's tags after separating (all in `PLAN.md`, v0.2).
-Undo / redo buttons and the single separator: done, tried by the user on Windows. Next: icons
-and fonts (an HTML prototype for the user to choose from, see `PLAN.md`). Left in v0.2 besides
+Undo / redo buttons and the single separator: done, tried by the user on Windows. Fonts, icons
+and the light theme: done, tried by the user on Windows (see "Fonts, icons and light theme"). Left in v0.2 besides
 those: song tags, click on another output, CHANGELOG and feature list, website.
 
 **Windows check (2026-11-12): done.** Everything built on macOS and only compiled for Windows
@@ -2787,6 +2787,29 @@ and Linux), in the Edit menu.
 3. Undo while playing: the playhead goes on, nothing jumps.
 4. Rename a track or a marker and press ⌘Z while typing: the text is undone, not the app.
 5. Open another song and come back: its history is still there.
+
+## Fonts, icons and light theme
+
+Done 2026-11-12 (v0.2), chosen by the user from an HTML prototype; tried on Windows: works.
+
+- **Fonts** (`style.rs`): Geist Regular for text, Geist Mono Regular for numbers that change
+  (transport clock, dB, tempo, pitch, CPU), both SIL OFL, ~280 KB in the binary. egui applies
+  no OpenType features, so a proportional font cannot switch to tabular digits: changing
+  numbers must be monospace or they jitter. egui's own fonts stay behind ours as fallbacks.
+- **Icons** (`icons.rs`): Material Symbols Rounded (Apache 2.0), outlined, weight 400, optical
+  size 20, as a font: icons are text, so they take the text's color and size. The 15 MB
+  variable font is cut down to the icons in use (~6 KB) by `tools/fonts/make_icons.py`, which
+  also writes `icons.rs`; to add one, add its name there and run it again (instructions in the
+  script). The icon font is scaled 1.25× (`FontTweak`) to match the text. Mute and solo are
+  icons (`volume_off`, `headphones`). Material has no magnet: snap is `grid_guides`.
+- **Light theme "warm stone"** (`style.rs`): a warm gray ground (`#e7e4df`) instead of white,
+  near-black text, darker widgets. Stem colors are drawn 30 % darker on it (waveforms and
+  track names, `style::track_color`). The dark theme is egui's.
+- **Windows menu bar** follows the theme the app is drawn in (`Menus::follow_theme`, every
+  frame). muda's `Auto` left it light on dark Windows with Appearance on System.
+- `CONTROLS_WIDTH` went from 240 to 260: Geist is wider than Ubuntu and the grid row (Grid,
+  time signature, Set first bar, snap) no longer fit.
+- Fonts and their licenses are in `assets/fonts`.
 
 ## Observations to investigate
 
