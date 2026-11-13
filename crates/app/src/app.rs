@@ -14,6 +14,7 @@ use crate::chords::{self, SongChords};
 use crate::dialog::{Dialog, Purpose};
 use crate::grid::{self, Change, Grid};
 use crate::history::History;
+use crate::icons;
 use crate::key::{self, SongKey};
 use crate::loader::{self, LoadedSong, Loading, Resampled};
 use crate::loops::Loops;
@@ -52,7 +53,7 @@ const CHORD_LANE_HEIGHT: f32 = 22.0;
 const SCROLLBAR_HEIGHT: f32 = 8.0;
 /// Zoom factor of the zoom buttons and keys.
 const ZOOM_STEP: f64 = 1.5;
-const CONTROLS_WIDTH: f32 = 240.0;
+const CONTROLS_WIDTH: f32 = 260.0;
 const PAN_SLIDER_WIDTH: f32 = 40.0;
 const TRACK_NAME_WIDTH: f32 = 140.0;
 const MIN_DB: f32 = -60.0;
@@ -68,7 +69,7 @@ const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 /// How far the skip buttons and arrow keys move, in seconds.
 const SKIP_SECS: f64 = 5.0;
 /// Shown after the BPM when the song speeds up or slows down. In egui's Noto Emoji font.
-const UNSTEADY_ICON: &str = "⚡";
+const UNSTEADY_ICON: &str = icons::UNSTEADY;
 const SIDE_PANEL_WIDTH: f32 = 280.0;
 /// Narrowest waveform the minimum window size leaves room for.
 const MIN_WAVEFORM_WIDTH: f32 = 200.0;
@@ -306,6 +307,7 @@ impl WatershedApp {
             menus: Menus::new(cc),
             about_open: false,
         };
+        crate::style::install(&cc.egui_ctx);
         app.apply_appearance(&cc.egui_ctx);
         app
     }
@@ -519,10 +521,14 @@ impl WatershedApp {
             let mut open = false;
             let mut dismiss = false;
             ui.horizontal(|ui| {
-                ui.label(format!("✔ {} is separated.", song_title(folder)));
+                ui.label(format!(
+                    "{} {} is separated.",
+                    icons::CHECK,
+                    song_title(folder)
+                ));
                 open = ui.button("Open").clicked();
                 dismiss = ui
-                    .small_button("✕")
+                    .small_button(icons::CLOSE)
                     .on_hover_text("Open it later from Recent")
                     .clicked();
             });
@@ -1284,13 +1290,13 @@ impl WatershedApp {
         let buttons = [
             (
                 MenuCommand::Undo,
-                "↶",
+                icons::UNDO,
                 "Undo",
                 KeyboardShortcut::new(Modifiers::COMMAND, Key::Z),
             ),
             (
                 MenuCommand::Redo,
-                "↷",
+                icons::REDO,
                 "Redo",
                 KeyboardShortcut::new(shift, Key::Z),
             ),
@@ -1301,8 +1307,7 @@ impl WatershedApp {
             let response = ui
                 .add_enabled(
                     enabled,
-                    // Only the monospace font (Hack) has ↶ and ↷.
-                    egui::Button::new(RichText::new(icon).monospace().size(16.0)).frame(false),
+                    egui::Button::new(RichText::new(icon).size(15.0)).frame(false),
                 )
                 .on_hover_text(&hint)
                 .on_disabled_hover_text(hint);
@@ -1723,10 +1728,13 @@ impl WatershedApp {
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
             // The open song's title, shortened: its full title is in the window's.
             let label = match &self.loaded {
-                Some(loaded) => {
-                    RichText::new(format!("{} ⏷", shorten(&loaded.title, MAX_TITLE_CHARS))).strong()
-                }
-                None => RichText::new("Recent songs ⏷"),
+                Some(loaded) => RichText::new(format!(
+                    "{} {}",
+                    shorten(&loaded.title, MAX_TITLE_CHARS),
+                    icons::DROP_DOWN
+                ))
+                .strong(),
+                None => RichText::new(format!("Recent songs {}", icons::DROP_DOWN)),
             };
             let (_, menu) = egui::containers::menu::MenuButton::new(label)
                 .config(config)
@@ -1742,7 +1750,7 @@ impl WatershedApp {
                     }
                     let field = ui.add(
                         egui::TextEdit::singleline(&mut self.recent_menu_search)
-                            .hint_text("🔍 Search")
+                            .hint_text(format!("{} Search", icons::SEARCH))
                             .desired_width(240.0),
                     );
                     if !was_open {
@@ -1893,7 +1901,7 @@ impl WatershedApp {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             let field = ui.add(
                 egui::TextEdit::singleline(&mut self.recent_search)
-                    .hint_text("🔍 Search by title or folder")
+                    .hint_text(format!("{} Search by title or folder", icons::SEARCH))
                     .desired_width(width),
             );
             // Enter opens the first match that can be opened.
@@ -1928,7 +1936,7 @@ impl WatershedApp {
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.add_space(4.0);
                             if ui
-                                .small_button("🗑")
+                                .small_button(icons::DELETE)
                                 .on_hover_text("Remove from the list (the files stay)")
                                 .clicked()
                             {
@@ -2210,17 +2218,25 @@ impl WatershedApp {
                     .clicked()
             };
             group(ui, "Transport", |ui| {
-                if button(ui, "⏮", "Back to the start, or to the loop start (Home)") {
+                if button(
+                    ui,
+                    icons::TO_START,
+                    "Back to the start, or to the loop start (Home)",
+                ) {
                     action = Some(Action::ToStart);
                 }
                 if button(
                     ui,
-                    "⏪",
+                    icons::BACK,
                     "Back 5 seconds, or to the previous grid line with snap on (Left arrow)",
                 ) {
                     action = Some(Action::Skip(-SKIP_SECS));
                 }
-                let play_label = if engine.is_playing() { "⏸" } else { "▶" };
+                let play_label = if engine.is_playing() {
+                    icons::PAUSE
+                } else {
+                    icons::PLAY
+                };
                 if button(
                     ui,
                     play_label,
@@ -2229,13 +2245,13 @@ impl WatershedApp {
                 ) {
                     action = Some(Action::PlayPause);
                 }
-                if button(ui, "⏹", "Stop") {
+                if button(ui, icons::STOP, "Stop") {
                     engine.stop();
                     self.transport_keys.seeked(0.0);
                 }
                 if button(
                     ui,
-                    "⏩",
+                    icons::FORWARD,
                     "Forward 5 seconds, or to the next grid line with snap on (Right arrow)",
                 ) {
                     action = Some(Action::Skip(SKIP_SECS));
@@ -2466,7 +2482,7 @@ impl WatershedApp {
                 })
                 .on_hover_text("Press this number to jump here");
                 if ui
-                    .selectable_label(current, "▶")
+                    .selectable_label(current, icons::PLAY)
                     .on_hover_text("Play from here")
                     .clicked()
                 {
@@ -2474,7 +2490,7 @@ impl WatershedApp {
                 }
                 let looping = self.loops.active() == Some((section.start, section.end));
                 if ui
-                    .selectable_label(looping, "🔁")
+                    .selectable_label(looping, icons::LOOP)
                     .on_hover_text("Loop this section, up to the next marker")
                     .clicked()
                 {
@@ -2498,7 +2514,10 @@ impl WatershedApp {
                         .small(),
                 );
                 if let Some(index) = section.marker
-                    && ui.small_button("🗑").on_hover_text("Delete").clicked()
+                    && ui
+                        .small_button(icons::DELETE)
+                        .on_hover_text("Delete")
+                        .clicked()
                 {
                     remove = Some(index);
                 }
@@ -2545,7 +2564,7 @@ impl WatershedApp {
             let current = self.loops.a == Some(saved.start) && self.loops.b == Some(saved.end);
             ui.horizontal(|ui| {
                 if ui
-                    .selectable_label(current, "▶")
+                    .selectable_label(current, icons::PLAY)
                     .on_hover_text("Play this loop from its start")
                     .clicked()
                 {
@@ -2561,7 +2580,11 @@ impl WatershedApp {
                     .monospace()
                     .small(),
                 );
-                if ui.small_button("🗑").on_hover_text("Delete").clicked() {
+                if ui
+                    .small_button(icons::DELETE)
+                    .on_hover_text("Delete")
+                    .clicked()
+                {
                     remove = Some(index);
                 }
             });
@@ -2754,14 +2777,25 @@ impl WatershedApp {
         // waveforms start. Beside the time rows: the zoom buttons.
         let time_rows = ruler_group(ui, &TIME_ROWS, |ui| {
             ui.label(RichText::new("Zoom").weak().small());
-            if ui.small_button("−").on_hover_text("Zoom out (-)").clicked() {
+            if ui
+                .small_button(icons::ZOOM_OUT)
+                .on_hover_text("Zoom out (-)")
+                .clicked()
+            {
                 zoom_action = Some(Action::Zoom(1.0 / ZOOM_STEP));
             }
-            if ui.small_button("+").on_hover_text("Zoom in (+)").clicked() {
+            if ui
+                .small_button(icons::ZOOM_IN)
+                .on_hover_text("Zoom in (+)")
+                .clicked()
+            {
                 zoom_action = Some(Action::Zoom(ZOOM_STEP));
             }
             if ui
-                .add_enabled(!self.view.is_full(), egui::Button::new("Fit").small())
+                .add_enabled(
+                    !self.view.is_full(),
+                    egui::Button::new(icons::ZOOM_FIT).small(),
+                )
                 .on_hover_text(
                     "Show the whole song. Zoom with Cmd + scroll or a pinch, scroll sideways \
                      with Shift + scroll or two fingers.",
@@ -2871,21 +2905,21 @@ impl WatershedApp {
                             }
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if ui
-                                    .selectable_label(params.solo(), "S")
+                                    .selectable_label(params.solo(), icons::SOLO)
                                     .on_hover_text("Solo (S on the selected track)")
                                     .clicked()
                                 {
                                     params.set_solo(!params.solo());
                                 }
                                 if ui
-                                    .selectable_label(params.mute(), "M")
+                                    .selectable_label(params.mute(), icons::MUTE)
                                     .on_hover_text("Mute (M on the selected track)")
                                     .clicked()
                                 {
                                     params.set_mute(!params.mute());
                                 }
                                 if ui
-                                    .selectable_label(params.pitch_lock(), "🔒")
+                                    .selectable_label(params.pitch_lock(), icons::LOCK)
                                     .on_hover_text(PITCH_LOCK_HINT)
                                     .clicked()
                                 {
@@ -2893,14 +2927,17 @@ impl WatershedApp {
                                 }
                                 if let Some(movable) = self.movable.get_mut(i)
                                     && ui
-                                        .selectable_label(*movable, "↔")
+                                        .selectable_label(*movable, icons::MOVE)
                                         .on_hover_text(MOVE_HINT)
                                         .clicked()
                                 {
                                     *movable = !*movable;
                                 }
                                 if ui
-                                    .add_enabled(can_delete, egui::Button::new("🗑").frame(false))
+                                    .add_enabled(
+                                        can_delete,
+                                        egui::Button::new(icons::DELETE).frame(false),
+                                    )
                                     .on_hover_text(DELETE_TRACK_HINT)
                                     .on_disabled_hover_text("The last track cannot be deleted")
                                     .clicked()
@@ -3017,7 +3054,8 @@ impl WatershedApp {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new("Deleted:").weak().small());
                     for i in deleted {
-                        let name = RichText::new(format!("↺ {}", loaded.names[i])).small();
+                        let name = RichText::new(format!("{} {}", icons::RESTORE, loaded.names[i]))
+                            .small();
                         if ui
                             .button(name)
                             .on_hover_text("Restore this track")
@@ -3599,7 +3637,12 @@ fn track_name(
     }
     let response = ui
         .add(
-            egui::Label::new(RichText::new(name).color(color).strong()).sense(egui::Sense::click()),
+            egui::Label::new(
+                RichText::new(name)
+                    .color(crate::style::track_color(ui.visuals(), color))
+                    .strong(),
+            )
+            .sense(egui::Sense::click()),
         )
         .on_hover_text("Double-click to rename");
     if response.double_clicked() {
@@ -3683,7 +3726,10 @@ fn grid_controls(
         {
             grid.set_start(playhead_secs);
         }
-        if magnet_button(ui, *snap)
+        // A square, as wide as it is tall, so the row fits the controls column.
+        let side = ui.spacing().interact_size.y;
+        if ui
+            .add_sized([side, side], egui::Button::selectable(*snap, icons::SNAP))
             .on_hover_text(
                 "Snap: a click on a waveform moves the playhead to the nearest grid line \
                  (beats or bars, as zoomed), and loops drawn on the loop row start and end \
@@ -3758,43 +3804,6 @@ fn signature_tags(grid: &Grid, rate: f64) -> Vec<SignatureTag> {
             in_use: grid.in_use(index),
         });
     std::iter::once(bar_one).chain(changes).collect()
-}
-
-/// A toggle drawn as a horseshoe magnet (egui's fonts have no magnet emoji).
-fn magnet_button(ui: &mut egui::Ui, on: bool) -> egui::Response {
-    let size = egui::vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y);
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-    let visuals = ui.style().interact_selectable(&response, on);
-    let painter = ui.painter();
-    if on || response.hovered() {
-        painter.rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill);
-    }
-    // An upside-down U: two legs going up from a half circle, tips marked.
-    let color = visuals.text_color();
-    let center = rect.center() + egui::vec2(0.0, 1.5);
-    let radius = rect.width() * 0.22;
-    let leg = rect.height() * 0.22;
-    let stroke = egui::Stroke::new(2.5, color);
-    let mut points: Vec<egui::Pos2> = (0..=12)
-        .map(|i| {
-            let angle = std::f32::consts::PI * i as f32 / 12.0;
-            center + egui::vec2(-radius * angle.cos(), radius * angle.sin())
-        })
-        .collect();
-    points.insert(0, center + egui::vec2(-radius, -leg));
-    points.push(center + egui::vec2(radius, -leg));
-    painter.add(egui::Shape::line(points, stroke));
-    let tip = egui::Stroke::new(2.5, color.gamma_multiply(0.5));
-    for x in [-radius, radius] {
-        painter.line_segment(
-            [
-                center + egui::vec2(x, -leg - 2.5),
-                center + egui::vec2(x, -leg),
-            ],
-            tip,
-        );
-    }
-    response
 }
 
 /// The song's BPM at the current tempo, with buttons to correct it, and the switch
@@ -3937,7 +3946,10 @@ fn bpm_controls(
                 format!("Back to the estimate, {e:.0} BPM at 100 %")
             });
         if ui
-            .add_enabled(bpm.user().is_some(), egui::Button::new("↺").small())
+            .add_enabled(
+                bpm.user().is_some(),
+                egui::Button::new(icons::RESET).small(),
+            )
             .on_hover_text(hint)
             .clicked()
         {

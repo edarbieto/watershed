@@ -80,7 +80,7 @@ pub fn controls(
             metronome.count_in = !metronome.count_in;
         }
         let response = ui
-            .add(egui::Button::new("⏷"))
+            .add(egui::Button::new(crate::icons::DROP_DOWN))
             .on_hover_text("Click sound, channels, volume and count-in")
             .on_disabled_hover_text(disabled_hint);
         egui::Popup::menu(&response)

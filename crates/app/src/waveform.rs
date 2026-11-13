@@ -133,6 +133,7 @@ pub fn waveform(
         ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
     let painter = ui.painter_at(rect);
     let WaveLook { color, background } = look;
+    let color = crate::style::track_color(ui.visuals(), color);
     painter.rect_filled(rect, 2.0, background);
     let timeline = Timeline::new(rect.x_range(), &overlay.visible);
     let playhead_x = timeline.x_of(overlay.position);
