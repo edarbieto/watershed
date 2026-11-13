@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-12.
+Last updated: 2026-11-13.
 
 ## Where we are
 
@@ -146,7 +146,7 @@ and tried the same day: appearance (light / dark / system), keys shown in the me
 shortcut map. **Added to the plan by the user (2026-11-12):** undo / redo buttons, the double
 separator in the top bar, keeping the song's tags after separating (all in `PLAN.md`, v0.2).
 Undo / redo buttons and the single separator: done, tried by the user on Windows. Fonts, icons
-and the light theme: done, tried by the user on Windows (see "Fonts, icons and light theme"). Left in v0.2 besides
+and the light theme: done, tried by the user on Windows and macOS (see "Fonts, icons and light theme"). Left in v0.2 besides
 those: song tags, click on another output, CHANGELOG and feature list, website.
 
 **Windows check (2026-11-12): done.** Everything built on macOS and only compiled for Windows
@@ -2790,7 +2790,7 @@ and Linux), in the Edit menu.
 
 ## Fonts, icons and light theme
 
-Done 2026-11-12 (v0.2), chosen by the user from an HTML prototype; tried on Windows: works.
+Done 2026-11-12 (v0.2), chosen by the user from an HTML prototype; tried on Windows and macOS: works.
 
 - **Fonts** (`style.rs`): Geist Regular for text, Geist Mono Regular for numbers that change
   (transport clock, dB, tempo, pitch, CPU), both SIL OFL, ~280 KB in the binary. egui applies
