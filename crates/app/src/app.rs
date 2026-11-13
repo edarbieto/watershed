@@ -1316,6 +1316,7 @@ impl WatershedApp {
     /// commands chosen in them (or by their Cmd / Ctrl keys) run.
     fn menus(&mut self, ui: &mut egui::Ui) {
         self.typing = ui.ctx().text_edit_focused();
+        self.menus.follow_theme(ui.ctx().theme());
         let recent: Vec<PathBuf> = self.config.recent.iter().map(|r| r.path.clone()).collect();
         let statuses: std::collections::HashMap<MenuCommand, Status> = menu::commands(recent.len())
             .into_iter()
@@ -2063,7 +2064,6 @@ impl WatershedApp {
             egui::ViewportId::ROOT,
             egui::ViewportCommand::SetTheme(theme),
         );
-        self.menus.set_theme(theme);
     }
 
     fn settings_window(&mut self, ctx: &egui::Context) {

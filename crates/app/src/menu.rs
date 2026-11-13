@@ -363,6 +363,9 @@ pub struct Menus {
     /// Commands chosen in the native menus, sent from their event handler.
     #[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
     chosen: std::sync::mpsc::Receiver<MenuCommand>,
+    /// The theme the menus were last colored with.
+    #[cfg(windows)]
+    theme: Option<egui::Theme>,
 }
 
 impl Menus {
@@ -378,6 +381,8 @@ impl Menus {
             #[cfg(any(target_os = "macos", windows))]
             native,
             chosen,
+            #[cfg(windows)]
+            theme: None,
         }
     }
 
@@ -389,13 +394,17 @@ impl Menus {
         false
     }
 
-    /// Light or dark menus, where the app colors them (the Windows menu bar; macOS
-    /// draws its menus as the system is).
+    /// Colors the menus as the app is drawn now, where the app colors them (the
+    /// Windows menu bar; macOS draws its menus as the system is). Call every frame:
+    /// it only acts when the theme changes, also when the system's does.
     #[cfg_attr(not(windows), allow(unused_variables, clippy::unused_self))]
-    pub fn set_theme(&self, theme: egui::SystemTheme) {
+    pub fn follow_theme(&mut self, theme: egui::Theme) {
         #[cfg(windows)]
-        if let Some(native) = &self.native {
-            native.set_theme(theme);
+        if self.theme != Some(theme) {
+            self.theme = Some(theme);
+            if let Some(native) = &self.native {
+                native.set_theme(theme);
+            }
         }
     }
 
@@ -662,12 +671,13 @@ mod native {
             })
         }
 
+        /// Always light or dark, never `Auto`: muda's `Auto` asks the system whether
+        /// dark mode is allowed for the window, and left the bar light on dark Windows.
         #[cfg(windows)]
-        pub fn set_theme(&self, theme: eframe::egui::SystemTheme) {
+        pub fn set_theme(&self, theme: eframe::egui::Theme) {
             let theme = match theme {
-                eframe::egui::SystemTheme::Light => muda::MenuTheme::Light,
-                eframe::egui::SystemTheme::Dark => muda::MenuTheme::Dark,
-                eframe::egui::SystemTheme::SystemDefault => muda::MenuTheme::Auto,
+                eframe::egui::Theme::Light => muda::MenuTheme::Light,
+                eframe::egui::Theme::Dark => muda::MenuTheme::Dark,
             };
             // Safety: the window outlives the app, which owns the menu.
             if let Err(e) = unsafe { self._menu.set_theme_for_hwnd(self.hwnd, theme) } {
