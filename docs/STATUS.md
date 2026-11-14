@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-13.
+Last updated: 2026-11-14.
 
 ## Where we are
 
@@ -124,6 +124,22 @@ Last updated: 2026-11-13.
 
 ## Next steps
 
+> **Resume here (2026-11-14).** The website is live at https://edarbieto.github.io/watershed/
+> (Pages enabled, source: GitHub Actions; `pages.yml` deploys on every push to `site/`). Its
+> download buttons give 404 until a release has the fixed file names (`Watershed-macos-arm64.dmg`,
+> `Watershed-windows-x86_64.zip`, `Watershed-linux-x86_64.AppImage`). Left for **v0.2.0**, in
+> the order proposed to the user:
+> 1. Check in the app which actions still have only a shortcut and no button, and that the
+>    shortcuts window (`?`) lists them all (last open part of "Controls grouped better").
+> 2. Keep the song's tags after separating (`PLAN.md`, v0.2): read them with symphonia, a
+>    `[song]` table in the session, search and show them in the recent list.
+> 3. Click on another output: channel pairs on one device first, then try a macOS Aggregate
+>    Device with the user's hardware.
+> 4. `CHANGELOG.md` (back-filled for v0.1.0 and v0.1.1) and `docs/FEATURES.md`, linked from
+>    the README and the website.
+> 5. Tag **v0.2.0**; the release will carry the fixed names, so the website's buttons work.
+>    If the buttons are wanted sooner, a v0.1.2 with only the packaging change works too.
+
 **v0.2 (next version):** the user's feedback on v0.1.1 (2026-11-11) is planned in
 `PLAN.md`, "v0.2: feedback on v0.1.1": cents and reference tuning, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
 remembered window, click on another output, changelog. The user answered the open questions the same day.
@@ -223,7 +239,7 @@ GitHub Pages on a push to `master` that touches it; `ci.yml` skips such pushes.
   so these links keep working for every release. The updater matches files by suffix, so it
   is unaffected. Until a release with the new names exists (v0.1.1 has the old ones) the links
   give 404.
-- **To do once, by hand:** Settings → Pages → Source: GitHub Actions.
+- **Pages:** enabled on 2026-11-14 (through the API, `build_type=workflow`); the first deploy passed.
 - **Screenshots:** `site/assets/img/*.avif`, written from PNG captures with
   `sips -s format avif` (Homebrew's ffmpeg has no WebP encoder); each has a smaller variant
   for `srcset`. `site/share.jpg` is the 1200x630 link preview.
