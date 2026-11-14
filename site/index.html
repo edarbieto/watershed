@@ -117,8 +117,10 @@
   .site-foot__line { margin: 0; color: var(--muted); }
   .site-foot__tribute { margin: var(--s-3) 0 0; font-size: var(--t-small); font-style: italic; color: var(--muted); }
   .site-foot__tribute em { font-style: normal; }
-  /* the logo and the footer name stay in the text face; headings take the serif */
-  .nav__logo, .site-foot__name { font-family: var(--font-text); }
+  /* the name on its own (the nav and the footer) is set in the serif, like the headings */
+  .nav__logo { font: 600 24px/1 var(--font-display); letter-spacing: -0.01em; }
+  @media (max-width: 639px) { .nav__more { display: none; } }
+  .site-foot__name { font-size: 26px; letter-spacing: -0.01em; }
 
   /* compact: every section as tall as its content, one padding between them */
   html main > section.section:not(.hero) { height: auto; min-height: 0; padding: var(--s-8) 0; }
@@ -188,7 +190,7 @@
     <a class="skip-link" href="#top">Skip to content</a>
     <a class="nav__logo" href="#top"><img src="assets/img/icon.svg" alt="" width="24" height="24">Watershed</a>
     <div class="nav__actions">
-      <a class="btn btn--primary" href="#download" data-os-download><svg class="ic ic--dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11.5M6.5 9.5 12 15l5.5-5.5M4.5 20h15" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download Watershed</a>
+      <a class="btn btn--primary" href="#download" data-os-download><svg class="ic ic--dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11.5M6.5 9.5 12 15l5.5-5.5M4.5 20h15" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download<span class="nav__more"> Watershed</span></a>
     </div>
   </div>
 </header>
