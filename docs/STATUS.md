@@ -210,7 +210,12 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
 `site/` is a static landing page (plain HTML, CSS and the kit's JS, no build step) for
 musicians: what Watershed does, screenshots of the player with "No Dejes Que" (sections,
 loops, transpose, click), the separation screen, questions and the downloads. Built with the
-taste-skill plugin (Claude Code); its finish gate passed. `pages.yml` deploys `site/` to
+taste-skill plugin (Claude Code), then reworked by hand at the user's request: no statement
+section, closing or nav menus, a small centred footer (icon, name, line, the Opeth tribute),
+square buttons with icons, sections as tall as their content, Newsreader (serif) for headings
+and the standalone name, faint stem waveforms behind the hero that open from one mix into six
+lanes on load, a soft stem-colour tint per section, blocks that rise in on scroll and a beat
+dot at the song's tempo. Reduced motion turns the motion off. `pages.yml` deploys `site/` to
 GitHub Pages on a push to `master` that touches it; `ci.yml` skips such pushes.
 
 - **Download links** point at `releases/latest/download/Watershed-<os>.<ext>`. The release
