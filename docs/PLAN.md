@@ -583,7 +583,10 @@ same day; their answers are folded in below.
     **built**.
   - Rename **"1 here" to "Set first bar"** (bar 1 is not always where the audio starts:
     pickups, free intros).
-  - Missing buttons for what only has a shortcut today, and the `?` window kept in sync.
+  - [x] Missing buttons for what only has a shortcut today, and the `?` window kept in sync.
+    Checked 2026-11-14: since the menus, no command is keyboard-only (Reload, Show in Folder
+    and the markers panel are in the menus only). The `?` window gained four mouse gestures
+    that were only in tooltips.
 - [x] **Undo / redo:** Cmd+Z and Cmd+Shift+Z on macOS, Ctrl+Z and Ctrl+Shift+Z (and
   Ctrl+Y) elsewhere. Scope: everything saved in the session (mixer, offsets,
   names, loops, markers, grid, tempo and signature changes, BPM, key, pitch, tempo,

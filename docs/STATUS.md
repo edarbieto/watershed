@@ -129,8 +129,9 @@ Last updated: 2026-11-14.
 > download buttons give 404 until a release has the fixed file names (`Watershed-macos-arm64.dmg`,
 > `Watershed-windows-x86_64.zip`, `Watershed-linux-x86_64.AppImage`). Left for **v0.2.0**, in
 > the order proposed to the user:
-> 1. Check in the app which actions still have only a shortcut and no button, and that the
->    shortcuts window (`?`) lists them all (last open part of "Controls grouped better").
+> 1. ~~Check which actions still have only a shortcut and no button, and the `?` window.~~
+>    Done: every key has a menu item; the `?` window gained the gestures it was missing
+>    (rename, drag a waveform for a loop, drag an unlocked track, double-click resets).
 > 2. Keep the song's tags after separating (`PLAN.md`, v0.2): read them with symphonia, a
 >    `[song]` table in the session, search and show them in the recent list.
 > 3. Click on another output: channel pairs on one device first, then try a macOS Aggregate

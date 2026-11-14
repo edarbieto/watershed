@@ -83,6 +83,12 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
             ("Click or drag the time row", "Move the playhead"),
             ("Drag the playhead line", "Move the playhead"),
             ("Click a track", "Select it"),
+            ("Double-click a track's name", "Rename it"),
+            ("Drag a waveform", "Set a loop"),
+            (
+                "Drag an unlocked track",
+                "Move it in time (unlock it with its lock button)",
+            ),
             (
                 "Drag the loop row",
                 "Set a loop (drag an end to move it, click it: on / off)",
@@ -112,7 +118,10 @@ const SECTIONS: &[(&str, &[(&str, &str)])] = &[
                 "Go to the nearest bar or beat",
             ),
             ("Click a chord", "Go to where it starts"),
-            ("Double-click a fader or pan", "Back to its default"),
+            (
+                "Double-click a fader, pan, offset, tempo or pitch",
+                "Back to its default",
+            ),
         ],
     ),
     (
