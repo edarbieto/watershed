@@ -17,7 +17,7 @@
 <meta name="page-type" content="software">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Newsreader:opsz,wght@6..72,400..700&family=Geist+Mono:wght@400..500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/system.css">
 <link rel="stylesheet" href="assets/ui/cards.css">
 <link rel="stylesheet" href="assets/motion/motion.css">
@@ -31,12 +31,12 @@
   --p-accent: #1f5fa8; --p-accent-ink: #f6f4f0; --p-action: #1f5fa8; --p-action-ink: #f6f4f0;
   --p-inv-bg: #14120f; --p-inv-surface: #211f1b; --p-inv-ink: #f6f4f0; --p-inv-muted: #979591;
   --p-inv-accent: #f6f4f0; --p-inv-accent-ink: #14120f; --p-inv-action: #f6f4f0; --p-inv-action-ink: #14120f;
-  --font-display: "Geist", system-ui, sans-serif;
+  --font-display: "Newsreader", Georgia, serif;
   --font-text: "Geist", system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  --display-weight: 500;
-  --display-tracking: -0.035em;
-  --display-tracking-xl: -0.045em;
+  --display-weight: 600;
+  --display-tracking: -0.015em;
+  --display-tracking-xl: -0.02em;
 }
 </style>
 <script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
@@ -109,7 +109,7 @@
   @media (max-width: 1023px) { .nav__actions { display: flex; } .nav__actions .btn { height: 40px; padding-inline: var(--s-4); font-size: 14px; } }
   .nav__actions { margin-left: auto; }
   /* the downloads end the page: as tall as their content, the frame beside the list */
-  main > section#download { height: auto; min-height: 0; padding-block: var(--s-9); }
+  main > section#download { height: auto; min-height: 0; padding-block: var(--s-8); }
   #download .grid { align-items: stretch; }
   #download .frame { height: auto; min-height: 420px; }
   @media (max-width: 1023px) { #download .frame { min-height: 0; } }
@@ -118,6 +118,22 @@
   .site-foot img { width: 40px; height: 40px; margin-bottom: var(--s-2); }
   .site-foot__name { margin: 0; font: var(--display-weight) 22px/1.2 var(--font-display); letter-spacing: -0.02em; }
   .site-foot__line { margin: 0; color: var(--muted); }
+  .site-foot__tribute { margin: var(--s-3) 0 0; font-size: var(--t-small); font-style: italic; color: var(--muted); }
+  .site-foot__tribute em { font-style: normal; }
+  /* the logo and the footer name stay in the text face; headings take the serif */
+  .nav__logo, .site-foot__name { font-family: var(--font-text); }
+
+  /* compact: every section as tall as its content, one padding between them */
+  html main > section.section:not(.hero) { height: auto; min-height: 0; padding: var(--s-8) 0; }
+  #practice > .wrap { display: flex; flex-direction: column; row-gap: var(--s-8); }
+  #practice > .wrap > .grid, #practice .group > .grid { flex: none; }
+  #practice .group { gap: 0; }
+  html main > section.section > .wrap { height: auto; }
+  #player .shot { flex: none; aspect-ratio: 2800 / 1100; }
+  #practice .panel, #practice .panel { --p-h: 300px; }
+  #separation .frame { min-height: 480px; }
+  @media (max-width: 1023px) { html main > section.section:not(.hero) { padding: var(--s-7) 0; } #practice .panel { --p-h: 260px; } #separation .frame { min-height: 360px; } }
+  @media (max-width: 639px) { #player .shot { aspect-ratio: 4 / 3; } #practice .panel { --p-h: 180px; } #separation .frame { min-height: 260px; } }
 </style>
 </head>
 <body>
@@ -271,6 +287,7 @@
   <img src="assets/img/icon.svg" alt="" width="40" height="40" loading="lazy">
   <p class="site-foot__name">Watershed</p>
   <p class="site-foot__line">Stems and practice for musicians.</p>
+  <p class="site-foot__tribute">Named after <em>Watershed</em> by Opeth.</p>
 </footer>
 
 
