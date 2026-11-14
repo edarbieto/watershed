@@ -147,6 +147,34 @@
   #questions  { background: color-mix(in oklab, var(--st-guitar) 9%, var(--bg)); }
   #download   { background: color-mix(in oklab, var(--st-bass) 9%, var(--bg)); }
   .site-foot { border-top: 0; }
+
+  /* icons in buttons and download links */
+  .btn .ic, .link .ic { width: 18px; height: 18px; flex: none; }
+  .btn .ic { margin-left: -2px; }
+  .link--dl::after { content: none; }
+  @media (hover: hover) and (pointer: fine) {
+    .btn:hover .ic--dl path, .link--dl:hover .ic--dl path { animation: dl-nudge .6s var(--ease); }
+  }
+  @keyframes dl-nudge { 40% { transform: translateY(2.5px); } }
+  /* the click row: a beat at 107 BPM (561 ms a beat), the bar's downbeat strongest */
+  .beat { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--st-drums); vertical-align: 1px; animation: beat 2244ms linear infinite; }
+  @keyframes beat {
+    0% { opacity: 1; transform: scale(1.4); } 8% { opacity: .35; transform: scale(1); }
+    25% { opacity: .9; transform: scale(1.15); } 33% { opacity: .35; transform: scale(1); }
+    50% { opacity: .9; transform: scale(1.15); } 58% { opacity: .35; transform: scale(1); }
+    75% { opacity: .9; transform: scale(1.15); } 83%, 100% { opacity: .35; transform: scale(1); }
+  }
+  /* blocks rise in once as they come into view (only when the script is there to show them) */
+  html.rv [data-reveal] { opacity: 0; transform: translateY(18px); transition: opacity .7s var(--ease), transform .7s var(--ease); transition-delay: var(--rv-d, 0ms); }
+  html.rv [data-reveal].is-in { opacity: 1; transform: none; }
+  /* the hero's waves breathe slowly once they have opened */
+  .hero__waves.is-open { animation: breathe 9s ease-in-out infinite alternate; transform-origin: 60% 50%; }
+  @keyframes breathe { to { transform: scaleY(1.06); } }
+  @media (prefers-reduced-motion: reduce) {
+    html.rv [data-reveal] { opacity: 1; transform: none; transition: none; }
+    .beat, .hero__waves.is-open { animation: none; }
+    .btn:hover .ic--dl path, .link--dl:hover .ic--dl path { animation: none; }
+  }
 </style>
 </head>
 <body>
@@ -160,7 +188,7 @@
     <a class="skip-link" href="#top">Skip to content</a>
     <a class="nav__logo" href="#top"><img src="assets/img/icon.svg" alt="" width="24" height="24">Watershed</a>
     <div class="nav__actions">
-      <a class="btn btn--primary" href="#download" data-os-download>Download Watershed</a>
+      <a class="btn btn--primary" href="#download" data-os-download><svg class="ic ic--dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11.5M6.5 9.5 12 15l5.5-5.5M4.5 20h15" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download Watershed</a>
     </div>
   </div>
 </header>
@@ -172,7 +200,7 @@
       <div class="hero__text span-5">
         <h1 id="hero-h">Stem splitter and practice player for musicians</h1>
         <p class="hero__lead">Drop in a song and Watershed splits it into six stems on your own computer in one to two minutes. Then mute your part and play over the band.</p>
-        <div class="btn-row"><a class="btn btn--primary" href="#download" data-os-download>Download Watershed</a><a class="btn btn--secondary" href="https://github.com/edarbieto/watershed">View on GitHub</a></div>
+        <div class="btn-row"><a class="btn btn--primary" href="#download" data-os-download><svg class="ic ic--dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11.5M6.5 9.5 12 15l5.5-5.5M4.5 20h15" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download Watershed</a><a class="btn btn--secondary" href="https://github.com/edarbieto/watershed"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a></div>
         <p class="hero__proof" data-os-line>Free and open source, for macOS, Windows and Linux.</p>
       </div>
       <div class="hero__art span-6 start-7" role="img" aria-label="Watershed's player with six stems of a song, the guitar muted and a loop over the solo, and a card showing the song's separation finished">
@@ -193,29 +221,29 @@
   <section class="section" id="player" aria-labelledby="player-h">
     <div class="wrap">
       <div class="grid">
-        <h2 id="player-h" class="span-5">Each stem on its own track</h2>
-        <div class="span-6 start-7 stack-4">
+        <h2 id="player-h" class="span-5" data-reveal>Each stem on its own track</h2>
+        <div class="span-6 start-7 stack-4" data-reveal>
           <p>Each stem gets a row with its waveform, volume, pan, mute and solo. Sections, loops and the bars sit above the tracks.</p>
           <a class="link" href="#practice">See the practice tools</a>
         </div>
       </div>
-      <div class="shot fill"><img src="assets/img/player-zoom.avif" srcset="assets/img/player-zoom-800.avif 800w, assets/img/player-zoom-1400.avif 1400w, assets/img/player-zoom.avif 2800w" sizes="(max-width: 767px) 200vw, 100vw" alt="Six stems of a song with section markers, numbered bars, chords and a loop over the solo" width="2800" height="1300" loading="lazy" data-source="client" data-subject="the Watershed player, close up"></div>
+      <div class="shot fill" data-reveal><img src="assets/img/player-zoom.avif" srcset="assets/img/player-zoom-800.avif 800w, assets/img/player-zoom-1400.avif 1400w, assets/img/player-zoom.avif 2800w" sizes="(max-width: 767px) 200vw, 100vw" alt="Six stems of a song with section markers, numbered bars, chords and a loop over the solo" width="2800" height="1300" loading="lazy" data-source="client" data-subject="the Watershed player, close up"></div>
     </div>
   </section>
 
   <section class="section g2" id="practice" aria-labelledby="practice-h">
     <div class="wrap">
       <div class="group">
-        <div class="section-head">
+        <div class="section-head" data-reveal>
           <h2 id="practice-h">Practice tools for learning a part by ear. <span class="muted">Then play it with the band.</span></h2>
         </div>
         <div class="grid">
-          <article class="card card--row card--open span-6">
+          <article class="card card--row card--open span-6" data-reveal>
             <h3>Mutes the stem you play</h3>
             <p>Mute the guitar and play it yourself over the band, or solo the bass to hear what it really plays.</p>
             <div class="panel pn-mixer"><img src="assets/img/crop-mixer.avif" alt="Vocals, guitar and bass tracks with the guitar muted" width="1180" height="440" loading="lazy"></div>
           </article>
-          <article class="card card--row card--open span-6">
+          <article class="card card--row card--open span-6" data-reveal>
             <h3>Slows practice without changing key</h3>
             <p>Practise the song at 80 % and keep its pitch, or move it a semitone down to match your tuning.</p>
             <div class="panel pn-tempo" role="img" aria-label="Tempo at 80 percent, 107 BPM, and pitch one semitone down, in the song's key of F sharp">
@@ -223,19 +251,19 @@
                 <div class="d-card__row"><h5>Caifanes - No Dejes Que</h5><span class="d-chip">Key F#</span></div>
                 <div class="t-ctl"><span>Tempo</span><span class="t-ctl__slider" style="--v: 30%"></span><span class="t-ctl__vals"><span>80 %</span><span>107 BPM</span></span></div>
                 <div class="t-ctl"><span>Pitch</span><span class="t-ctl__slider" style="--v: 46%"></span><span class="t-ctl__vals"><span>−1 st</span><span>+0 ct</span></span></div>
-                <div class="t-ctl"><span>Click</span><span class="t-ctl__slider" style="--v: 70%"></span><span class="t-ctl__vals"><span>Count-in</span></span></div>
+                <div class="t-ctl"><span>Click</span><span class="t-ctl__slider" style="--v: 70%"></span><span class="t-ctl__vals"><span><i class="beat" aria-hidden="true"></i>Count-in</span></span></div>
               </div>
             </div>
           </article>
         </div>
       </div>
       <div class="grid">
-        <article class="card card--row card--open span-6">
+        <article class="card card--row card--open span-6" data-reveal>
           <h3>Loops the solo, bars 105 to 120</h3>
           <p>Name the song's sections, jump between them and save a loop over the solo for tomorrow.</p>
           <div class="panel pn-markers"><img src="assets/img/crop-markers.avif" alt="Markers for intro, verse, chorus, solo, last chorus and outro, and two saved loops" width="560" height="640" loading="lazy"></div>
         </article>
-        <article class="card card--row card--open span-6">
+        <article class="card card--row card--open span-6" data-reveal>
           <h3>Counts in 4 beats at the song's tempo</h3>
           <p>The click follows the band, even when it did not play to a click. Bars and chords run above the tracks.</p>
           <div class="panel pn-bars"><img src="assets/img/crop-bars.avif" srcset="assets/img/crop-bars-845.avif 845w, assets/img/crop-bars.avif 1690w" sizes="(max-width: 1023px) 100vw, 70vw" alt="Section markers, numbered bars and chord names above the tracks" width="1690" height="600" loading="lazy"></div>
@@ -247,7 +275,7 @@
   <section class="section" id="separation" aria-labelledby="separation-h">
     <div class="wrap">
       <div class="grid">
-        <div class="span-5 stack-5">
+        <div class="span-5 stack-5" data-reveal>
           <h2 id="separation-h">Stem separation in one to two minutes</h2>
           <p class="t-lead">Drop an mp3, flac, wav, ogg or m4a file on the window. A RoFormer model runs on your graphics card and saves six stems to your music library. No upload, no account.</p>
           <ul class="facts">
@@ -257,7 +285,7 @@
           </ul>
           <a class="link" href="#download">Check what your computer needs</a>
         </div>
-        <div class="frame frame--split span-6 start-7"><img src="assets/img/separation.avif" srcset="assets/img/separation-800.avif 800w, assets/img/separation.avif 1600w" sizes="(max-width: 1023px) 100vw, 90vw" alt="Watershed's start screen while a song is split: 21 percent done, about a minute left" width="1600" height="550" loading="lazy" data-source="client" data-subject="Watershed separating a song"></div>
+        <div class="frame frame--split span-6 start-7" data-reveal><img src="assets/img/separation.avif" srcset="assets/img/separation-800.avif 800w, assets/img/separation.avif 1600w" sizes="(max-width: 1023px) 100vw, 90vw" alt="Watershed's start screen while a song is split: 21 percent done, about a minute left" width="1600" height="550" loading="lazy" data-source="client" data-subject="Watershed separating a song"></div>
       </div>
     </div>
   </section>
@@ -265,12 +293,12 @@
   <section class="section" id="questions" aria-labelledby="questions-h">
     <div class="wrap">
       <div class="grid">
-        <div class="span-5 stack-4">
+        <div class="span-5 stack-4" data-reveal>
           <h2 id="questions-h">Questions</h2>
           <p class="muted faq__note">Something not working? Tell us on GitHub.</p>
           <a class="link" href="https://github.com/edarbieto/watershed/issues"><img class="link__icon" data-icon="github" src="assets/icons/github.svg" alt="" width="20" height="20" loading="lazy">Open an issue on GitHub</a>
         </div>
-        <div class="faq span-6 start-7">
+        <div class="faq span-6 start-7" data-reveal>
           <div class="faq__item"><h3>Is Watershed free?</h3><p>Yes. It is open source under the MIT or Apache-2.0 licence, with no account and no subscription.</p></div>
           <div class="faq__item"><h3>Does Watershed upload my songs?</h3><p>No. Songs are split on your own computer. The only download is the model, once.</p></div>
           <div class="faq__item"><h3>Can I open stems from other tools?</h3><p>Yes. Drop a folder of stems, for example from MVSEP, and it opens in the player, no graphics card needed.</p></div>
@@ -282,16 +310,16 @@
   <section class="section" id="download" aria-labelledby="download-h">
     <div class="wrap">
       <div class="grid">
-        <div class="span-5 stack-5">
+        <div class="span-5 stack-5" data-reveal>
           <h2 id="download-h">Watershed for macOS, Windows and Linux</h2>
           <div class="dl-list">
-            <div class="dl"><h3><img class="dl__icon" data-icon="apple" src="assets/icons/apple.svg" alt="" width="28" height="28" loading="lazy">macOS 11 or newer</h3><p>Apple Silicon (M1 or newer). Allow it once in Privacy &amp; Security.</p><a class="link" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-macos-arm64.dmg">Download for macOS</a></div>
-            <div class="dl"><h3><img class="dl__icon" data-icon="windows" src="assets/icons/windows.svg" alt="" width="28" height="28" loading="lazy">Windows 10 and 11</h3><p>Best tested with an NVIDIA card. Unzip and run watershed.exe.</p><a class="link" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-windows-x86_64.zip">Download for Windows</a></div>
-            <div class="dl"><h3><img class="dl__icon" data-icon="linux-tux" src="assets/icons/linux-tux.svg" alt="" width="28" height="28" loading="lazy">Linux on x86_64</h3><p>glibc 2.35 or newer, Vulkan and FUSE 2.</p><a class="link" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-linux-x86_64.AppImage">Download for Linux</a></div>
+            <div class="dl" data-reveal><h3><img class="dl__icon" data-icon="apple" src="assets/icons/apple.svg" alt="" width="28" height="28" loading="lazy">macOS 11 or newer</h3><p>Apple Silicon (M1 or newer). Allow it once in Privacy &amp; Security.</p><a class="link link--dl" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-macos-arm64.dmg"><svg class="ic ic--dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11.5M6.5 9.5 12 15l5.5-5.5M4.5 20h15" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download for macOS</a></div>
+            <div class="dl" data-reveal><h3><img class="dl__icon" data-icon="windows" src="assets/icons/windows.svg" alt="" width="28" height="28" loading="lazy">Windows 10 and 11</h3><p>Best tested with an NVIDIA card. Unzip and run watershed.exe.</p><a class="link link--dl" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-windows-x86_64.zip"><svg class="ic ic--dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11.5M6.5 9.5 12 15l5.5-5.5M4.5 20h15" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download for Windows</a></div>
+            <div class="dl" data-reveal><h3><img class="dl__icon" data-icon="linux-tux" src="assets/icons/linux-tux.svg" alt="" width="28" height="28" loading="lazy">Linux on x86_64</h3><p>glibc 2.35 or newer, Vulkan and FUSE 2.</p><a class="link link--dl" href="https://github.com/edarbieto/watershed/releases/latest/download/Watershed-linux-x86_64.AppImage"><svg class="ic ic--dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11.5M6.5 9.5 12 15l5.5-5.5M4.5 20h15" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download for Linux</a></div>
           </div>
           <p>Splitting needs a graphics card; playing stems does not. Light and dark themes follow your system.</p>
         </div>
-        <div class="frame frame--split span-6 start-7"><img src="assets/img/player-dark.avif" srcset="assets/img/player-dark-900.avif 900w, assets/img/player-dark.avif 1800w" sizes="(max-width: 639px) 760px, 1240px" alt="The player in its dark theme: six stems with section markers, a beat grid and a loop over the solo" width="1800" height="846" loading="lazy" data-source="client" data-subject="the Watershed player, dark theme"></div>
+        <div class="frame frame--split span-6 start-7" data-reveal><img src="assets/img/player-dark.avif" srcset="assets/img/player-dark-900.avif 900w, assets/img/player-dark.avif 1800w" sizes="(max-width: 639px) 760px, 1240px" alt="The player in its dark theme: six stems with section markers, a beat grid and a loop over the solo" width="1800" height="846" loading="lazy" data-source="client" data-subject="the Watershed player, dark theme"></div>
       </div>
     </div>
   </section>
@@ -318,6 +346,24 @@
   if (line) line.textContent = `Free and open source. The button downloads the ${os[0]} version.`;
 })();
 </script>
+<!-- blocks rise in as they come into view; siblings follow each other by 90 ms -->
+<script>
+(() => {
+  if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const els = [...document.querySelectorAll('[data-reveal]')];
+  document.documentElement.classList.add('rv');
+  els.forEach(el => {
+    const sibs = [...el.parentElement.children].filter(c => c.hasAttribute('data-reveal'));
+    el.style.setProperty('--rv-d', Math.min(sibs.indexOf(el), 4) * 90 + 'ms');
+  });
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
+  }), { rootMargin: '0px 0px -8% 0px' });
+  els.forEach(el => io.observe(el));
+  // never leave a block hidden: show everything after 4 s whatever the observer did
+  setTimeout(() => els.forEach(el => el.classList.add('is-in')), 4000);
+})();
+</script>
 <!-- the hero's waves: drawn to the hero's size, again when it changes -->
 <script>
 (() => {
@@ -326,10 +372,10 @@
   const css = getComputedStyle(document.documentElement);
   const colours = ['vocals', 'guitar', 'bass', 'drums', 'piano', 'other'].map(n => css.getPropertyValue('--st-' + n).trim());
   const ease = t => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
-  let lastW = 0, lastH = 0;
-  function draw() {
+  let lastW = 0, lastH = 0, open = 1;
+  function draw(force) {
     const W = hero.clientWidth, H = hero.clientHeight;
-    if (!W || !H || (W === lastW && H === lastH)) return;
+    if (!W || !H || (!force && W === lastW && H === lastH)) return;
     lastW = W; lastH = H;
     const phone = W < 640;
     // the lanes fill most of the hero; on a phone they open more gently across the narrow width
@@ -342,7 +388,7 @@
       const p0 = rnd() * 9, p1 = rnd() * 9, p2 = rnd() * 9, amp = 0.55 + rnd() * 0.45, busy = 0.4 + rnd();
       const top = [], bot = [];
       for (let x = 0; x <= W + step; x += step) {
-        const t = ease((x - split0) / (split1 - split0));
+        const t = ease((x - split0) / (split1 - split0)) * open;
         const cy = mid + (i - (colours.length - 1) / 2) * lane * t;
         const env = 0.35 + 0.65 * Math.abs(Math.sin(x / 140 + p0) * Math.sin(x / 57 + p1));
         const grain = 0.6 + 0.4 * Math.abs(Math.sin(x * busy / 4 + p2) * Math.sin(x / 9));
@@ -353,8 +399,19 @@
       return `<polygon points="${top.concat(bot).join(' ')}" fill="${c}" fill-opacity="${phone ? 0.11 : 0.14}"/>`;
     }).join('');
   }
-  draw();
-  new ResizeObserver(draw).observe(hero);
+  // the mix opens into its lanes once, over 1.8 s, as the hero enters
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { draw(); svg.classList.add('is-open'); }
+  else {
+    open = 0; draw();
+    const t0 = performance.now() + 250;
+    const tick = now => {
+      open = ease(Math.max(0, Math.min(1, (now - t0) / 1800)));
+      draw(true);
+      if (open < 1) requestAnimationFrame(tick); else svg.classList.add('is-open');
+    };
+    requestAnimationFrame(tick);
+  }
+  new ResizeObserver(() => draw()).observe(hero);
 })();
 </script>
 <script type="module" src="assets/system.js"></script>
