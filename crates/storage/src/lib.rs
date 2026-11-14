@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 mod session;
 
-pub use session::{GridChange, Marker, SESSION_FILE, SavedLoop, Session, TrackState};
+pub use session::{GridChange, Marker, SESSION_FILE, SavedLoop, Session, SongInfo, TrackState};
 
 fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "Watershed")
@@ -153,6 +153,10 @@ pub struct RecentFolder {
     pub path: PathBuf,
     /// When it was last opened, in seconds since the Unix epoch.
     pub opened: u64,
+    /// A copy of the song's tags from its session, so the list can show and search
+    /// them without reading every session file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub song: Option<SongInfo>,
 }
 
 impl Config {
@@ -161,14 +165,20 @@ impl Config {
         self.library_folder.clone().or_else(default_library_folder)
     }
 
-    /// Puts `folder` first in the recent list, opened at `now` (Unix seconds).
-    pub fn remember(&mut self, folder: &Path, now: u64) {
+    /// Puts `folder` first in the recent list, opened at `now` (Unix seconds), with
+    /// the song's tags; `None` keeps the ones it had.
+    pub fn remember(&mut self, folder: &Path, now: u64, song: Option<SongInfo>) {
+        let song = song.or_else(|| {
+            let old = self.recent.iter().find(|r| r.path == folder)?;
+            old.song.clone()
+        });
         self.forget(folder);
         self.recent.insert(
             0,
             RecentFolder {
                 path: folder.to_owned(),
                 opened: now,
+                song,
             },
         );
         self.recent.truncate(MAX_RECENT);
@@ -233,6 +243,11 @@ mod tests {
             recent: vec![RecentFolder {
                 path: PathBuf::from("songs/one"),
                 opened: 1_700_000_000,
+                song: Some(SongInfo {
+                    title: Some("One".into()),
+                    artist: Some("Band".into()),
+                    ..SongInfo::default()
+                }),
             }],
             library_folder: Some(PathBuf::from("library")),
             stem_format: StemFormat::Lossless,
@@ -257,13 +272,20 @@ mod tests {
     fn recent_list_keeps_the_latest_first_without_duplicates() {
         let mut config = Config::default();
         for i in 0..MAX_RECENT + 5 {
-            config.remember(Path::new(&format!("song{i}")), i as u64);
+            config.remember(Path::new(&format!("song{i}")), i as u64, None);
         }
         let latest = PathBuf::from(format!("song{}", MAX_RECENT + 4));
         assert_eq!(config.recent.len(), MAX_RECENT);
         assert_eq!(config.recent[0].path, latest);
 
-        config.remember(Path::new("song10"), 100);
+        let tags = SongInfo {
+            title: Some("Ten".into()),
+            ..SongInfo::default()
+        };
+        config.remember(Path::new("song10"), 90, Some(tags.clone()));
+        // Opened again without tags: it keeps the ones it had.
+        config.remember(Path::new("song10"), 100, None);
+        assert_eq!(config.recent[0].song, Some(tags));
         assert_eq!(config.recent.len(), MAX_RECENT);
         assert_eq!(config.recent[0].path, Path::new("song10"));
         assert_eq!(config.recent[0].opened, 100);

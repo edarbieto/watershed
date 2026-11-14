@@ -93,7 +93,7 @@ fn main() -> Result<()> {
         std::fs::create_dir_all(&out)?;
         let gain = gain_to_fit(&stems);
         for (name, stem) in STEMS.iter().zip(&stems) {
-            write_flac(&out.join(format!("{name}.flac")), stem, gain)?;
+            write_flac(&out.join(format!("{name}.flac")), stem, gain, &[])?;
         }
     }
     Ok(())

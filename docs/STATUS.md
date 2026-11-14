@@ -132,8 +132,7 @@ Last updated: 2026-11-14.
 > 1. ~~Check which actions still have only a shortcut and no button, and the `?` window.~~
 >    Done: every key has a menu item; the `?` window gained the gestures it was missing
 >    (rename, drag a waveform for a loop, drag an unlocked track, double-click resets).
-> 2. Keep the song's tags after separating (`PLAN.md`, v0.2): read them with symphonia, a
->    `[song]` table in the session, search and show them in the recent list.
+> 2. ~~Keep the song's tags after separating.~~ Built, **to try** (see "Song tags").
 > 3. Click on another output: channel pairs on one device first, then try a macOS Aggregate
 >    Device with the user's hardware.
 > 4. `CHANGELOG.md` (back-filled for v0.1.0 and v0.1.1) and `docs/FEATURES.md`, linked from
@@ -221,6 +220,25 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
    (`PLAN.md` section 9). The logo and the release workflow are done (see "Release
    workflow"). Released `v0.1.0` on 2026-11-05. `v0.1.1` (2026-11-05): non-blocking file dialogs (resizing one crashed the macOS app), separate start folders for the song and stems dialogs, and auto update; released by Claude with `gh release edit --draft=false` after the workflow built it. The README has download instructions and two screenshots
    (`docs/screenshots`, taken by the user on macOS, halved to 1x).
+
+## Song tags
+
+Built 2026-11-14 (v0.2), to try. Separating reads the song file's tags (`watershed_dsp::read_tags`:
+a symphonia probe, no decoding; ID3 at either end, MP4, Vorbis comments) and keeps title,
+artist, album, track, year and genre:
+- in the session, as a `[song]` table with `source` (the song's file name);
+- in every stem, as Vorbis comments (Ogg and FLAC), the title as "Title (vocals)", so DAWs
+  and players show them;
+- in each entry of the config's recent list, so the list shows and searches them without
+  reading every session.
+
+The start screen shows the tag title with "Artist · Album" under it; File > Open Recent and the
+top bar's recent menu show "Title · Artist". Search matches title, artist, album and folder.
+A folder whose session has no `[song]` (separated before, or from another tool) takes the first
+stem's tags that has any (the stem name taken off the title), or none; the session keeps the
+result, so this is looked up once. Checked: the Caifanes mp3's ID3 and an MP4's tags read; a
+real separation wrote the session table and the stems' tags. To try in the app: separate a song
+with tags, then its row in the start screen, both recent menus and searching by artist.
 
 ## Project website
 

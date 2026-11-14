@@ -1,4 +1,4 @@
-//! Decodes audio files and prints what was found.
+//! Decodes audio files and prints what was found, tags included.
 //!
 //! `cargo run --release -p watershed-dsp --example probe -- FILE [FILE...]`
 
@@ -21,6 +21,10 @@ fn main() {
                 );
             }
             Err(e) => println!("{}: {e}", path.display()),
+        }
+        match watershed_dsp::read_tags(&path) {
+            Ok(tags) => println!("  tags: {tags:?}"),
+            Err(e) => println!("  tags: {e}"),
         }
     }
 }

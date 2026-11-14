@@ -4,7 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use watershed_storage::{Session, StemFormat};
+use watershed_dsp::Tags;
+use watershed_storage::{Session, SongInfo, StemFormat};
 
 use crate::{SeparationError, Separator};
 
@@ -32,7 +33,8 @@ pub struct SeparatedSong {
 
 /// Decodes `song`, separates it and writes one file per stem in `format`
 /// (`vocals.ogg` or `vocals.flac`, ...) plus a session with the common stem gain
-/// into `folder`, which must not exist yet.
+/// and the song's tags into `folder`, which must not exist yet. The stems carry
+/// the tags too.
 ///
 /// Everything is written to a `.partial` folder next to it first and renamed at
 /// the end, so a cancelled or failed run never leaves a half-written song folder.
@@ -98,6 +100,10 @@ fn write_partial(
     std::fs::create_dir_all(partial).map_err(io_error(partial))?;
 
     progress(Stage::Decoding, 0.0);
+    // A song without readable tags still separates.
+    let tags = watershed_dsp::read_tags(song)
+        .inspect_err(|e| log::warn!("no tags from {}: {e}", song.display()))
+        .unwrap_or_default();
     let audio = watershed_dsp::decode_file(song)?;
     let audio = watershed_dsp::resample(audio, separator.sample_rate())?;
     progress(Stage::Decoding, 1.0);
@@ -130,14 +136,17 @@ fn write_partial(
             .zip(names)
             .map(|(stem, name)| {
                 let written = &written;
+                let comments = tags.vorbis_comments(name);
                 scope.spawn(move || {
                     if cancel() {
                         return Err(SeparationError::Cancelled);
                     }
                     let path = partial.join(stem_file_name(name, format));
                     match format {
-                        StemFormat::Lossy => watershed_dsp::write_vorbis(&path, stem)?,
-                        StemFormat::Lossless => watershed_dsp::write_flac(&path, stem, gain)?,
+                        StemFormat::Lossy => watershed_dsp::write_vorbis(&path, stem, &comments)?,
+                        StemFormat::Lossless => {
+                            watershed_dsp::write_flac(&path, stem, gain, &comments)?;
+                        }
                     }
                     let done = written.fetch_add(1, Ordering::Relaxed) + 1;
                     progress(Stage::Writing, done as f32 / names.len() as f32);
@@ -153,13 +162,44 @@ fn write_partial(
     progress(Stage::Writing, 1.0);
 
     let session_path = Session::path_in(partial);
+    let source = song.file_name().map(|n| n.to_string_lossy().into_owned());
     Session {
         stem_gain: gain,
+        song: Some(song_info(tags, source)),
         ..Session::default()
     }
     .save_to(&session_path)
     .map_err(io_error(&session_path))?;
     Ok(gain)
+}
+
+/// The tags as kept in a session, with the name of the file they came from.
+pub fn song_info(tags: Tags, source: Option<String>) -> SongInfo {
+    SongInfo {
+        title: tags.title,
+        artist: tags.artist,
+        album: tags.album,
+        track: tags.track,
+        year: tags.year,
+        genre: tags.genre,
+        source,
+    }
+}
+
+/// The tags of a folder of stems that has none in its session (separated before
+/// Watershed kept them, or by another tool): those of the first stem that has any.
+/// Empty if none has.
+pub fn stems_song_info(files: &[PathBuf]) -> SongInfo {
+    let tags = files
+        .iter()
+        .filter_map(|file| {
+            let stem = file.file_stem()?.to_string_lossy();
+            let tags = watershed_dsp::read_tags(file).ok()?;
+            Some(tags.strip_stem(&stem))
+        })
+        .find(|tags| !tags.is_empty())
+        .unwrap_or_default();
+    song_info(tags, None)
 }
 
 fn stem_file_name(name: &str, format: StemFormat) -> String {
@@ -239,7 +279,8 @@ mod tests {
             Self(dir)
         }
 
-        /// A one-second song at 48 kHz, so it gets resampled, peaking at 0.75.
+        /// A one-second song at 48 kHz, so it gets resampled, peaking at 0.75, with
+        /// [`song_tags`] (the "song" stem name is left out of its title).
         fn song(&self) -> PathBuf {
             let samples = (0..48_000)
                 .flat_map(|i| {
@@ -248,8 +289,23 @@ mod tests {
                 })
                 .collect();
             let path = self.0.join("song.flac");
-            watershed_dsp::write_flac(&path, &StereoBuffer::new(48_000, samples), 1.0).unwrap();
+            let comments: Vec<_> = song_tags()
+                .vorbis_comments("")
+                .into_iter()
+                .map(|(key, value)| (key, value.replace(" ()", "")))
+                .collect();
+            let audio = StereoBuffer::new(48_000, samples);
+            watershed_dsp::write_flac(&path, &audio, 1.0, &comments).unwrap();
             path
+        }
+    }
+
+    fn song_tags() -> Tags {
+        Tags {
+            title: Some("Song".into()),
+            artist: Some("Band".into()),
+            year: Some(2001),
+            ..Tags::default()
         }
     }
 
@@ -325,6 +381,19 @@ mod tests {
         assert_eq!(separated.stem_gain, 1.0);
         let session = Session::load_from(&Session::path_in(&folder)).unwrap();
         assert_eq!(session.stem_gain, 1.0);
+
+        // The tags, in the session with the file name and in each stem.
+        let info = song_info(song_tags(), None);
+        assert_eq!(
+            session.song,
+            Some(SongInfo {
+                source: Some("song.flac".into()),
+                ..info.clone()
+            })
+        );
+        let left_tags = watershed_dsp::read_tags(&separated.files[0]).unwrap();
+        assert_eq!(left_tags.title.as_deref(), Some("Song (left)"));
+        assert_eq!(stems_song_info(&separated.files), info);
 
         // Floating point: the left stem keeps its peak above full scale.
         let left = watershed_dsp::decode_file(&separated.files[0]).unwrap();

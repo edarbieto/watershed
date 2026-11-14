@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui::Color32;
+use watershed_storage::{RecentFolder, SongInfo};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StemKind {
@@ -183,6 +184,36 @@ pub fn song_title(folder: &Path) -> String {
         .find_map(|ext| title.strip_suffix(ext))
         .unwrap_or(title);
     title.to_owned()
+}
+
+/// The title shown for a recent song: its tag's, or else the folder's.
+pub fn recent_title(recent: &RecentFolder) -> String {
+    tag_title(recent.song.as_ref()).unwrap_or_else(|| song_title(&recent.path))
+}
+
+/// The song's title tag, if it has one.
+pub fn tag_title(song: Option<&SongInfo>) -> Option<String> {
+    song?.title.clone()
+}
+
+/// What is shown under a recent song's title: "Artist · Album", or either alone.
+pub fn recent_byline(recent: &RecentFolder) -> Option<String> {
+    let song = recent.song.as_ref()?;
+    let parts: Vec<&str> = [&song.artist, &song.album]
+        .into_iter()
+        .flatten()
+        .map(String::as_str)
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// A recent song on one line, for the menus: "Title · Artist".
+pub fn recent_label(recent: &RecentFolder) -> String {
+    let title = recent_title(recent);
+    match recent.song.as_ref().and_then(|s| s.artist.as_ref()) {
+        Some(artist) => format!("{title} · {artist}"),
+        None => title,
+    }
 }
 
 #[cfg(test)]

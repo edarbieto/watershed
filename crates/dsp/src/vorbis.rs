@@ -20,11 +20,16 @@ pub struct VorbisWriteError {
     source: VorbisError,
 }
 
-/// Writes stereo audio as an Ogg Vorbis file.
+/// Writes stereo audio as an Ogg Vorbis file, with `comments` (`("ARTIST", ...)`, see
+/// [`crate::Tags::vorbis_comments`]) in its header.
 ///
 /// Vorbis stores floating point, so samples beyond full scale survive and need no
 /// gain, unlike FLAC.
-pub fn write_vorbis(path: &Path, audio: &StereoBuffer) -> Result<(), VorbisWriteError> {
+pub fn write_vorbis(
+    path: &Path,
+    audio: &StereoBuffer,
+    comments: &[(&str, String)],
+) -> Result<(), VorbisWriteError> {
     let write = || -> Result<(), VorbisError> {
         let sink = BufWriter::new(File::create(path)?);
         let rate = NonZeroU32::new(audio.sample_rate).ok_or_else(|| {
@@ -34,6 +39,7 @@ pub fn write_vorbis(path: &Path, audio: &StereoBuffer) -> Result<(), VorbisWrite
         // Any serial works for a file with one stream; a fixed one keeps output
         // reproducible.
         let mut encoder = VorbisEncoderBuilder::new_with_serial(rate, channels, sink, 1)
+            .comment_tags(comments.iter().map(|(key, value)| (*key, value.as_str())))?
             .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
                 target_quality: QUALITY,
             })
@@ -74,7 +80,7 @@ mod tests {
                 [s * 1.5, s * 0.5]
             })
             .collect();
-        write_vorbis(&path, &StereoBuffer::new(44_100, samples)).unwrap();
+        write_vorbis(&path, &StereoBuffer::new(44_100, samples), &[]).unwrap();
 
         let decoded = crate::decode_file(&path).unwrap();
         assert_eq!(decoded.sample_rate, 44_100);

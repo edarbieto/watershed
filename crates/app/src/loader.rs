@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, channel};
 use eframe::egui::{self, Color32};
 use watershed_audio::{Samples, Song};
 use watershed_dsp::{Chroma, Chromagram, KeyEstimate, OnsetEnvelope, Peaks};
-use watershed_storage::Session;
+use watershed_storage::{Session, SongInfo};
 
 use crate::stems::{StemKind, default_names, song_title, track_colors};
 
@@ -38,6 +38,8 @@ pub struct LoadedSong {
     pub key: Option<KeyEstimate>,
     /// What the chords are estimated from, on any beat grid.
     pub harmony: Harmony,
+    /// The song's tags: the session's, or for a folder without them, the stems'.
+    pub info: SongInfo,
 }
 
 /// The pitched stems' chroma frame by frame, for the chords.
@@ -203,6 +205,11 @@ fn load(
         .and_then(|folder| Session::load_from(&Session::path_in(folder)))
         .unwrap_or_default();
     let compensation = session.stem_gain_compensation();
+    let info = session
+        .song
+        .clone()
+        .unwrap_or_else(|| watershed_separation::stems_song_info(&files));
+    let title = info.title.clone().unwrap_or(title);
     let kinds: Vec<StemKind> = files.iter().map(|f| StemKind::from_path(f)).collect();
 
     // Each stem is packed and its peaks computed in its own thread, so the
@@ -318,5 +325,6 @@ fn load(
         onsets,
         key: harmony.chroma.key(),
         harmony,
+        info,
     })
 }

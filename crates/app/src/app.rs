@@ -7,7 +7,7 @@ use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText};
 use watershed_audio::{Beats, Engine, Notify, OutputDevice, Samples, Song, output_devices};
 use watershed_dsp::Peaks;
 use watershed_separation::catalog;
-use watershed_storage::{Appearance, Config, Session, StemFormat, TrackState};
+use watershed_storage::{Appearance, Config, RecentFolder, Session, StemFormat, TrackState};
 
 use crate::bpm::{self, Bpm};
 use crate::chords::{self, SongChords};
@@ -25,7 +25,7 @@ use crate::playhead::Playhead;
 use crate::rulers::{self, GridAction, LoopAction, RulerAction};
 use crate::separate::{self, Job, Target};
 use crate::shortcuts;
-use crate::stems::song_title;
+use crate::stems::{recent_byline, recent_label, recent_title, song_title};
 use crate::subwindow;
 use crate::transport::{Command, Transport};
 use crate::update::{self, Updater};
@@ -474,7 +474,8 @@ impl WatershedApp {
         self.separating = None;
         match result {
             Ok(folder) => {
-                self.config.remember(&folder, unix_now());
+                let song = Session::load_from(&Session::path_in(&folder)).and_then(|s| s.song);
+                self.config.remember(&folder, unix_now(), song);
                 self.config.save();
                 if self.engine.as_ref().is_some_and(Engine::is_playing) {
                     self.ready = Some(folder);
@@ -557,7 +558,8 @@ impl WatershedApp {
                     .and(self.selected)
                     .and_then(|i| self.loaded.as_ref()?.files.get(i).cloned());
                 if let Some(folder) = loaded.files[0].parent() {
-                    self.config.remember(folder, unix_now());
+                    self.config
+                        .remember(folder, unix_now(), Some(loaded.info.clone()));
                     self.config.save();
                 }
                 // Write the session of the song being replaced before switching.
@@ -713,6 +715,7 @@ impl WatershedApp {
             key: self.song_key.user(),
             click: self.metronome.click,
             count_in: self.metronome.count_in,
+            song: Some(loaded.info.clone()),
             ..Session::default()
         };
         Some((session_path(loaded), session))
@@ -1339,10 +1342,10 @@ impl WatershedApp {
         chosen.extend(menu::shortcut_pressed(ui.ctx(), |command| {
             typing && matches!(command, MenuCommand::Undo | MenuCommand::Redo)
         }));
-        self.menus.update(&status, &recent);
+        self.menus.update(&status, &self.config.recent);
         if !self.menus.is_native() {
             egui::Panel::top("menu_bar").show(ui, |ui| {
-                chosen.extend(self.menus.bar(ui, &status, &recent));
+                chosen.extend(self.menus.bar(ui, &status, &self.config.recent));
             });
         }
         for command in chosen {
@@ -1762,12 +1765,12 @@ impl WatershedApp {
                         .config
                         .recent
                         .iter()
-                        .filter(|r| matches_search(&self.recent_menu_search, &r.path))
+                        .filter(|r| matches_search(&self.recent_menu_search, r))
                         .collect();
                     for recent in matches.iter().take(RECENT_MENU_ITEMS) {
                         let exists = recent.path.is_dir();
                         let is_current = current == Some(recent.path.as_path());
-                        let item = egui::RadioButton::new(is_current, song_title(&recent.path));
+                        let item = egui::RadioButton::new(is_current, recent_label(recent));
                         // The open song is already there: clicking it does nothing (the
                         // Reload button reads its folder again).
                         let clicked = ui
@@ -1912,7 +1915,7 @@ impl WatershedApp {
                     .config
                     .recent
                     .iter()
-                    .find(|r| matches_search(&self.recent_search, &r.path) && r.path.is_dir())
+                    .find(|r| matches_search(&self.recent_search, r) && r.path.is_dir())
                     .map(|r| r.path.clone());
             }
             ui.add_space(8.0);
@@ -1920,7 +1923,7 @@ impl WatershedApp {
                 .config
                 .recent
                 .iter()
-                .filter(|r| matches_search(&self.recent_search, &r.path))
+                .filter(|r| matches_search(&self.recent_search, r))
                 .collect();
             if shown.is_empty() {
                 ui.vertical_centered(|ui| ui.weak("No matches"));
@@ -1967,8 +1970,9 @@ impl WatershedApp {
                                     RichText::new(short_path(folder)).weak().small(),
                                 );
                             }
-                            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                                let title = RichText::new(song_title(&recent.path)).size(15.0);
+                            // The title, and the artist and album under it if known.
+                            let title_cell = |ui: &mut egui::Ui| {
+                                let title = RichText::new(recent_title(recent)).size(15.0);
                                 if recent.path.is_dir() {
                                     // A link that can be cut short, which `Link` cannot.
                                     let color = ui.visuals().hyperlink_color;
@@ -1986,14 +1990,36 @@ impl WatershedApp {
                                             egui::Stroke::new(1.0, color),
                                         );
                                     }
-                                    if response.clicked() {
-                                        open = Some(recent.path.clone());
-                                    }
+                                    response.clicked()
                                 } else {
                                     ui.add(egui::Label::new(title.weak()).truncate())
                                         .on_hover_text("Folder not found");
+                                    false
                                 }
-                            });
+                            };
+                            let clicked = match recent_byline(recent) {
+                                Some(byline) => {
+                                    ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                                        ui.add_space(4.0);
+                                        ui.spacing_mut().item_spacing.y = 0.0;
+                                        let clicked = title_cell(ui);
+                                        ui.add(
+                                            egui::Label::new(RichText::new(byline).weak().small())
+                                                .truncate(),
+                                        );
+                                        ui.add_space(4.0);
+                                        clicked
+                                    })
+                                    .inner
+                                }
+                                None => {
+                                    ui.with_layout(Layout::left_to_right(Align::Center), title_cell)
+                                        .inner
+                                }
+                            };
+                            if clicked {
+                                open = Some(recent.path.clone());
+                            }
                         });
                     });
                     if i % 2 == 1 {
@@ -4127,8 +4153,21 @@ const RECENT_MENU_ITEMS: usize = 15;
 
 /// Whether a recent song matches a search: every word typed, ignoring case, is in its
 /// title or its folder.
-fn matches_search(query: &str, folder: &std::path::Path) -> bool {
-    let text = format!("{} {}", song_title(folder), short_path(folder)).to_lowercase();
+/// Whether every word of `query` is in the recent song's title, artist, album or
+/// folder.
+fn matches_search(query: &str, recent: &RecentFolder) -> bool {
+    let folder = &recent.path;
+    let mut text = format!("{} {}", song_title(folder), short_path(folder));
+    if let Some(song) = &recent.song {
+        for tag in [&song.title, &song.artist, &song.album]
+            .into_iter()
+            .flatten()
+        {
+            text.push(' ');
+            text.push_str(tag);
+        }
+    }
+    let text = text.to_lowercase();
     query
         .to_lowercase()
         .split_whitespace()
@@ -4207,11 +4246,22 @@ mod tests {
 
     #[test]
     fn searches_recent_songs() {
-        let folder = std::path::Path::new("/music/library/Opeth - Deliverance");
-        assert!(matches_search("", folder));
-        assert!(matches_search("  deliv OPETH ", folder));
-        assert!(matches_search("library", folder));
-        assert!(!matches_search("opeth queen", folder));
+        let mut recent = RecentFolder {
+            path: PathBuf::from("/music/library/Opeth - Deliverance"),
+            opened: 0,
+            song: None,
+        };
+        assert!(matches_search("", &recent));
+        assert!(matches_search("  deliv OPETH ", &recent));
+        assert!(matches_search("library", &recent));
+        assert!(!matches_search("opeth queen", &recent));
+        recent.song = Some(watershed_storage::SongInfo {
+            title: Some("Master's Apprentices".into()),
+            album: Some("Deliverance".into()),
+            ..Default::default()
+        });
+        assert!(matches_search("apprentices", &recent));
+        assert!(!matches_search("damnation", &recent));
     }
 
     #[test]

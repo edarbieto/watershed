@@ -8,11 +8,13 @@
 //! app's, so they still type into text fields; the menus only show them (macOS as key
 //! equivalents, which the window gets first; Windows as text).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
 
-use crate::stems::song_title;
+use watershed_storage::RecentFolder;
+
+use crate::stems::recent_label;
 
 /// Recent songs listed in File > Open Recent.
 const RECENT_ITEMS: usize = 10;
@@ -419,7 +421,7 @@ impl Menus {
         not(any(target_os = "macos", windows)),
         allow(unused_variables, clippy::unused_self)
     )]
-    pub fn update(&mut self, status: &dyn Fn(MenuCommand) -> Status, recent: &[PathBuf]) {
+    pub fn update(&mut self, status: &dyn Fn(MenuCommand) -> Status, recent: &[RecentFolder]) {
         #[cfg(any(target_os = "macos", windows))]
         if let Some(native) = &mut self.native {
             native.update(status, recent);
@@ -432,7 +434,7 @@ impl Menus {
         &self,
         ui: &mut egui::Ui,
         status: &dyn Fn(MenuCommand) -> Status,
-        recent: &[PathBuf],
+        recent: &[RecentFolder],
     ) -> Option<MenuCommand> {
         let mut chosen = None;
         egui::MenuBar::new().ui(ui, |ui| {
@@ -456,7 +458,7 @@ fn draw_entry(
     ui: &mut egui::Ui,
     entry: Entry,
     status: &dyn Fn(MenuCommand) -> Status,
-    recent: &[PathBuf],
+    recent: &[RecentFolder],
 ) -> Option<MenuCommand> {
     let keys_text = |ui: &egui::Ui, keys: Keys| match keys {
         Keys::None => String::new(),
@@ -484,14 +486,14 @@ fn draw_entry(
             let mut chosen = None;
             ui.add_enabled_ui(!recent.is_empty(), |ui| {
                 ui.menu_button("Open Recent", |ui| {
-                    for (index, path) in recent.iter().take(RECENT_ITEMS).enumerate() {
+                    for (index, recent) in recent.iter().take(RECENT_ITEMS).enumerate() {
                         let command = MenuCommand::OpenRecent(index);
                         if ui
                             .add_enabled(
                                 status(command).enabled,
-                                egui::Button::new(song_title(path)),
+                                egui::Button::new(recent_label(recent)),
                             )
-                            .on_hover_text(path.display().to_string())
+                            .on_hover_text(recent.path.display().to_string())
                             .clicked()
                         {
                             chosen = Some(command);
@@ -539,7 +541,9 @@ mod native {
     };
 
     use super::{Entry, Keys, MenuCommand, RECENT_ITEMS, Status, System, menus};
-    use crate::stems::song_title;
+    use watershed_storage::RecentFolder;
+
+    use crate::stems::recent_label;
 
     const RECENT_PREFIX: &str = "recent:";
     const CLEAR_RECENT: &str = "recent-clear";
@@ -554,7 +558,8 @@ mod native {
         _menu: Menu,
         items: Vec<(MenuCommand, Item)>,
         recent_menu: Option<Submenu>,
-        recent_shown: Option<Vec<PathBuf>>,
+        /// Each item's folder and label.
+        recent_shown: Option<Vec<(PathBuf, String)>>,
         last: HashMap<MenuCommand, Status>,
         /// The main window, which holds the menu bar on Windows.
         #[cfg(windows)]
@@ -685,7 +690,7 @@ mod native {
             }
         }
 
-        pub fn update(&mut self, status: &dyn Fn(MenuCommand) -> Status, recent: &[PathBuf]) {
+        pub fn update(&mut self, status: &dyn Fn(MenuCommand) -> Status, recent: &[RecentFolder]) {
             for (command, item) in &self.items {
                 let now = status(*command);
                 if self.last.get(command) == Some(&now) {
@@ -700,15 +705,19 @@ mod native {
                 }
                 self.last.insert(*command, now);
             }
-            let shown: Vec<PathBuf> = recent.iter().take(RECENT_ITEMS).cloned().collect();
+            let shown: Vec<(PathBuf, String)> = recent
+                .iter()
+                .take(RECENT_ITEMS)
+                .map(|r| (r.path.clone(), recent_label(r)))
+                .collect();
             if self.recent_shown.as_ref() != Some(&shown)
                 && let Some(menu) = &self.recent_menu
             {
                 while menu.remove_at(0).is_some() {}
-                for (index, path) in shown.iter().enumerate() {
+                for (index, (path, label)) in shown.iter().enumerate() {
                     let item = MenuItem::with_id(
                         format!("{RECENT_PREFIX}{index}"),
-                        song_title(path),
+                        label,
                         path.is_dir(),
                         None,
                     );

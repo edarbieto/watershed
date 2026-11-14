@@ -12,7 +12,7 @@ mod song;
 pub use burn::BurnSeparator;
 pub use catalog::ModelEntry;
 pub use download::{DownloadError, Expected, download, sha256_file};
-pub use song::{SeparatedSong, Stage, separate_song};
+pub use song::{SeparatedSong, Stage, separate_song, song_info, stems_song_info};
 
 /// Splits a stereo mix into stems. [`BurnSeparator`] is the real one; tests use their
 /// own.

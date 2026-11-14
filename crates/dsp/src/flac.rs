@@ -14,17 +14,28 @@ pub struct FlacError {
     source: flac_codec::Error,
 }
 
-/// Writes stereo audio as a 24-bit FLAC file, multiplied by `gain` first.
+/// Writes stereo audio as a 24-bit FLAC file, multiplied by `gain` first, with
+/// `comments` (`("ARTIST", ...)`, see [`crate::Tags::vorbis_comments`]).
 ///
 /// Samples beyond full scale after the gain are clipped, so callers pick a gain
 /// that keeps the peak under 1.0 (see [`gain_to_fit`]).
-pub fn write_flac(path: &Path, audio: &StereoBuffer, gain: f32) -> Result<(), FlacError> {
+pub fn write_flac(
+    path: &Path,
+    audio: &StereoBuffer,
+    gain: f32,
+    comments: &[(&str, String)],
+) -> Result<(), FlacError> {
     // Converted in chunks so a whole song never sits in memory twice.
     const CHUNK: usize = 1 << 16;
     let write = || {
+        let options = comments
+            .iter()
+            .fold(Options::default(), |options, (key, value)| {
+                options.tag(key, value)
+            });
         let mut writer = FlacSampleWriter::create(
             path,
-            Options::default(),
+            options,
             audio.sample_rate,
             BITS_PER_SAMPLE,
             2,
@@ -74,7 +85,7 @@ mod tests {
             .collect();
         let audio = StereoBuffer::new(44_100, samples);
         let path = std::env::temp_dir().join(format!("watershed-flac-{}.flac", std::process::id()));
-        write_flac(&path, &audio, 2.0).unwrap();
+        write_flac(&path, &audio, 2.0, &[]).unwrap();
         let decoded = crate::decode_file(&path);
         std::fs::remove_file(&path).ok();
         let decoded = decoded.unwrap();
@@ -104,7 +115,7 @@ mod tests {
         let audio = StereoBuffer::new(44_100, samples);
         let path =
             std::env::temp_dir().join(format!("watershed-noise-{}.flac", std::process::id()));
-        write_flac(&path, &audio, 0.999).unwrap();
+        write_flac(&path, &audio, 0.999, &[]).unwrap();
         let size = std::fs::metadata(&path).unwrap().len();
         std::fs::remove_file(&path).ok();
         let raw = audio.samples.len() as u64 * 3;

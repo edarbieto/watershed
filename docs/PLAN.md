@@ -677,9 +677,12 @@ same day; their answers are folded in below.
   with the user's choice: Geist and Geist Mono, Material Symbols Rounded (outlined, weight
   400), mute and solo as icons, and a new light theme, "warm stone" (egui's light theme had
   too little contrast). See "Fonts, icons and light theme" in `STATUS.md`.
-- [ ] **Keep the song's tags after separating** (asked by the user): artist, album, title,
+- [x] **Keep the song's tags after separating** (asked by the user): artist, album, title,
   track number (and year, genre) from the source file's ID3 / Vorbis / MP4 tags, so the
-  recent songs can be searched by them. How, to decide:
+  recent songs can be searched by them. **Built 2026-11-14** (see "Song tags" in
+  `STATUS.md`); the user chose: title with "Artist · Album" under it in the recent list, tags
+  written into the stems too, and older folders take their stems' tags if any. The options
+  considered:
   - **Reading:** symphonia already reads the tags while decoding (the probe's and the
     format's metadata, standard keys such as Artist, Album, TrackTitle, TrackNumber, Date,
     Genre); `decode_file` would return them beside the samples. Check symphonia 0.6's

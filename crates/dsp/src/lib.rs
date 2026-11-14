@@ -9,6 +9,7 @@ mod key;
 mod peaks;
 mod resample;
 mod stft;
+mod tags;
 mod tempo;
 mod vorbis;
 
@@ -21,6 +22,7 @@ pub use peaks::Peaks;
 pub use realfft::num_complex::Complex32;
 pub use resample::{ResampleError, resample};
 pub use stft::Stft;
+pub use tags::{Tags, read_tags};
 pub use tempo::{Anchor, OnsetEnvelope, VOCALS_TEMPO_WEIGHT};
 pub use vorbis::{VorbisWriteError, write_vorbis};
 

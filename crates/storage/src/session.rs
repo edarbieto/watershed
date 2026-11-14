@@ -58,6 +58,39 @@ pub struct Session {
     pub click: bool,
     /// One bar of clicks before playback starts.
     pub count_in: bool,
+    /// The song's tags. `None` until they were looked for (sessions from before
+    /// tags); empty if none were found.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song: Option<SongInfo>,
+}
+
+/// The song's tags, from the file it was separated from (or from its stems), and
+/// that file's name. Empty fields are `None`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SongInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    /// Track number on the album.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub year: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    /// File name of the song the stems were separated from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+impl SongInfo {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 impl Default for Session {
@@ -84,6 +117,7 @@ impl Default for Session {
             key: None,
             click: false,
             count_in: false,
+            song: None,
         }
     }
 }
@@ -299,6 +333,15 @@ mod tests {
             key: Some("F#m".into()),
             click: true,
             count_in: true,
+            song: Some(SongInfo {
+                title: Some("Paranoid Android".into()),
+                artist: Some("Radiohead".into()),
+                album: Some("OK Computer".into()),
+                track: Some(2),
+                year: Some(1997),
+                genre: None,
+                source: Some("02 Paranoid Android.mp3".into()),
+            }),
             ..Session::default()
         };
         session.save_to(&path).unwrap();
