@@ -55,7 +55,7 @@ Material Symbols Rounded embedded in the program." \
         assets/fonts/LICENSE-MaterialSymbols.txt
     printf '\n\nPART 2\n'
     cat "$tmp.crates"
-} > "$tmp"
+} | tr -d '\r' > "$tmp" # some license texts have CRLF; git stores LF
 
 if [ "${1:-}" = "--check" ]; then
     if ! cmp -s "$tmp" "$out"; then
