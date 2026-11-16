@@ -31,10 +31,12 @@ chmod +x "$tools/appimagetool"
 
 appdir=target/Watershed.AppDir
 rm -rf "$appdir"
-mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps"
+mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps" \
+    "$appdir/usr/share/doc/watershed"
 cp target/release/watershed "$appdir/usr/bin/watershed"
 cp assets/icon-256.png "$appdir/usr/share/icons/hicolor/256x256/apps/watershed.png"
 cp assets/icon-256.png "$appdir/watershed.png"
+cp LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.txt "$appdir/usr/share/doc/watershed/"
 ln -s usr/bin/watershed "$appdir/AppRun"
 cat > "$appdir/watershed.desktop" <<DESKTOP
 [Desktop Entry]

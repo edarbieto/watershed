@@ -26,7 +26,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/Watershed | Out-Null
-          Copy-Item target/release/watershed.exe, README.md, LICENSE-MIT, LICENSE-APACHE dist/Watershed/
+          Copy-Item target/release/watershed.exe, README.md, LICENSE-MIT, LICENSE-APACHE, THIRD-PARTY-LICENSES.txt dist/Watershed/
           Compress-Archive -Path dist/Watershed -DestinationPath "dist/Watershed-windows-x86_64.zip"
       - uses: actions/upload-artifact@v4
         with:
@@ -60,6 +60,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libxcb-render0-dev \
             libxcb-shape0-dev libxcb-xfixes0-dev libwayland-dev libasound2-dev
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.3
+      - name: Check THIRD-PARTY-LICENSES.txt is up to date
+        run: tools/licenses/generate.sh --check
       - run: tools/package/linux.sh
       - uses: actions/upload-artifact@v4
         with:

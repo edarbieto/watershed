@@ -19,6 +19,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/release/watershed "$app/Contents/MacOS/watershed"
 cp assets/icon.icns "$app/Contents/Resources/icon.icns"
+cp LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.txt "$app/Contents/Resources/"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
