@@ -22,6 +22,25 @@ models and plays them in a multitrack player for practice. Read these first:
   on `origin` when asked or when finishing a block of work the user approved.
 - Before committing: `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo test --workspace`. Do not chain `git commit` after a failing check.
+- Every change a user would notice gets a line under `## [Unreleased]` in
+  `CHANGELOG.md` (Keep a Changelog: Added / Changed / Fixed), and a new feature also goes
+  in `docs/FEATURES.md`. The release notes are built from the changelog.
+- After adding, removing or updating a dependency (or a font, or ported code), run
+  `tools/licenses/generate.sh` (needs `cargo install cargo-about --locked`) and commit
+  `THIRD-PARTY-LICENSES.txt`; the release fails if it is out of date. Code ported from
+  another project is credited in the README's "Credits" and in `tools/licenses/`.
+
+### Releasing
+
+1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and fix the
+   compare links at the bottom; set `version = "X.Y.Z"` in `Cargo.toml` (`Cargo.lock`
+   follows on the next build).
+2. Run the checks, commit `chore: vX.Y.Z`, `git tag -a vX.Y.Z -m "Watershed X.Y.Z"`, push
+   `master` and the tag.
+3. `release.yml` builds the three packages and creates a **draft** release with the
+   changelog section as notes. Check the files and notes, then publish it
+   (`gh release edit vX.Y.Z --draft=false`): the website's download buttons and the
+   in-app updater use the latest published release.
 
 ## Toolchain
 
@@ -76,6 +95,10 @@ machine or regenerate them with the reference tool from any mp3s.
 | `crates/storage` | `Config` (TOML in the OS config dir), `Session` (`.watershed.toml`), `models_dir` |
 | `crates/separation` | `trait Separator`, `BurnSeparator`, `separate_song` (song file → folder of stems + session); `catalog` (`models.toml`: downloadable models; `install` downloads the `.ckpt` with sha256 check, converts it to f16 and deletes it), `download` (resumable, mirrors); `examples/separate.rs`, `examples/gpu_test.rs` (standalone test for other machines) |
 | `crates/roformer` | The model (Phase 4): `BsRoformer` on burn, `layers.rs` (attention, band split, masks), `kernels.rs` (own attention and matmul kernels, fallbacks), `Weights` (reads `.ckpt` or f16 `.safetensors`), `convert_to_half`, `Config` (reads the `.yaml`), `Precision`, `separate.rs` (song to stems); `examples/chunk.rs` (timing and comparison with PyTorch), `examples/song.rs` (a whole song, SDR against reference stems), `examples/convert.rs`; `tests/equivalence.rs` (layers, STFT, chunks and whole songs against PyTorch: tiny model in `tests/fixtures` on the CPU, real one with `--ignored`) |
+| `tools/licenses` | `generate.sh` writes `THIRD-PARTY-LICENSES.txt` (cargo-about, `about.toml` / `about.hbs`) plus the licenses in `extra/` and `assets/fonts/` |
+| `tools/package` | `macos.sh` (`.app` and `.dmg`), `linux.sh` (AppImage); Windows is packaged in `release.yml` |
+| `site` | The website (static HTML), deployed by `pages.yml` |
+| `CHANGELOG.md`, `docs/FEATURES.md` | What changed per version, and everything the app does |
 | `tools/fonts` | `make_icons.py`: cuts Material Symbols down to the app's icons and writes `icons.rs` |
 | `tools/reference` | dev-only PyTorch reference separation (uv project); `dump_tensors.py` saves a chunk's tensors for validating `crates/roformer`, `make_tiny_fixture.py` makes its CI fixture |
 

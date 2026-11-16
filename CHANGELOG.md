@@ -5,6 +5,14 @@ What changed in each version of Watershed. The format follows
 [Semantic Versioning](https://semver.org/). The full list of what the app does is in
 [docs/FEATURES.md](docs/FEATURES.md).
 
+## [Unreleased]
+
+### Added
+
+- **Credits and licenses:** every download now carries `THIRD-PARTY-LICENSES.txt` with
+  the licenses of the code, crates and fonts Watershed is built on, and the About window
+  credits them. The README has a Credits section.
+
 ## [0.2.0] - 2026-11-15
 
 ### Added
@@ -92,6 +100,7 @@ The first release.
 - Waveform zoom, a shortcuts window, CPU / GPU / RAM use in the top bar.
 - Builds for Windows (zip), macOS (dmg) and Linux (AppImage).
 
+[Unreleased]: https://github.com/edarbieto/watershed/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/edarbieto/watershed/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/edarbieto/watershed/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/edarbieto/watershed/releases/tag/v0.1.0

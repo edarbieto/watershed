@@ -85,15 +85,20 @@ version in the [changelog](CHANGELOG.md).
   into place.
 - **Practice:** tempo change without pitch change, transposition in semitones
   (drums are left untransposed by default), A-B loops with several saved per song,
-  named markers and sections, waveform zoom.
+  named markers and sections, waveform zoom. Fine pitch in cents, and the song's
+  reference tuning (A = 431 Hz, say) with a button to retune it to 440.
 - **Tempo and key:** an approximate BPM and key estimated when a song opens, with
   tap tempo and ½ / ×2 to correct the BPM; a beat grid with a bar ruler and snap;
   a click (left, right or both ears) and a count-in. **Dynamic** makes the grid and
   the click follow the song's own beats, for bands that were not playing to a
-  click. Tempo and time signature changes can be marked, as in a DAW.
+  click. Tempo and time signature changes can be marked, as in a DAW. An optional
+  chord lane shows estimated chords on the grid.
 - **Sessions:** everything is saved next to the stems in `.watershed.toml`, so a
-  song reopens as you left it and is never separated twice. Recently opened songs
-  are listed on the start screen.
+  song reopens as you left it and is never separated twice, with undo and redo for
+  every change. Recent songs are listed on the start screen by title and artist (the
+  song file's tags are kept), and can be searched.
+- **The app:** native menus with every command and its key, light and dark themes,
+  and updates from inside the app (Settings → Updates).
 
 ![The start screen while a song is being separated: progress, time left and the recent songs](docs/screenshots/separation.png)
 
@@ -165,6 +170,30 @@ share an audio interface with Reaper on ASIO. Set both to the same sample rate.
 Next: more RoFormer models (MelBand-RoFormer) and a model browser, and a gentler
 separation mode that does not keep the GPU at full load. Details in
 [the plan](docs/PLAN.md) and [the status](docs/STATUS.md).
+
+## Credits
+
+Watershed stands on other people's work:
+
+- **The model:** [BS-RoFormer SW](https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem),
+  a six-stem BS-RoFormer checkpoint, downloaded from its source on first use. The
+  architecture is from [Lu et al., "Music Source Separation with Band-Split RoPE
+  Transformer"](https://arxiv.org/abs/2309.02612).
+- **The model code:** `crates/roformer` is a Rust port of
+  [lucidrains' BS-RoFormer](https://github.com/lucidrains/BS-RoFormer) as found in
+  [ZFTurbo's Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training),
+  whose chunked separation it also follows. Both are MIT licensed.
+- **Tempo and pitch:** [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)
+  (MIT), through the `signalsmith-stretch` crate.
+- **Built with** [egui](https://github.com/emilk/egui), [burn](https://github.com/tracel-ai/burn)
+  and [wgpu](https://github.com/gfx-rs/wgpu), [cpal](https://github.com/RustAudio/cpal),
+  [symphonia](https://github.com/pdeljanov/Symphonia) and many more crates.
+- **Fonts and icons:** [Geist](https://github.com/vercel/geist-font) (SIL Open Font
+  License) and [Material Symbols](https://github.com/google/material-design-icons)
+  (Apache-2.0).
+
+The licenses of all of them are in [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt),
+which also ships with every download.
 
 ## License
 
