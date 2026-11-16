@@ -117,6 +117,9 @@
   .site-foot__line { margin: 0; color: var(--muted); }
   .site-foot__tribute { margin: var(--s-3) 0 0; font-size: var(--t-small); font-style: italic; color: var(--muted); }
   .site-foot__tribute em { font-style: normal; }
+  .site-foot__links { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s-2) var(--s-5); margin: var(--s-2) 0 0; font-size: var(--t-small); }
+  .site-foot__links a { color: var(--muted); text-underline-offset: 3px; }
+  .site-foot__links a:hover { color: inherit; }
   /* the name on its own (the nav and the footer) is set in the serif, like the headings */
   .nav__logo { font: 600 24px/1 var(--font-display); letter-spacing: -0.01em; }
   @media (max-width: 639px) { .nav__more { display: none; } }
@@ -331,6 +334,7 @@
   <img src="assets/img/icon.svg" alt="" width="40" height="40" loading="lazy">
   <p class="site-foot__name">Watershed</p>
   <p class="site-foot__line">Stems and practice for musicians.</p>
+  <p class="site-foot__links"><a href="https://github.com/edarbieto/watershed/blob/master/docs/FEATURES.md">All features</a><a href="https://github.com/edarbieto/watershed/blob/master/CHANGELOG.md">What's new</a><a href="https://github.com/edarbieto/watershed/releases">Releases</a></p>
   <p class="site-foot__tribute">Named after <em>Watershed</em> by Opeth.</p>
 </footer>
 
