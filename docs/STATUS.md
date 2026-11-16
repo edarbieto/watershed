@@ -124,22 +124,14 @@ Last updated: 2026-11-15.
 
 ## Next steps
 
-> **Resume here (2026-11-15).** The website is live at https://edarbieto.github.io/watershed/
-> (Pages enabled, source: GitHub Actions; `pages.yml` deploys on every push to `site/`). Its
-> download buttons give 404 until a release has the fixed file names (`Watershed-macos-arm64.dmg`,
-> `Watershed-windows-x86_64.zip`, `Watershed-linux-x86_64.AppImage`). Left for **v0.2.0**:
-> 1. ~~Check which actions still have only a shortcut and no button, and the `?` window.~~
->    Done, approved by the user.
-> 2. ~~Keep the song's tags after separating.~~ Done, tried and approved by the user.
-> 3. ~~Click on another output.~~ Moved out of v0.2 by the user (2026-11-15): not needed for
->    now; the design stays in `PLAN.md`.
-> 4. ~~`CHANGELOG.md` and `docs/FEATURES.md`.~~ Written 2026-11-15, linked from the README and
->    the website's footer. The release workflow now builds the notes from the tag's section of
->    `CHANGELOG.md` followed by `.github/release-notes.md` (its file names fixed too), and fails
->    if the changelog has no section for the version.
-> 5. Tag **v0.2.0**: rename `## [Unreleased]` to `## [0.2.0] - <date>` in `CHANGELOG.md` (and its
->    link at the bottom), set `version = "0.2.0"` in `Cargo.toml`, commit, tag, push; publish the
->    draft once the workflow has built it.
+> **Resume here (2026-11-15).** **v0.2.0 released** (https://github.com/edarbieto/watershed/releases/tag/v0.2.0):
+> the workflow built the three files with the fixed names and the notes from `CHANGELOG.md`;
+> published by Claude after checking them. The website's download buttons now work (all three
+> `releases/latest/download/...` links answer 200). Users of v0.1.1 get it through
+> Settings → Updates. v0.2 items: the `?` window and song tags done and approved, click on
+> another output moved out by the user, changelog and feature list written.
+> **Next:** not decided; the open ideas are in "Next steps" below and in `PLAN.md`. New entries
+> in `CHANGELOG.md` go under a new `## [Unreleased]` heading.
 
 **v0.2 (next version):** the user's feedback on v0.1.1 (2026-11-11) is planned in
 `PLAN.md`, "v0.2: feedback on v0.1.1": cents and reference tuning, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
