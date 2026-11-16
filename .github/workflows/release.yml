@@ -91,6 +91,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # This version's section of CHANGELOG.md, then the download and first start notes.
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## \[/ { on = index($0, "## [" v "]") == 1; next }
+            on' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+          { echo; cat .github/release-notes.md; } >> notes.md
           gh release create "$GITHUB_REF_NAME" dist/* \
             --draft --title "Watershed $GITHUB_REF_NAME" \
-            --notes-file .github/release-notes.md --generate-notes
+            --notes-file notes.md --generate-notes
