@@ -69,6 +69,9 @@ Linux. Please [open an issue](../../issues) if something does not work.
 
 ## Features
 
+The full list is in [docs/FEATURES.md](docs/FEATURES.md), and what changed in each
+version in the [changelog](CHANGELOG.md).
+
 - **Separation:** drop a song and it is split into six stems in a new folder of
   your library (`Music/Watershed` by default), with a progress bar and Cancel. The
   model (BS-RoFormer SW) downloads on first use (700 MB, checked by sha256) and is
@@ -132,7 +135,7 @@ Some shortcuts (press **?** in the app for the full list):
 | Home | Back to the loop start, or the song start |
 | ← / → | Seek 5 s |
 | A / B, L | Loop start / end at the playhead, loop on or off |
-| M, 1–9 | Add a marker, go to marker 1–9 |
+| Shift+M, 1–9 | Add a marker, go to marker 1–9 |
 | T | Tap tempo |
 | C | Click on or off |
 | Shift+C | Change the tempo or time signature at the playhead |
