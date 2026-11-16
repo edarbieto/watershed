@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-15.
+Last updated: 2026-11-16.
 
 ## Where we are
 
@@ -133,8 +133,7 @@ Last updated: 2026-11-15.
 > checked by the release workflow (Linux job). The About windows show credits (macOS: the native
 > panel's credits; Windows and Linux: the egui window) and link to the file on GitHub. The README
 > has a Credits section; `CLAUDE.md` has the changelog rule, the licenses rule and the release
-> steps. **To check by the user:** the About window on macOS and on Windows (not seen yet: no
-> accessibility permission to open the menu from a script).
+> steps. The About windows were checked by the user (2026-11-16): they look right.
 > **Next:** not decided; the open ideas are in "Next steps" below and in `PLAN.md`. New entries
 > in `CHANGELOG.md` go under a new `## [Unreleased]` heading.
 
