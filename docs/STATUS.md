@@ -124,12 +124,17 @@ Last updated: 2026-11-15.
 
 ## Next steps
 
-> **Resume here (2026-11-15).** **v0.2.0 released** (https://github.com/edarbieto/watershed/releases/tag/v0.2.0):
-> the workflow built the three files with the fixed names and the notes from `CHANGELOG.md`;
-> published by Claude after checking them. The website's download buttons now work (all three
-> `releases/latest/download/...` links answer 200). Users of v0.1.1 get it through
-> Settings → Updates. v0.2 items: the `?` window and song tags done and approved, click on
-> another output moved out by the user, changelog and feature list written.
+> **Resume here (2026-11-15).** **v0.2.1 released** (https://github.com/edarbieto/watershed/releases/tag/v0.2.1),
+> right after v0.2.0 (same day): it adds credits and licenses. Every package now carries
+> `LICENSE-MIT`, `LICENSE-APACHE` and `THIRD-PARTY-LICENSES.txt` (Windows: in the zip; macOS:
+> `Watershed.app/Contents/Resources`; Linux: `usr/share/doc/watershed` in the AppImage). The file
+> is written by `tools/licenses/generate.sh` (cargo-about for the crates, plus lucidrains'
+> BS-RoFormer and ZFTurbo's MSST, which `crates/roformer` ports, and the fonts), committed, and
+> checked by the release workflow (Linux job). The About windows show credits (macOS: the native
+> panel's credits; Windows and Linux: the egui window) and link to the file on GitHub. The README
+> has a Credits section; `CLAUDE.md` has the changelog rule, the licenses rule and the release
+> steps. **To check by the user:** the About window on macOS and on Windows (not seen yet: no
+> accessibility permission to open the menu from a script).
 > **Next:** not decided; the open ideas are in "Next steps" below and in `PLAN.md`. New entries
 > in `CHANGELOG.md` go under a new `## [Unreleased]` heading.
 
