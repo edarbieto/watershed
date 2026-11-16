@@ -626,7 +626,8 @@ same day; their answers are folded in below.
   `config.toml`. A window closed while minimized opens normal. If the
   monitor is gone, back to the default place. **Done** (see "Remember the window" in
   `STATUS.md`).
-- [ ] **Click on another output.** Ableton's "Cue" sends to other channels of the **same**
+- [ ] **Click on another output.** **Moved out of v0.2 by the user (2026-11-15):** not needed
+  for now; kept here as designed for later. Ableton's "Cue" sends to other channels of the **same**
   interface (e.g. outputs 3–4), which is sample-accurate and common. Watershed already
   routes the click Left / Right / Both; the step is opening the device with all its
   channels and choosing the pair for the mix and the pair for the click. A **different
@@ -643,9 +644,11 @@ same day; their answers are folded in below.
      latency is too much, the click stays on Left / Right / Both.
   The Yamaha AG03 shows 2 outputs to the computer as far as known (its headphone and
   monitor outs carry the same mix): to check in Audio MIDI Setup.
-- [ ] **CHANGELOG.md and a feature list.** `CHANGELOG.md` at the root (Keep a Changelog),
+- [x] **CHANGELOG.md and a feature list.** `CHANGELOG.md` at the root (Keep a Changelog),
   back-filled for v0.1.0 and v0.1.1, reused as the release notes; a feature list in
-  `docs/FEATURES.md` linked from the README (approved).
+  `docs/FEATURES.md` linked from the README (approved). **Done 2026-11-15:** linked from the
+  README and the website's footer; the release workflow puts the tag's changelog section
+  before `.github/release-notes.md`.
 - [x] **Dynamic tempo against a tempo set by the user.** With Dynamic on and the user's
   tempo at 80 BPM, the tracked beats pull the grid to 90 BPM. Reference: the intro of
   "Be Quiet and Drive (Far Away)" (Deftones); its session has bar 1 at 0.31 s, a fixed

@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-14.
+Last updated: 2026-11-15.
 
 ## Where we are
 
@@ -124,21 +124,22 @@ Last updated: 2026-11-14.
 
 ## Next steps
 
-> **Resume here (2026-11-14).** The website is live at https://edarbieto.github.io/watershed/
+> **Resume here (2026-11-15).** The website is live at https://edarbieto.github.io/watershed/
 > (Pages enabled, source: GitHub Actions; `pages.yml` deploys on every push to `site/`). Its
 > download buttons give 404 until a release has the fixed file names (`Watershed-macos-arm64.dmg`,
-> `Watershed-windows-x86_64.zip`, `Watershed-linux-x86_64.AppImage`). Left for **v0.2.0**, in
-> the order proposed to the user:
+> `Watershed-windows-x86_64.zip`, `Watershed-linux-x86_64.AppImage`). Left for **v0.2.0**:
 > 1. ~~Check which actions still have only a shortcut and no button, and the `?` window.~~
->    Done: every key has a menu item; the `?` window gained the gestures it was missing
->    (rename, drag a waveform for a loop, drag an unlocked track, double-click resets).
-> 2. ~~Keep the song's tags after separating.~~ Built, **to try** (see "Song tags").
-> 3. Click on another output: channel pairs on one device first, then try a macOS Aggregate
->    Device with the user's hardware.
-> 4. `CHANGELOG.md` (back-filled for v0.1.0 and v0.1.1) and `docs/FEATURES.md`, linked from
->    the README and the website.
-> 5. Tag **v0.2.0**; the release will carry the fixed names, so the website's buttons work.
->    If the buttons are wanted sooner, a v0.1.2 with only the packaging change works too.
+>    Done, approved by the user.
+> 2. ~~Keep the song's tags after separating.~~ Done, tried and approved by the user.
+> 3. ~~Click on another output.~~ Moved out of v0.2 by the user (2026-11-15): not needed for
+>    now; the design stays in `PLAN.md`.
+> 4. ~~`CHANGELOG.md` and `docs/FEATURES.md`.~~ Written 2026-11-15, linked from the README and
+>    the website's footer. The release workflow now builds the notes from the tag's section of
+>    `CHANGELOG.md` followed by `.github/release-notes.md` (its file names fixed too), and fails
+>    if the changelog has no section for the version.
+> 5. Tag **v0.2.0**: rename `## [Unreleased]` to `## [0.2.0] - <date>` in `CHANGELOG.md` (and its
+>    link at the bottom), set `version = "0.2.0"` in `Cargo.toml`, commit, tag, push; publish the
+>    draft once the workflow has built it.
 
 **v0.2 (next version):** the user's feedback on v0.1.1 (2026-11-11) is planned in
 `PLAN.md`, "v0.2: feedback on v0.1.1": cents and reference tuning, chords, the waveform shift bug, track selection and regrouped controls, undo / redo,
@@ -162,8 +163,8 @@ and tried the same day: appearance (light / dark / system), keys shown in the me
 shortcut map. **Added to the plan by the user (2026-11-12):** undo / redo buttons, the double
 separator in the top bar, keeping the song's tags after separating (all in `PLAN.md`, v0.2).
 Undo / redo buttons and the single separator: done, tried by the user on Windows. Fonts, icons
-and the light theme: done, tried by the user on Windows and macOS (see "Fonts, icons and light theme"). Left in v0.2 besides
-those: song tags, click on another output, CHANGELOG and feature list. **Website: built** (see
+and the light theme: done, tried by the user on Windows and macOS (see "Fonts, icons and light theme"). Song tags: tried and
+approved. Click on another output: moved out of v0.2. CHANGELOG and feature list: written. **Website: built** (see
 "Project website"); not live until Pages is enabled and the next release has the new file names.
 
 **Windows check (2026-11-12): done.** Everything built on macOS and only compiled for Windows
@@ -223,7 +224,7 @@ later. **Phase 4** (the native `burn` + `wgpu` backend): 4.0 to 4.5, 4.7 and 4.8
 
 ## Song tags
 
-Built 2026-11-14 (v0.2), to try. Separating reads the song file's tags (`watershed_dsp::read_tags`:
+Built 2026-11-14 (v0.2), tried and approved by the user (2026-11-15). Separating reads the song file's tags (`watershed_dsp::read_tags`:
 a symphonia probe, no decoding; ID3 at either end, MP4, Vorbis comments) and keeps title,
 artist, album, track, year and genre:
 - in the session, as a `[song]` table with `source` (the song's file name);
