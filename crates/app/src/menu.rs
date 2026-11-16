@@ -21,6 +21,17 @@ const RECENT_ITEMS: usize = 10;
 /// The project's page, and where to report problems.
 pub const PROJECT_URL: &str = "https://github.com/edarbieto/watershed";
 pub const ISSUES_URL: &str = "https://github.com/edarbieto/watershed/issues/new";
+/// The licenses of everything Watershed is built on; the packages carry the file too.
+pub const LICENSES_URL: &str =
+    "https://github.com/edarbieto/watershed/blob/master/THIRD-PARTY-LICENSES.txt";
+/// Who Watershed is built on, for the About windows: short lines, since the egui
+/// window sizes itself to its text.
+pub const CREDITS: &str = "\
+Separation: the BS-RoFormer SW model, in a Rust port of
+lucidrains' BS-RoFormer and ZFTurbo's Music-Source-Separation-Training.
+Tempo and pitch: Signalsmith Stretch. Built with egui and burn.
+Fonts: Geist and Geist Mono. Icons: Material Symbols.
+Licenses: THIRD-PARTY-LICENSES.txt, next to the app and on GitHub.";
 
 /// What a menu item does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -755,6 +766,8 @@ mod native {
                 name: Some("Watershed".into()),
                 version: Some(env!("CARGO_PKG_VERSION").into()),
                 comments: Some(env!("CARGO_PKG_DESCRIPTION").into()),
+                // The only free text macOS shows.
+                credits: Some(super::CREDITS.into()),
                 ..AboutMetadata::default()
             }),
         )

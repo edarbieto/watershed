@@ -1596,6 +1596,9 @@ impl WatershedApp {
                 ui.heading(format!("Watershed {}", env!("CARGO_PKG_VERSION")));
                 ui.label(env!("CARGO_PKG_DESCRIPTION"));
                 ui.hyperlink(menu::PROJECT_URL);
+                ui.add_space(8.0);
+                ui.label(RichText::new(menu::CREDITS).weak());
+                ui.hyperlink_to("Third-party licenses", menu::LICENSES_URL);
             },
         );
     }
